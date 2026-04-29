@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RNM.Platform.Contracts\RNM.Platform.Contracts.csproj" />
+    <ProjectReference Include="..\RNM.Platform.Domain\RNM.Platform.Domain.csproj" />
+    <ProjectReference Include="..\RNM.Platform.SharedKernel\RNM.Platform.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

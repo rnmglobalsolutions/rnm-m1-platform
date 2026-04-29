@@ -1,0 +1,34 @@
+{
+  "tenantId": "sample-hvac-tenant",
+  "verticalId": "hvac",
+  "businessName": "Sample HVAC Company",
+  "timeZone": "America/Chicago",
+  "serviceArea": {
+    "zipCodes": ["75001", "75002"],
+    "cities": ["Addison", "Plano"],
+    "referralMessage": "We do not currently service that area, but we can have the office follow up if a referral is available."
+  },
+  "providers": {
+    "crmProvider": "GoHighLevel",
+    "bookingProvider": "GoHighLevelCalendar",
+    "smsProvider": "Twilio",
+    "emailProvider": "AzureCommunicationServices"
+  },
+  "secretNames": {
+    "crmApiKey": "tenant-sample-hvac-ghl-api-key",
+    "bookingApiKey": "tenant-sample-hvac-ghl-api-key",
+    "voiceWebhookSecret": "tenant-sample-hvac-vapi-webhook-secret",
+    "twilioAccountSid": "tenant-sample-hvac-twilio-account-sid",
+    "twilioAuthToken": "tenant-sample-hvac-twilio-auth-token",
+    "emailConnectionString": "tenant-sample-hvac-email-connection"
+  },
+  "communication": {
+    "smsFromPhoneNumber": "+15550001000",
+    "emailFromAddress": "booking@example.com",
+    "confirmationTemplates": {
+      "smsBodyTemplate": "Your {{serviceType}} appointment is booked for {{bookingDate}} at {{bookingTime}}.",
+      "emailSubjectTemplate": "Appointment confirmed for {{bookingDate}}",
+      "emailBodyTemplate": "Your {{serviceType}} appointment is booked for {{bookingStart}}."
+    }
+  }
+}

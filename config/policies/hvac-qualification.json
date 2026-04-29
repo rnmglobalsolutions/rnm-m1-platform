@@ -1,0 +1,18 @@
+{
+  "requiredFields": [
+    "serviceNeed",
+    "propertyType",
+    "serviceAddress",
+    "urgency",
+    "preferredTime",
+    "name",
+    "phoneNumber"
+  ],
+  "optionalFields": [
+    "email"
+  ],
+  "emailConfirmation": {
+    "enabled": true,
+    "required": false
+  }
+}

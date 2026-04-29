@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "RNM_ENVIRONMENT": "Development",
+    "RNM_CONFIG_ROOT": "../../../config",
+    "RNM_KEY_VAULT_URI": "https://example-vault.vault.azure.net/",
+    "RNM_INTERNAL_API_KEY_SECRET_NAME": "rnm-internal-api-key",
+    "RNM_VAPI_WEBHOOK_MAX_BODY_BYTES": "262144",
+    "RNM_VAPI_WEBHOOK_JSON_MAX_DEPTH": "32",
+    "RNM_TWILIO_AUTH_TOKEN_SECRET_NAME": "tenant-sample-hvac-twilio-auth-token"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "verticalId": "hvac",
+  "displayName": "HVAC",
+  "qualificationFields": [
+    "serviceNeed",
+    "propertyType",
+    "serviceAddress",
+    "urgency",
+    "preferredTime"
+  ],
+  "supportedCallTypes": [
+    "Emergency",
+    "ScheduledMaintenance",
+    "NewInstallation",
+    "QuoteRequest",
+    "GeneralInquiry",
+    "Complaint"
+  ],
+  "serviceAreaFieldAliases": {
+    "zipCodeFields": ["zipCode", "zip", "postalCode", "serviceZipCode"],
+    "addressFields": ["serviceAddress"]
+  }
+}
