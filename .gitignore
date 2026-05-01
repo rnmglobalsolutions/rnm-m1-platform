@@ -11,3 +11,6 @@ src/RNM.Platform.Api/local.settings.json
 *.secret.json
 
 infra/*.json
+
+publish-check/
+functionapp.zip
