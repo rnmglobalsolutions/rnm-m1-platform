@@ -1,15 +1,23 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_LOCATION: eastus
 
 jobs:
-  build-test:
+  validate:
+    name: Build, test, and validate infrastructure
     runs-on: ubuntu-latest
 
     steps:
@@ -25,10 +33,25 @@ jobs:
         run: dotnet restore RNM.Platform.sln
 
       - name: Build
-        run: dotnet build RNM.Platform.sln --no-restore
+        run: dotnet build RNM.Platform.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test RNM.Platform.sln --no-build
+        run: dotnet test RNM.Platform.sln --configuration Release --no-build
 
-      - name: Bicep validation
+      - name: Validate Bicep syntax
         run: az bicep build --file infra/main.bicep
+
+      - name: Validate Bicep parameter files
+        run: |
+          az bicep build-params --file infra/dev.bicepparam
+          az bicep build-params --file infra/staging.bicepparam
+          az bicep build-params --file infra/prod.bicepparam
+
+      - name: Publish Function App for package verification
+        run: dotnet publish src/RNM.Platform.Api/RNM.Platform.Api.csproj --configuration Release --no-build --output ./publish-check
+
+      - name: Verify config is packaged
+        run: |
+          test -d ./publish-check/config
+          test -f ./publish-check/config/tenants/sample-hvac-tenant.json
+          test -f ./publish-check/config/verticals/hvac.json

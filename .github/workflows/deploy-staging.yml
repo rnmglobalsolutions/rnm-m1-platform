@@ -1,0 +1,136 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+  EXPECTED_ENVIRONMENT_NAME: staging
+  EXPECTED_BICEP_PARAMETERS_FILE: infra/staging.bicepparam
+  PACKAGE_PATH: functionapp.zip
+  PUBLISH_DIR: publish-output
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    name: Validate, provision, and deploy staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ENVIRONMENT_NAME: ${{ vars.ENVIRONMENT_NAME }}
+      BICEP_PARAMETERS_FILE: ${{ vars.BICEP_PARAMETERS_FILE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Validate environment variables
+        run: |
+          test -n "$AZURE_CLIENT_ID"
+          test -n "$AZURE_TENANT_ID"
+          test -n "$AZURE_SUBSCRIPTION_ID"
+          test -n "$AZURE_RESOURCE_GROUP"
+          test -n "$AZURE_LOCATION"
+          test -n "$ENVIRONMENT_NAME"
+          test -n "$BICEP_PARAMETERS_FILE"
+          test "$ENVIRONMENT_NAME" = "$EXPECTED_ENVIRONMENT_NAME"
+          test "$BICEP_PARAMETERS_FILE" = "$EXPECTED_BICEP_PARAMETERS_FILE"
+          test -f "$BICEP_PARAMETERS_FILE"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Restore
+        run: dotnet restore RNM.Platform.sln
+
+      - name: Build
+        run: dotnet build RNM.Platform.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test RNM.Platform.sln --configuration Release --no-build
+
+      - name: Validate Bicep syntax
+        run: az bicep build --file infra/main.bicep
+
+      - name: Validate Bicep parameters
+        run: az bicep build-params --file "$BICEP_PARAMETERS_FILE"
+
+      - name: Deploy staging infrastructure
+        id: infra
+        run: |
+          az deployment group create \
+            --name "rnm-platform-$ENVIRONMENT_NAME-$GITHUB_RUN_NUMBER" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --parameters "$BICEP_PARAMETERS_FILE" \
+            --query properties.outputs \
+            --output json > deployment-outputs.json
+
+          function_app_name="$(jq -r '.functionAppName.value' deployment-outputs.json)"
+          function_app_host="$(jq -r '.functionAppDefaultHostName.value' deployment-outputs.json)"
+
+          if [ -z "$function_app_name" ] || [ "$function_app_name" = "null" ]; then
+            echo "Function App name was not returned by the deployment."
+            exit 1
+          fi
+          if [ -z "$function_app_host" ] || [ "$function_app_host" = "null" ]; then
+            echo "Function App host name was not returned by the deployment."
+            exit 1
+          fi
+
+          echo "FUNCTION_APP_NAME=$function_app_name" >> "$GITHUB_ENV"
+          echo "FUNCTION_APP_HOST=$function_app_host" >> "$GITHUB_ENV"
+          echo "function-app-name=$function_app_name" >> "$GITHUB_OUTPUT"
+          echo "function-app-host=$function_app_host" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Function App
+        run: |
+          dotnet publish src/RNM.Platform.Api/RNM.Platform.Api.csproj \
+            --configuration Release \
+            --no-build \
+            --output "$PUBLISH_DIR"
+
+          test -d "$PUBLISH_DIR/config"
+          test -f "$PUBLISH_DIR/config/tenants/sample-hvac-tenant.json"
+          test -f "$PUBLISH_DIR/config/verticals/hvac.json"
+
+      - name: Zip publish output
+        run: |
+          cd "$PUBLISH_DIR"
+          zip -r "../$PACKAGE_PATH" .
+
+      - name: Deploy Function App package
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: ${{ env.PACKAGE_PATH }}
+
+      - name: Probe health endpoint
+        run: |
+          status_code="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://$FUNCTION_APP_HOST/api/health")"
+          if [ "$status_code" != "200" ] && [ "$status_code" != "401" ]; then
+            echo "Unexpected health endpoint status code: $status_code"
+            exit 1
+          fi
+
+          echo "Health endpoint responded with $status_code."

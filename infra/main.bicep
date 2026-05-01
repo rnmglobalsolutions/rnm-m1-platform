@@ -39,6 +39,7 @@ var storageNameSeed = toLower(replace('${normalizedPrefix}${environmentName}${su
 var storageAccountName = substring(storageNameSeed, 0, min(length(storageNameSeed), 24))
 var keyVaultName = substring(resourceBaseName, 0, min(length(resourceBaseName), 24))
 var appInsightsName = '${resourceBaseName}-appi'
+var logAnalyticsWorkspaceName = '${resourceBaseName}-law'
 var planName = '${resourceBaseName}-plan'
 var functionAppName = '${resourceBaseName}-func'
 
@@ -55,6 +56,7 @@ module appInsights 'modules/appInsights.bicep' = {
   name: 'app-insights-${environmentName}'
   params: {
     name: appInsightsName
+    workspaceName: logAnalyticsWorkspaceName
     location: location
     tags: tags
   }
