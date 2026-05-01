@@ -116,3 +116,13 @@ Recommended values:
 | production | prod | infra/prod.bicepparam |
 
 Production should require GitHub environment approval before deployment.
+
+The deployment workflows validate that each GitHub environment uses the expected parameter file:
+
+| Workflow | GitHub environment | Expected parameter file |
+| --- | --- | --- |
+| Deploy Dev | dev | infra/dev.bicepparam |
+| Deploy Staging | staging | infra/staging.bicepparam |
+| Deploy Production | production | infra/prod.bicepparam |
+
+Dev deploys automatically after merge to `main`. Staging and production are manual promotions only. Production must have required reviewers configured in GitHub environment protection.

@@ -30,20 +30,22 @@ This runbook deploys the RNM Platform M1 Azure Functions backend to the Azure de
 ## 1. Validate Bicep locally
 
 ```bash
+export AZURE_LOCATION=eastus
+
 az bicep build --file infra/main.bicep
+az bicep build-params --file infra/dev.bicepparam
 ```
 
 Fix any Bicep validation errors before deploying.
 
 ## 2. Run a what-if deployment
 
+`.bicepparam` files are deployed directly. Do not combine them with `--template-file` or inline parameter overrides.
+
 ```bash
 az deployment group what-if \
   --resource-group <DEV_RESOURCE_GROUP_NAME> \
-  --template-file infra/main.bicep \
-  --parameters infra/dev.bicepparam \
-  --parameters environmentName=dev \
-  --parameters location=<AZURE_LOCATION>
+  --parameters infra/dev.bicepparam
 ```
 
 Review the planned resources:
@@ -62,10 +64,7 @@ Review the planned resources:
 ```bash
 az deployment group create \
   --resource-group <DEV_RESOURCE_GROUP_NAME> \
-  --template-file infra/main.bicep \
-  --parameters infra/dev.bicepparam \
-  --parameters environmentName=dev \
-  --parameters location=<AZURE_LOCATION>
+  --parameters infra/dev.bicepparam
 ```
 
 Capture the outputs:

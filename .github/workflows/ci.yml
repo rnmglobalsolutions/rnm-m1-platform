@@ -12,6 +12,9 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  AZURE_LOCATION: eastus
+
 jobs:
   validate:
     name: Build, test, and validate infrastructure
@@ -37,6 +40,12 @@ jobs:
 
       - name: Validate Bicep syntax
         run: az bicep build --file infra/main.bicep
+
+      - name: Validate Bicep parameter files
+        run: |
+          az bicep build-params --file infra/dev.bicepparam
+          az bicep build-params --file infra/staging.bicepparam
+          az bicep build-params --file infra/prod.bicepparam
 
       - name: Publish Function App for package verification
         run: dotnet publish src/RNM.Platform.Api/RNM.Platform.Api.csproj --configuration Release --no-build --output ./publish-check

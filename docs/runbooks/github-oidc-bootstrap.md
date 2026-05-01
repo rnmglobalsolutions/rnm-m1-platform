@@ -125,6 +125,7 @@ Recommended values:
 | `production` | `prod` | `infra/prod.bicepparam` |
 
 Each environment should point `AZURE_RESOURCE_GROUP` to its own resource group. Each resource group deployment creates its own Key Vault.
+The workflows validate that `ENVIRONMENT_NAME` and `BICEP_PARAMETERS_FILE` match the GitHub environment before Azure login.
 
 ## 7. Configure production protection
 
@@ -139,6 +140,8 @@ permissions:
   id-token: write
   contents: read
 ```
+
+The dev workflow runs automatically only on `main`. Staging and production are `workflow_dispatch` only, and their jobs skip unless the selected ref is `main`.
 
 The auto-PR workflow intentionally uses only:
 
