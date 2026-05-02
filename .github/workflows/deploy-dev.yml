@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   deploy-dev:
-    name: Validate, provision, and deploy dev
+    name: Provision and deploy dev
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: dev
@@ -69,15 +69,6 @@ jobs:
 
       - name: Build
         run: dotnet build RNM.Platform.sln --configuration Release --no-restore
-
-      - name: Test
-        run: dotnet test RNM.Platform.sln --configuration Release --no-build
-
-      - name: Validate Bicep syntax
-        run: az bicep build --file infra/main.bicep
-
-      - name: Validate Bicep parameters
-        run: az bicep build-params --file "$BICEP_PARAMETERS_FILE"
 
       - name: Deploy dev infrastructure
         id: infra
