@@ -301,58 +301,34 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
-    public async Task Health_AuthFailure_EmitsSecurityAuthFailed()
+    public void Health_ReturnsHealthyJsonWithCorrelationHeader()
     {
-        var previousSecretName = Environment.GetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting);
-        Environment.SetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting, "internal-api-key");
+        var function = CreateHealthFunction();
+        var request = new TestHttpRequestData(
+            "GET",
+            "https://platform.example.com/api/health");
 
-        try
-        {
-            var eventLogger = new RecordingEventLogger();
-            var function = CreateHealthFunction(eventLogger, new StubSecretProvider("expected-api-key"));
-            var request = new TestHttpRequestData(
-                "GET",
-                "https://platform.example.com/api/health");
+        var response = (TestHttpResponseData)function.Handle(request);
 
-            var response = (TestHttpResponseData)await function
-                .Handle(request, CancellationToken.None);
-
-            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.SecurityAuthFailed));
-            AssertValidCorrelationHeader(response);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting, previousSecretName);
-        }
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"status\": \"healthy\"", response.ReadBody());
+        AssertValidCorrelationHeader(response);
     }
 
     [Fact]
-    public async Task Health_SecretRetrievalFailure_ReturnsShapedUnauthorized()
+    public void Health_EchoesProvidedCorrelationHeader()
     {
-        var previousSecretName = Environment.GetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting);
-        Environment.SetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting, "internal-api-key");
+        var function = CreateHealthFunction();
+        var request = new TestHttpRequestData(
+            "GET",
+            "https://platform.example.com/api/health");
+        var correlationId = Guid.NewGuid().ToString("N");
+        request.Headers.Add(CorrelationId.HeaderName, correlationId);
 
-        try
-        {
-            var eventLogger = new RecordingEventLogger();
-            var function = CreateHealthFunction(eventLogger, new StubSecretProvider("unused", throwOnRead: true));
-            var request = new TestHttpRequestData(
-                "GET",
-                "https://platform.example.com/api/health");
+        var response = (TestHttpResponseData)function.Handle(request);
 
-            var response = (TestHttpResponseData)await function
-                .Handle(request, CancellationToken.None);
-
-            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-            Assert.Contains("\"code\":\"unauthorized\"", response.ReadBody());
-            Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.ApiRequestFailed));
-            AssertValidCorrelationHeader(response);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting, previousSecretName);
-        }
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(correlationId, GetSingleHeader(response, CorrelationId.HeaderName));
     }
 
     [Fact]
@@ -431,18 +407,7 @@ public sealed class EndpointTelemetryTests
             eventLogger);
     }
 
-    private static HealthFunction CreateHealthFunction(
-        RecordingEventLogger eventLogger,
-        StubSecretProvider secretProvider)
-    {
-        return new HealthFunction(
-            new ApiKeyRequestValidator(),
-            secretProvider,
-            new SafeErrorResponseFactory(),
-            new SafeHttpResponseWriter(),
-            new CorrelationContextFactory(),
-            eventLogger);
-    }
+    private static HealthFunction CreateHealthFunction() => new();
 
     private static TenantResolver CreateTenantResolver()
     {
