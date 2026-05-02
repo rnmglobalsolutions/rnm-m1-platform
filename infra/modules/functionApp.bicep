@@ -55,7 +55,6 @@ var baseAppSettings = {
   APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsightsConnectionString
   AzureWebJobsStorage: storageAccountConnectionString
   FUNCTIONS_EXTENSION_VERSION: '~4'
-  FUNCTIONS_WORKER_RUNTIME: 'dotnet-isolated'
   RNM_CONFIG_ROOT: configRoot
   RNM_ENVIRONMENT: environmentName
   RNM_INTERNAL_API_KEY_SECRET_NAME: internalApiKeySecretName
