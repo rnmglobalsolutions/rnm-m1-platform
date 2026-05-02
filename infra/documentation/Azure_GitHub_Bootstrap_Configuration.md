@@ -126,3 +126,4 @@ The deployment workflows validate that each GitHub environment uses the expected
 | Deploy Production | production | infra/prod.bicepparam |
 
 Dev deploys automatically after merge to `main`. Staging and production are manual promotions only. Production must have required reviewers configured in GitHub environment protection.
+END
