@@ -34,6 +34,9 @@ param configRoot string = '/home/site/wwwroot/config'
 @description('Internal API key secret name in Key Vault.')
 param internalApiKeySecretName string = 'rnm-internal-api-key'
 
+@description('SendGrid API key secret name in Key Vault. The secret value is created outside Bicep.')
+param sendGridApiKeySecretName string = 'sendgrid-api-key'
+
 @description('Additional application settings.')
 param additionalAppSettings object = {}
 
@@ -61,6 +64,7 @@ var baseAppSettings = {
   RNM_KEY_VAULT_URI: keyVaultUri
   RNM_VAPI_WEBHOOK_JSON_MAX_DEPTH: '32'
   RNM_VAPI_WEBHOOK_MAX_BODY_BYTES: '262144'
+  SENDGRID_API_KEY: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${sendGridApiKeySecretName}/)'
 }
 var mergedAppSettings = union(baseAppSettings, additionalAppSettings)
 

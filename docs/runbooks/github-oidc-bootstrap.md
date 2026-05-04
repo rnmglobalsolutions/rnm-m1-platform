@@ -64,7 +64,7 @@ Add more federated credentials only if another trusted branch or environment sho
 
 ## 4. Assign Azure permissions
 
-Grant Contributor at each environment resource group scope so the workflow can deploy Bicep resources.
+Grant Contributor plus role-assignment permission at each environment resource group scope so the workflow can deploy Bicep resources and assign managed identity access to Key Vault and deployment storage.
 
 ```bash
 az role assignment create \
@@ -80,6 +80,21 @@ az role assignment create \
 az role assignment create \
   --assignee <APP_ID> \
   --role Contributor \
+  --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<PRODUCTION_RESOURCE_GROUP_NAME>
+
+az role assignment create \
+  --assignee <APP_ID> \
+  --role "User Access Administrator" \
+  --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<DEV_RESOURCE_GROUP_NAME>
+
+az role assignment create \
+  --assignee <APP_ID> \
+  --role "User Access Administrator" \
+  --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<STAGING_RESOURCE_GROUP_NAME>
+
+az role assignment create \
+  --assignee <APP_ID> \
+  --role "User Access Administrator" \
   --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<PRODUCTION_RESOURCE_GROUP_NAME>
 ```
 
