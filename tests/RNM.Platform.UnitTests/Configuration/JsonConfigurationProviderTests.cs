@@ -35,7 +35,7 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "crmProvider": "GoHighLevel",
                 "bookingProvider": "GoHighLevelCalendar",
                 "smsProvider": "Twilio",
-                "emailProvider": "AzureCommunicationServices"
+                "emailProvider": "SendGrid"
               },
               "secretNames": {
                 "crmApiKey": "tenant-a-crm-api-key",
