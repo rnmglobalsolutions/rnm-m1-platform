@@ -86,7 +86,8 @@ var host = new HostBuilder()
             client.BaseAddress = new Uri("https://api.twilio.com/2010-04-01/");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-        services.AddSingleton<IEmailSender, AzureCommunicationEmailSender>();
+        services.AddSingleton<ISendGridEmailTransport, SendGridEmailTransport>();
+        services.AddSingleton<IEmailSender, SendGridEmailSender>();
         services.AddSingleton<IEventLogger, ApplicationInsightsEventLogger>();
     })
     .Build();

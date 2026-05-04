@@ -12,7 +12,7 @@
     "crmProvider": "GoHighLevel",
     "bookingProvider": "GoHighLevelCalendar",
     "smsProvider": "Twilio",
-    "emailProvider": "AzureCommunicationServices"
+    "emailProvider": "SendGrid"
   },
   "secretNames": {
     "crmApiKey": "tenant-sample-hvac-ghl-api-key",
