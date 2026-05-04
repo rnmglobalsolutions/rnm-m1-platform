@@ -95,10 +95,17 @@ Bicep does not create the SendGrid secret value. It only configures the Function
 SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
 ```
 
-The Function App uses its system-assigned managed identity to resolve the Key Vault reference. The deployment grants that identity the Key Vault Secrets User role on the environment Key Vault. Application code can read the resolved value with:
+Bicep also configures the internal API key setting as a Key Vault reference:
+
+```text
+RNM_INTERNAL_API_KEY_SECRET_NAME=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-internal-api-key/)
+```
+
+The app setting name is retained for compatibility, but Azure resolves the setting to the internal API key value at runtime. The Function App uses its system-assigned managed identity to resolve Key Vault references. The deployment grants that identity the Key Vault Secrets User role on the environment Key Vault. Application code can read the resolved values with:
 
 ```csharp
 Environment.GetEnvironmentVariable("SENDGRID_API_KEY")
+Environment.GetEnvironmentVariable("RNM_INTERNAL_API_KEY_SECRET_NAME")
 ```
 
 For GoHighLevel, use JSON so the adapters have the access token plus provider ids:
@@ -150,25 +157,25 @@ Then deploy with the Azure Functions deployment action from GitHub Actions, or u
 
 ## 7. Test health endpoint
 
-The health endpoint requires the internal API key:
+The health endpoint is anonymous:
 
 ```bash
 curl -i \
-  -H "x-rnm-api-key: <INTERNAL_API_KEY>" \
   https://<FUNCTION_APP_DEFAULT_HOST_NAME>/api/health
 ```
 
 Expected result:
 
-```text
-HTTP/2 200
-healthy
+```json
+{
+  "status": "healthy"
+}
 ```
 
-If the endpoint returns `401`, verify:
+If protected test endpoints return `401`, verify:
 
 - `rnm-internal-api-key` exists in Key Vault.
-- `RNM_INTERNAL_API_KEY_SECRET_NAME` is set to `rnm-internal-api-key`.
+- `RNM_INTERNAL_API_KEY_SECRET_NAME` is a Key Vault reference to the `rnm-internal-api-key` secret.
 - The Function App managed identity has Key Vault Secrets User on the vault.
 - You sent the `x-rnm-api-key` header.
 

@@ -6,7 +6,7 @@ namespace RNM.Platform.Api.Runtime;
 internal sealed record RnmRuntimeConfiguration(
     string EnvironmentName,
     string ConfigRoot,
-    string InternalApiKeySecretName,
+    string InternalApiKey,
     string? KeyVaultUri,
     bool AllowEnvironmentSecretFallback)
 {
@@ -53,9 +53,9 @@ internal sealed record RnmRuntimeConfiguration(
             throw new InvalidOperationException("RNM_CONFIG_ROOT is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(InternalApiKeySecretName))
+        if (string.IsNullOrWhiteSpace(InternalApiKey))
         {
-            throw new InvalidOperationException($"{ApiSecretNames.InternalApiKeySecretNameSetting} is required.");
+            throw new InvalidOperationException($"{ApiSecretNames.InternalApiKeySetting} is required.");
         }
 
         if (UseKeyVaultSecrets && string.IsNullOrWhiteSpace(KeyVaultUri))

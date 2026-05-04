@@ -10,7 +10,13 @@ Bicep configures the Function App app setting as a Key Vault reference:
 SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
 ```
 
-The Function App uses its system-assigned managed identity to resolve the secret. Bicep grants that identity the Key Vault Secrets User role on the environment Key Vault.
+Bicep also configures the internal API key app setting as a Key Vault reference:
+
+```text
+RNM_INTERNAL_API_KEY_SECRET_NAME=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-internal-api-key/)
+```
+
+The Function App uses its system-assigned managed identity to resolve these secrets. Bicep grants that identity the Key Vault Secrets User role on the environment Key Vault.
 
 ## 2. Add the SendGrid API key
 

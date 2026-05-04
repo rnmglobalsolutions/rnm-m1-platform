@@ -60,7 +60,7 @@ var baseAppSettings = {
   FUNCTIONS_EXTENSION_VERSION: '~4'
   RNM_CONFIG_ROOT: configRoot
   RNM_ENVIRONMENT: environmentName
-  RNM_INTERNAL_API_KEY_SECRET_NAME: internalApiKeySecretName
+  RNM_INTERNAL_API_KEY_SECRET_NAME: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${internalApiKeySecretName}/)'
   RNM_KEY_VAULT_URI: keyVaultUri
   RNM_VAPI_WEBHOOK_JSON_MAX_DEPTH: '32'
   RNM_VAPI_WEBHOOK_MAX_BODY_BYTES: '262144'

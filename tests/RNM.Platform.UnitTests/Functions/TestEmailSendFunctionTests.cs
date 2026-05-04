@@ -15,7 +15,7 @@ public sealed class TestEmailSendFunctionTests
     [InlineData("wrong-key")]
     public async Task Handle_RejectsMissingOrInvalidApiKey(string? providedApiKey)
     {
-        using var secretName = TemporaryEnvironmentVariable.Set(ApiSecretNames.InternalApiKeySecretNameSetting, "internal-api-key");
+        using var internalApiKey = TemporaryEnvironmentVariable.Set(ApiSecretNames.InternalApiKeySetting, "expected-api-key");
         using var environmentName = TemporaryEnvironmentVariable.Set("RNM_ENVIRONMENT", "dev");
         var emailSender = new FakeEmailSender();
         var function = CreateFunction(emailSender);
@@ -34,7 +34,7 @@ public sealed class TestEmailSendFunctionTests
     [Fact]
     public async Task Handle_SendsEmail_WhenAuthorized()
     {
-        using var secretName = TemporaryEnvironmentVariable.Set(ApiSecretNames.InternalApiKeySecretNameSetting, "internal-api-key");
+        using var internalApiKey = TemporaryEnvironmentVariable.Set(ApiSecretNames.InternalApiKeySetting, "expected-api-key");
         using var environmentName = TemporaryEnvironmentVariable.Set("RNM_ENVIRONMENT", "dev");
         var emailSender = new FakeEmailSender
         {
@@ -58,7 +58,7 @@ public sealed class TestEmailSendFunctionTests
     [Fact]
     public async Task Handle_ReturnsSafeFailure_WhenEmailSenderFails()
     {
-        using var secretName = TemporaryEnvironmentVariable.Set(ApiSecretNames.InternalApiKeySecretNameSetting, "internal-api-key");
+        using var internalApiKey = TemporaryEnvironmentVariable.Set(ApiSecretNames.InternalApiKeySetting, "expected-api-key");
         using var environmentName = TemporaryEnvironmentVariable.Set("RNM_ENVIRONMENT", "dev");
         var emailSender = new FakeEmailSender
         {
@@ -84,7 +84,6 @@ public sealed class TestEmailSendFunctionTests
         new(
             emailSender,
             new ApiKeyRequestValidator(),
-            new StubSecretProvider("expected-api-key"),
             new SafeErrorResponseFactory(),
             new SafeHttpResponseWriter(),
             new CorrelationContextFactory(),
