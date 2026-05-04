@@ -23,6 +23,9 @@ param configRoot string = '/home/site/wwwroot/config'
 @description('Internal API key secret name in Key Vault.')
 param internalApiKeySecretName string = 'rnm-internal-api-key'
 
+@description('SendGrid API key secret name in Key Vault. Bicep references this secret but does not create its value.')
+param sendGridApiKeySecretName string = 'sendgrid-api-key'
+
 @description('Additional Function App settings. Values must be non-sensitive.')
 param additionalFunctionAppSettings object = {}
 
@@ -85,6 +88,7 @@ module functionApp 'modules/functionApp.bicep' = {
     keyVaultUri: keyVault.outputs.keyVaultUri
     configRoot: configRoot
     internalApiKeySecretName: internalApiKeySecretName
+    sendGridApiKeySecretName: sendGridApiKeySecretName
     additionalAppSettings: additionalFunctionAppSettings
     tags: tags
   }

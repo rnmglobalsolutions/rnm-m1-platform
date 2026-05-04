@@ -82,10 +82,23 @@ Seed these secrets before a real end-to-end dev test:
 
 ```bash
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-internal-api-key --value '<INTERNAL_API_KEY>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-dev-sendgrid-api-key --value '<SENDGRID_API_KEY>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-vapi-webhook-secret --value '<VAPI_WEBHOOK_SECRET>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
+```
+
+Bicep does not create the SendGrid secret value. It only configures the Function App app setting:
+
+```text
+SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
+```
+
+The Function App uses its system-assigned managed identity to resolve the Key Vault reference. The deployment grants that identity the Key Vault Secrets User role on the environment Key Vault. Application code can read the resolved value with:
+
+```csharp
+Environment.GetEnvironmentVariable("SENDGRID_API_KEY")
 ```
 
 For GoHighLevel, use JSON so the adapters have the access token plus provider ids:
