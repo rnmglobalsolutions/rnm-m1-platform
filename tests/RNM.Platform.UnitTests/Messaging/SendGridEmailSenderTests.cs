@@ -3,6 +3,7 @@ using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Domain.Tenancy;
 using RNM.Platform.Infrastructure.Messaging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace RNM.Platform.UnitTests.Messaging;
@@ -14,7 +15,10 @@ public sealed class SendGridEmailSenderTests
     {
         using var _ = TemporaryEnvironmentVariable.Set("SENDGRID_API_KEY", null);
         var transport = new FakeSendGridEmailTransport();
-        var sender = new SendGridEmailSender(new FakeTenantConfigurationProvider(), transport);
+        var sender = new SendGridEmailSender(
+            new FakeTenantConfigurationProvider(),
+            transport,
+            NullLogger<SendGridEmailSender>.Instance);
 
         var result = await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
 
@@ -31,7 +35,10 @@ public sealed class SendGridEmailSenderTests
         {
             Response = new SendGridEmailSendResponse(true, "sg-message-123")
         };
-        var sender = new SendGridEmailSender(new FakeTenantConfigurationProvider(), transport);
+        var sender = new SendGridEmailSender(
+            new FakeTenantConfigurationProvider(),
+            transport,
+            NullLogger<SendGridEmailSender>.Instance);
 
         var result = await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
 
@@ -50,7 +57,8 @@ public sealed class SendGridEmailSenderTests
             new FakeSendGridEmailTransport
             {
                 Response = new SendGridEmailSendResponse(false)
-            });
+            },
+            NullLogger<SendGridEmailSender>.Instance);
 
         var result = await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
 
@@ -69,7 +77,8 @@ public sealed class SendGridEmailSenderTests
             new FakeSendGridEmailTransport
             {
                 ExceptionToThrow = new OperationCanceledException()
-            });
+            },
+            NullLogger<SendGridEmailSender>.Instance);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => sender.SendEmailAsync(CreateRequest(), CancellationToken.None));

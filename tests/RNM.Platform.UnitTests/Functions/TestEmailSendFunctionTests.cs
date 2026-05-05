@@ -4,6 +4,7 @@ using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Ports.Messaging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace RNM.Platform.UnitTests.Functions;
@@ -87,7 +88,8 @@ public sealed class TestEmailSendFunctionTests
             new SafeErrorResponseFactory(),
             new SafeHttpResponseWriter(),
             new CorrelationContextFactory(),
-            new LimitedRequestBodyReader());
+            new LimitedRequestBodyReader(),
+            NullLogger<TestEmailSendFunction>.Instance);
 
     private static TestHttpRequestData CreateRequest() =>
         new(

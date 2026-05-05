@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Logging;
 using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Confirmations;
@@ -20,6 +21,7 @@ public sealed class TestEmailSendFunction
     private readonly SafeHttpResponseWriter responseWriter;
     private readonly CorrelationContextFactory correlationContextFactory;
     private readonly LimitedRequestBodyReader requestBodyReader;
+    private readonly ILogger<TestEmailSendFunction> logger;
 
     public TestEmailSendFunction(
         IEmailSender emailSender,
@@ -27,7 +29,8 @@ public sealed class TestEmailSendFunction
         SafeErrorResponseFactory safeErrorResponseFactory,
         SafeHttpResponseWriter responseWriter,
         CorrelationContextFactory correlationContextFactory,
-        LimitedRequestBodyReader requestBodyReader)
+        LimitedRequestBodyReader requestBodyReader,
+        ILogger<TestEmailSendFunction> logger)
     {
         this.emailSender = emailSender;
         this.apiKeyRequestValidator = apiKeyRequestValidator;
@@ -35,6 +38,7 @@ public sealed class TestEmailSendFunction
         this.responseWriter = responseWriter;
         this.correlationContextFactory = correlationContextFactory;
         this.requestBodyReader = requestBodyReader;
+        this.logger = logger;
     }
 
     [Function("TestEmailSend")]
@@ -43,9 +47,17 @@ public sealed class TestEmailSendFunction
         CancellationToken cancellationToken)
     {
         var correlationId = correlationContextFactory.FromRequest(request).Value;
+        logger.LogInformation(
+            "Test email send request received. CorrelationId={CorrelationId} Method={Method} Path={Path}",
+            correlationId,
+            request.Method,
+            request.Url.AbsolutePath);
 
         if (!IsEndpointEnabled())
         {
+            logger.LogWarning(
+                "Test email send endpoint is disabled. CorrelationId={CorrelationId}",
+                correlationId);
             return responseWriter.WriteSafeError(
                 request,
                 HttpStatusCode.NotFound,
@@ -55,6 +67,9 @@ public sealed class TestEmailSendFunction
         var isAuthorized = await IsAuthorizedAsync(request, cancellationToken).ConfigureAwait(false);
         if (!isAuthorized)
         {
+            logger.LogWarning(
+                "Test email send request unauthorized. CorrelationId={CorrelationId}",
+                correlationId);
             return responseWriter.WriteSafeError(
                 request,
                 HttpStatusCode.Unauthorized,
@@ -66,6 +81,10 @@ public sealed class TestEmailSendFunction
             .ConfigureAwait(false);
         if (bodyReadResult.IsTooLarge)
         {
+            logger.LogWarning(
+                "Test email send request body too large. CorrelationId={CorrelationId} MaxBodyBytes={MaxBodyBytes}",
+                correlationId,
+                MaxBodyBytes);
             return responseWriter.WriteSafeError(
                 request,
                 HttpStatusCode.RequestEntityTooLarge,
@@ -75,11 +94,21 @@ public sealed class TestEmailSendFunction
         var testRequest = ParseRequest(bodyReadResult.Body);
         if (testRequest is null)
         {
+            logger.LogWarning(
+                "Test email send request body is invalid. CorrelationId={CorrelationId}",
+                correlationId);
             return responseWriter.WriteSafeError(
                 request,
                 HttpStatusCode.BadRequest,
                 safeErrorResponseFactory.CreateBadRequest(correlationId));
         }
+
+        logger.LogInformation(
+            "Test email send request accepted. CorrelationId={CorrelationId} ToDomain={ToDomain} SubjectLength={SubjectLength} BodyLength={BodyLength}",
+            correlationId,
+            EmailDomain(testRequest.ToEmail),
+            testRequest.Subject.Length,
+            testRequest.Body.Length);
 
         var sendResult = await emailSender
             .SendEmailAsync(
@@ -95,6 +124,14 @@ public sealed class TestEmailSendFunction
         var statusCode = sendResult.Succeeded
             ? HttpStatusCode.OK
             : HttpStatusCode.BadGateway;
+
+        logger.LogInformation(
+            "Test email send response ready. CorrelationId={CorrelationId} Sent={Sent} StatusCode={StatusCode} ProviderMessageId={ProviderMessageId} FailureReason={FailureReason}",
+            correlationId,
+            sendResult.Succeeded,
+            (int)statusCode,
+            sendResult.ProviderMessageId,
+            sendResult.Succeeded ? null : SafeFailureReason(sendResult.Message));
 
         return responseWriter.WriteJson(
             request,
@@ -157,6 +194,14 @@ public sealed class TestEmailSendFunction
 
     private static string GetTenantId() =>
         Environment.GetEnvironmentVariable("RNM_TEST_EMAIL_TENANT_ID") ?? "sample-hvac-tenant";
+
+    private static string EmailDomain(string email)
+    {
+        var atIndex = email.LastIndexOf('@');
+        return atIndex >= 0 && atIndex < email.Length - 1
+            ? email[(atIndex + 1)..]
+            : "unknown";
+    }
 
     private static string SafeFailureReason(string? providerMessage) =>
         providerMessage switch
