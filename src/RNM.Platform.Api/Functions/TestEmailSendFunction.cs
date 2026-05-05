@@ -6,7 +6,6 @@ using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Ports.Messaging;
-using RNM.Platform.Infrastructure.Secrets;
 
 namespace RNM.Platform.Api.Functions;
 
@@ -17,7 +16,6 @@ public sealed class TestEmailSendFunction
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IEmailSender emailSender;
     private readonly ApiKeyRequestValidator apiKeyRequestValidator;
-    private readonly ISecretProvider secretProvider;
     private readonly SafeErrorResponseFactory safeErrorResponseFactory;
     private readonly SafeHttpResponseWriter responseWriter;
     private readonly CorrelationContextFactory correlationContextFactory;
@@ -26,7 +24,6 @@ public sealed class TestEmailSendFunction
     public TestEmailSendFunction(
         IEmailSender emailSender,
         ApiKeyRequestValidator apiKeyRequestValidator,
-        ISecretProvider secretProvider,
         SafeErrorResponseFactory safeErrorResponseFactory,
         SafeHttpResponseWriter responseWriter,
         CorrelationContextFactory correlationContextFactory,
@@ -34,7 +31,6 @@ public sealed class TestEmailSendFunction
     {
         this.emailSender = emailSender;
         this.apiKeyRequestValidator = apiKeyRequestValidator;
-        this.secretProvider = secretProvider;
         this.safeErrorResponseFactory = safeErrorResponseFactory;
         this.responseWriter = responseWriter;
         this.correlationContextFactory = correlationContextFactory;
@@ -117,28 +113,16 @@ public sealed class TestEmailSendFunction
         HttpRequestData request,
         CancellationToken cancellationToken)
     {
-        var secretName = Environment.GetEnvironmentVariable(ApiSecretNames.InternalApiKeySecretNameSetting);
-        if (string.IsNullOrWhiteSpace(secretName))
+        await Task.CompletedTask.ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var expectedApiKey = Environment.GetEnvironmentVariable(ApiSecretNames.InternalApiKeySetting);
+        if (string.IsNullOrWhiteSpace(expectedApiKey))
         {
             return false;
         }
 
-        try
-        {
-            var expectedApiKey = await secretProvider
-                .GetSecretAsync(secretName, cancellationToken)
-                .ConfigureAwait(false);
-
-            return apiKeyRequestValidator.IsValid(request.GetHeaderValue(ApiKeyHeaderName), expectedApiKey);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
-            return false;
-        }
+        return apiKeyRequestValidator.IsValid(request.GetHeaderValue(ApiKeyHeaderName), expectedApiKey);
     }
 
     private static TestEmailSendRequest? ParseRequest(string body)

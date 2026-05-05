@@ -47,6 +47,16 @@ public sealed class PackagingAndHostingTests
         Assert.Contains("RNM_CONFIG_ROOT: configRoot", bicep);
     }
 
+    [Fact]
+    public void FunctionAppBicep_UsesKeyVaultReferencesForResolvedAppSecrets()
+    {
+        var bicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "functionApp.bicep");
+        var bicep = File.ReadAllText(bicepPath);
+
+        Assert.Contains("RNM_INTERNAL_API_KEY_SECRET_NAME: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${internalApiKeySecretName}/)'", bicep);
+        Assert.Contains("SENDGRID_API_KEY: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${sendGridApiKeySecretName}/)'", bicep);
+    }
+
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

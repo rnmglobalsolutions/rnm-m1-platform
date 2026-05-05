@@ -1,0 +1,194 @@
+{
+  "info": {
+    "name": "RNM Platform M1 Functions",
+    "description": "Postman collection for RNM Platform M1 Azure Functions endpoints. Store real secrets only in Postman environments, never in this collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "functionHost",
+      "value": "https://<FUNCTION_HOST>"
+    },
+    {
+      "key": "tenantId",
+      "value": "sample-hvac-tenant"
+    },
+    {
+      "key": "internalApiKey",
+      "value": ""
+    },
+    {
+      "key": "vapiWebhookSecret",
+      "value": ""
+    },
+    {
+      "key": "twilioSignature",
+      "value": ""
+    },
+    {
+      "key": "correlationId",
+      "value": "{{$guid}}"
+    },
+    {
+      "key": "testEmail",
+      "value": "your-test-email@example.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/health",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Vapi Inbound Webhook",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{vapiWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"call-started\",\n  \"call\": {\n    \"id\": \"call-{{$timestamp}}\",\n    \"customer\": {\n      \"number\": \"+15551234567\"\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "vapi",
+            "inbound"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Twilio SMS Status Webhook",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "X-Twilio-Signature",
+            "value": "{{twilioSignature}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "MessageSid",
+              "value": "SM1234567890",
+              "type": "text"
+            },
+            {
+              "key": "MessageStatus",
+              "value": "delivered",
+              "type": "text"
+            },
+            {
+              "key": "To",
+              "value": "+15551234567",
+              "type": "text"
+            },
+            {
+              "key": "From",
+              "value": "+15550001000",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/twilio/sms-status",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "twilio",
+            "sms-status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Test Email Send",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"toEmail\": \"{{testEmail}}\",\n  \"subject\": \"RNM Platform Test Email\",\n  \"body\": \"This is a test email from SendGrid integration.\"\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/test/email/send",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "test",
+            "email",
+            "send"
+          ]
+        }
+      }
+    }
+  ]
+}
