@@ -24,7 +24,7 @@
   },
   "communication": {
     "smsFromPhoneNumber": "+15550001000",
-    "emailFromAddress": "booking@example.com",
+    "emailFromAddress": "info@rnmglobalsolutions.com",
     "confirmationTemplates": {
       "smsBodyTemplate": "Your {{serviceType}} appointment is booked for {{bookingDate}} at {{bookingTime}}.",
       "emailSubjectTemplate": "Appointment confirmed for {{bookingDate}}",
