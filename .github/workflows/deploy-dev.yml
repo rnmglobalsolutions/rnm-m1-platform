@@ -151,27 +151,40 @@ jobs:
 
       - name: Probe contact CORS
         run: |
-          status_code="$(curl --silent --include --output contact-cors-response.txt --write-out '%{http_code}' \
-            -X OPTIONS "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
-            -H "Origin: https://www.rnmglobalsolutions.com" \
-            -H "Access-Control-Request-Method: POST")"
+          echo "Live contact Function App CORS configuration:"
+          az functionapp cors show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$CONTACT_FUNCTION_APP_NAME" \
+            --output json
 
-          if [ "$status_code" != "204" ]; then
-            echo "Unexpected contact CORS preflight status code: $status_code"
-            cat contact-cors-response.txt
-            exit 1
-          fi
+          for attempt in 1 2 3 4 5 6; do
+            status_code="$(curl --silent --include --output contact-cors-response.txt --write-out '%{http_code}' \
+              -X OPTIONS "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
+              -H "Origin: https://www.rnmglobalsolutions.com" \
+              -H "Access-Control-Request-Method: POST" \
+              -H "Access-Control-Request-Headers: content-type")"
 
-          if ! grep -qi "^access-control-allow-origin: https://www.rnmglobalsolutions.com" contact-cors-response.txt; then
-            echo "Contact Function App did not return the expected CORS allow origin."
+            if [ "$status_code" = "204" ] && grep -qi "^access-control-allow-origin: https://www.rnmglobalsolutions.com" contact-cors-response.txt; then
+              break
+            fi
+
+            if [ "$attempt" = "6" ]; then
+              echo "Contact Function App did not return the expected CORS allow origin."
+              echo "Status code: $status_code"
+              cat contact-cors-response.txt
+              exit 1
+            fi
+
+            echo "Contact CORS preflight not ready yet. Attempt $attempt returned $status_code."
             cat contact-cors-response.txt
-            exit 1
-          fi
+            sleep 10
+          done
 
           blocked_status_code="$(curl --silent --include --output contact-cors-blocked-response.txt --write-out '%{http_code}' \
             -X OPTIONS "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
             -H "Origin: https://evil.example" \
-            -H "Access-Control-Request-Method: POST")"
+            -H "Access-Control-Request-Method: POST" \
+            -H "Access-Control-Request-Headers: content-type")"
 
           if grep -qi "^access-control-allow-origin:" contact-cors-blocked-response.txt; then
             echo "Contact Function App allowed an unexpected CORS origin. Status code: $blocked_status_code"
