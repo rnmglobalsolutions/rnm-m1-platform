@@ -57,6 +57,19 @@ public sealed class PackagingAndHostingTests
         Assert.Contains("SENDGRID_API_KEY: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${sendGridApiKeySecretName}/)'", bicep);
     }
 
+    [Fact]
+    public void FunctionAppBicep_ConfiguresRnmWebsiteCorsWithoutWildcard()
+    {
+        var bicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "functionApp.bicep");
+        var bicep = File.ReadAllText(bicepPath);
+
+        Assert.Contains("'https://www.rnmglobalsolutions.com'", bicep);
+        Assert.Contains("'https://rnmglobalsolutions.com'", bicep);
+        Assert.Contains("allowedOrigins: allowedCorsOrigins", bicep);
+        Assert.Contains("supportCredentials: false", bicep);
+        Assert.DoesNotContain("'*'", bicep);
+    }
+
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
