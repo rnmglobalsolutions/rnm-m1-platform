@@ -82,6 +82,8 @@ jobs:
 
           function_app_name="$(jq -r '.functionAppName.value' deployment-outputs.json)"
           function_app_host="$(jq -r '.functionAppDefaultHostName.value' deployment-outputs.json)"
+          contact_function_app_name="$(jq -r '.contactFunctionAppName.value' deployment-outputs.json)"
+          contact_function_app_host="$(jq -r '.contactFunctionAppDefaultHostName.value' deployment-outputs.json)"
 
           if [ -z "$function_app_name" ] || [ "$function_app_name" = "null" ]; then
             echo "Function App name was not returned by the deployment."
@@ -91,11 +93,23 @@ jobs:
             echo "Function App host name was not returned by the deployment."
             exit 1
           fi
+          if [ -z "$contact_function_app_name" ] || [ "$contact_function_app_name" = "null" ]; then
+            echo "Contact Function App name was not returned by the deployment."
+            exit 1
+          fi
+          if [ -z "$contact_function_app_host" ] || [ "$contact_function_app_host" = "null" ]; then
+            echo "Contact Function App host name was not returned by the deployment."
+            exit 1
+          fi
 
           echo "FUNCTION_APP_NAME=$function_app_name" >> "$GITHUB_ENV"
           echo "FUNCTION_APP_HOST=$function_app_host" >> "$GITHUB_ENV"
+          echo "CONTACT_FUNCTION_APP_NAME=$contact_function_app_name" >> "$GITHUB_ENV"
+          echo "CONTACT_FUNCTION_APP_HOST=$contact_function_app_host" >> "$GITHUB_ENV"
           echo "function-app-name=$function_app_name" >> "$GITHUB_OUTPUT"
           echo "function-app-host=$function_app_host" >> "$GITHUB_OUTPUT"
+          echo "contact-function-app-name=$contact_function_app_name" >> "$GITHUB_OUTPUT"
+          echo "contact-function-app-host=$contact_function_app_host" >> "$GITHUB_OUTPUT"
 
       - name: Publish Function App
         run: |
@@ -113,10 +127,16 @@ jobs:
           cd "$PUBLISH_DIR"
           zip -r "../$PACKAGE_PATH" .
 
-      - name: Deploy Function App package
+      - name: Deploy main Function App package
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: ${{ env.PACKAGE_PATH }}
+
+      - name: Deploy contact Function App package
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.CONTACT_FUNCTION_APP_NAME }}
           package: ${{ env.PACKAGE_PATH }}
 
       - name: Probe health endpoint
@@ -128,3 +148,35 @@ jobs:
           fi
 
           echo "Health endpoint responded with $status_code."
+
+      - name: Probe contact CORS
+        run: |
+          status_code="$(curl --silent --include --output contact-cors-response.txt --write-out '%{http_code}' \
+            -X OPTIONS "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
+            -H "Origin: https://www.rnmglobalsolutions.com" \
+            -H "Access-Control-Request-Method: POST")"
+
+          if [ "$status_code" != "204" ]; then
+            echo "Unexpected contact CORS preflight status code: $status_code"
+            cat contact-cors-response.txt
+            exit 1
+          fi
+
+          if ! grep -qi "^access-control-allow-origin: https://www.rnmglobalsolutions.com" contact-cors-response.txt; then
+            echo "Contact Function App did not return the expected CORS allow origin."
+            cat contact-cors-response.txt
+            exit 1
+          fi
+
+          blocked_status_code="$(curl --silent --include --output contact-cors-blocked-response.txt --write-out '%{http_code}' \
+            -X OPTIONS "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
+            -H "Origin: https://evil.example" \
+            -H "Access-Control-Request-Method: POST")"
+
+          if grep -qi "^access-control-allow-origin:" contact-cors-blocked-response.txt; then
+            echo "Contact Function App allowed an unexpected CORS origin. Status code: $blocked_status_code"
+            cat contact-cors-blocked-response.txt
+            exit 1
+          fi
+
+          echo "Contact CORS preflight responded with $status_code."

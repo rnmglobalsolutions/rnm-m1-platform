@@ -10,7 +10,6 @@ using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Messaging;
-using RNM.Platform.SharedKernel.Correlation;
 
 namespace RNM.Platform.Api.Functions;
 
@@ -19,10 +18,11 @@ public sealed class ContactSystemReviewFunction
     private const int MaxBodyBytes = 16384;
     private const string EndpointName = "contact/system-review";
     private const string ContactTenantIdEnvironmentVariable = "RNM_CONTACT_TENANT_ID";
+    private const string ContactAllowedOriginsEnvironmentVariable = "RNM_CONTACT_ALLOWED_ORIGINS";
     private const string DefaultContactTenantId = "sample-hvac-tenant";
     private const string NotificationEmail = "info@rnmglobalsolutions.com";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly HashSet<string> AllowedOrigins = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly string[] DefaultAllowedOrigins =
     {
         "https://www.rnmglobalsolutions.com",
         "https://rnmglobalsolutions.com"
@@ -53,28 +53,21 @@ public sealed class ContactSystemReviewFunction
 
     [Function("ContactSystemReviewFunction")]
     public async Task<HttpResponseData> Handle(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", "options", Route = "contact/system-review")] HttpRequestData request,
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "contact/system-review")] HttpRequestData request,
         CancellationToken cancellationToken)
     {
         var correlationId = correlationContextFactory.FromRequest(request).Value;
         var allowedOrigin = GetAllowedOrigin(request);
-
-        if (string.Equals(request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
-        {
-            return WritePreflightResponse(request, correlationId, allowedOrigin);
-        }
 
         if (allowedOrigin is null)
         {
             await LogAsync(TelemetryEventNames.SecurityAuthFailed, correlationId, "origin_rejected", "origin", cancellationToken)
                 .ConfigureAwait(false);
 
-            var forbidden = responseWriter.WriteSafeError(
+            return responseWriter.WriteSafeError(
                 request,
                 HttpStatusCode.Forbidden,
                 safeErrorResponseFactory.CreateUnauthorized(correlationId));
-            AddCorsHeaders(forbidden, allowedOrigin);
-            return forbidden;
         }
 
         var bodyReadResult = await requestBodyReader
@@ -85,12 +78,10 @@ public sealed class ContactSystemReviewFunction
             await LogAsync(TelemetryEventNames.ApiRequestFailed, correlationId, "payload_too_large", "payload_too_large", cancellationToken)
                 .ConfigureAwait(false);
 
-            var tooLarge = responseWriter.WriteSafeError(
+            return responseWriter.WriteSafeError(
                 request,
                 HttpStatusCode.RequestEntityTooLarge,
                 safeErrorResponseFactory.CreatePayloadTooLarge(correlationId));
-            AddCorsHeaders(tooLarge, allowedOrigin);
-            return tooLarge;
         }
 
         var parseResult = ParseRequest(bodyReadResult.Body);
@@ -99,7 +90,7 @@ public sealed class ContactSystemReviewFunction
             await LogAsync(TelemetryEventNames.ApiRequestFailed, correlationId, "validation_failed", parseResult.ValidationResult, cancellationToken)
                 .ConfigureAwait(false);
 
-            return WriteValidationFailure(request, correlationId, parseResult.ValidationResult, allowedOrigin);
+            return WriteValidationFailure(request, correlationId, parseResult.ValidationResult);
         }
 
         var contactRequest = parseResult.Request;
@@ -108,7 +99,7 @@ public sealed class ContactSystemReviewFunction
             await LogAsync(TelemetryEventNames.ApiRequestCompleted, correlationId, "honeypot_success", "honeypot", cancellationToken)
                 .ConfigureAwait(false);
 
-            return WriteReceived(request, correlationId, allowedOrigin);
+            return WriteReceived(request, correlationId);
         }
 
         var notificationResult = await emailSender
@@ -119,7 +110,7 @@ public sealed class ContactSystemReviewFunction
             await LogAsync(TelemetryEventNames.ApiRequestFailed, correlationId, "notification_failed", "email_provider", cancellationToken)
                 .ConfigureAwait(false);
 
-            return WriteJson(
+            return responseWriter.WriteJson(
                 request,
                 HttpStatusCode.InternalServerError,
                 new
@@ -128,8 +119,7 @@ public sealed class ContactSystemReviewFunction
                     code = "notification_failed",
                     correlationId
                 },
-                correlationId,
-                allowedOrigin);
+                correlationId);
         }
 
         var confirmationResult = await emailSender
@@ -142,7 +132,7 @@ public sealed class ContactSystemReviewFunction
         await LogAsync(TelemetryEventNames.ApiRequestCompleted, correlationId, outcome, "valid", cancellationToken)
             .ConfigureAwait(false);
 
-        return WriteReceived(request, correlationId, allowedOrigin);
+        return WriteReceived(request, correlationId);
     }
 
     private static string? GetAllowedOrigin(HttpRequestData request)
@@ -154,9 +144,23 @@ public sealed class ContactSystemReviewFunction
         }
 
         var normalizedOrigin = origin.Trim().TrimEnd('/');
-        return AllowedOrigins.Contains(normalizedOrigin)
+        return GetAllowedOrigins().Contains(normalizedOrigin)
             ? normalizedOrigin
             : null;
+    }
+
+    private static HashSet<string> GetAllowedOrigins()
+    {
+        var configuredOrigins = Environment.GetEnvironmentVariable(ContactAllowedOriginsEnvironmentVariable);
+        var originValues = string.IsNullOrWhiteSpace(configuredOrigins)
+            ? DefaultAllowedOrigins
+            : configuredOrigins
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return originValues
+            .Select(origin => origin.Trim().TrimEnd('/'))
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static ContactParseResult ParseRequest(string body)
@@ -325,10 +329,9 @@ public sealed class ContactSystemReviewFunction
     private HttpResponseData WriteValidationFailure(
         HttpRequestData request,
         string correlationId,
-        string validationResult,
-        string allowedOrigin)
+        string validationResult)
     {
-        return WriteJson(
+        return responseWriter.WriteJson(
             request,
             HttpStatusCode.BadRequest,
             new
@@ -338,16 +341,14 @@ public sealed class ContactSystemReviewFunction
                 validationResult,
                 correlationId
             },
-            correlationId,
-            allowedOrigin);
+            correlationId);
     }
 
     private HttpResponseData WriteReceived(
         HttpRequestData request,
-        string correlationId,
-        string allowedOrigin)
+        string correlationId)
     {
-        return WriteJson(
+        return responseWriter.WriteJson(
             request,
             HttpStatusCode.OK,
             new
@@ -355,55 +356,7 @@ public sealed class ContactSystemReviewFunction
                 received = true,
                 correlationId
             },
-            correlationId,
-            allowedOrigin);
-    }
-
-    private HttpResponseData WriteJson(
-        HttpRequestData request,
-        HttpStatusCode statusCode,
-        object body,
-        string correlationId,
-        string allowedOrigin)
-    {
-        var response = responseWriter.WriteJson(request, statusCode, body, correlationId);
-        AddCorsHeaders(response, allowedOrigin);
-        return response;
-    }
-
-    private HttpResponseData WritePreflightResponse(
-        HttpRequestData request,
-        string correlationId,
-        string? allowedOrigin)
-    {
-        if (allowedOrigin is null)
-        {
-            return responseWriter.WriteSafeError(
-                request,
-                HttpStatusCode.Forbidden,
-                safeErrorResponseFactory.CreateUnauthorized(correlationId));
-        }
-
-        var response = request.CreateResponse(HttpStatusCode.NoContent);
-        response.Headers.Add(CorrelationId.HeaderName, correlationId);
-        AddCorsHeaders(response, allowedOrigin);
-        response.Headers.Add("Access-Control-Max-Age", "3600");
-        return response;
-    }
-
-    private static void AddCorsHeaders(
-        HttpResponseData response,
-        string? allowedOrigin)
-    {
-        if (allowedOrigin is null)
-        {
-            return;
-        }
-
-        response.Headers.Add("Access-Control-Allow-Origin", allowedOrigin);
-        response.Headers.Add("Vary", "Origin");
-        response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
-        response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, x-correlation-id");
+            correlationId);
     }
 
     private Task LogAsync(

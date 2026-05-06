@@ -53,21 +53,44 @@ public sealed class PackagingAndHostingTests
         var bicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "functionApp.bicep");
         var bicep = File.ReadAllText(bicepPath);
 
+        Assert.Contains("param includeInternalApiKeySecretReference bool = true", bicep);
+        Assert.Contains("includeInternalApiKeySecretReference ? {", bicep);
         Assert.Contains("RNM_INTERNAL_API_KEY_SECRET_NAME: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${internalApiKeySecretName}/)'", bicep);
         Assert.Contains("SENDGRID_API_KEY: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}secrets/${sendGridApiKeySecretName}/)'", bicep);
     }
 
     [Fact]
-    public void FunctionAppBicep_ClearsAppWideCors()
+    public void FunctionAppBicep_UsesExplicitCorsOriginsParameter()
     {
         var bicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "functionApp.bicep");
         var bicep = File.ReadAllText(bicepPath);
 
-        Assert.DoesNotContain("allowedCorsOrigins", bicep);
         Assert.Contains("cors:", bicep);
-        Assert.Contains("allowedOrigins: []", bicep);
+        Assert.Contains("param allowedCorsOrigins array = []", bicep);
+        Assert.Contains("allowedOrigins: allowedCorsOrigins", bicep);
         Assert.Contains("supportCredentials: false", bicep);
         Assert.DoesNotContain("'*'", bicep);
+    }
+
+    [Fact]
+    public void MainBicep_DeploysSeparateContactFunctionAppWithRnmCorsOnly()
+    {
+        var bicepPath = Path.Combine(RepositoryRoot, "infra", "main.bicep");
+        var bicep = File.ReadAllText(bicepPath);
+
+        Assert.Contains("var contactFunctionAppName = '${resourceBaseName}-contact-func'", bicep);
+        Assert.Contains("allowedCorsOrigins: []", bicep);
+        Assert.Contains("allowedCorsOrigins: contactFunctionAllowedCorsOrigins", bicep);
+        Assert.Contains("'https://www.rnmglobalsolutions.com'", bicep);
+        Assert.Contains("'https://rnmglobalsolutions.com'", bicep);
+        Assert.Contains("'AzureWebJobs.ContactSystemReviewFunction.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.VapiInboundWebhook.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.TestEmailSend.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.Health.Disabled': 'true'", bicep);
+        Assert.Contains("RNM_CONTACT_ALLOWED_ORIGINS: join(contactFunctionAllowedCorsOrigins, ',')", bicep);
+        Assert.Contains("includeInternalApiKeySecretReference: true", bicep);
+        Assert.Contains("includeInternalApiKeySecretReference: false", bicep);
     }
 
     private static string FindRepositoryRoot()

@@ -11,7 +11,7 @@ This runbook configures GitHub Actions to deploy RNM Platform M1 to Azure withou
 
 ## 1. Create the resource groups
 
-The deployment workflows assume the resource groups already exist. Use one Azure resource group per GitHub environment so dev, staging, and production each get their own Storage Account, Function App, Application Insights, and Key Vault.
+The deployment workflows assume the resource groups already exist. Use one Azure resource group per GitHub environment so dev, staging, and production each get their own Storage Account, Function Apps, Application Insights, and Key Vault.
 
 ```bash
 az group create \
@@ -98,7 +98,7 @@ az role assignment create \
   --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<PRODUCTION_RESOURCE_GROUP_NAME>
 ```
 
-The Bicep deployment assigns the Function App managed identity Key Vault Secrets User and Storage Blob Data Owner roles for runtime/deployment access.
+The Bicep deployment assigns the Function App managed identities Key Vault Secrets User and Storage Blob Data Owner roles for runtime/deployment access.
 
 ## 5. Add GitHub repository variables
 

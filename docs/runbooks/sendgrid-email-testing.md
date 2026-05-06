@@ -4,19 +4,19 @@ This runbook verifies RNM Platform M1 email sending through SendGrid in Azure de
 
 ## 1. Confirm infrastructure settings
 
-Bicep configures the Function App app setting as a Key Vault reference:
+Bicep configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:
 
 ```text
 SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
 ```
 
-Bicep also configures the internal API key app setting as a Key Vault reference:
+Bicep also configures the internal API key app setting as a Key Vault reference on the main Function App only:
 
 ```text
 RNM_INTERNAL_API_KEY_SECRET_NAME=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-internal-api-key/)
 ```
 
-The Function App uses its system-assigned managed identity to resolve these secrets. Bicep grants that identity the Key Vault Secrets User role on the environment Key Vault.
+The contact Function App does not receive the internal API key setting because it does not host internal endpoints. The Function Apps use system-assigned managed identities to resolve Key Vault references. Bicep grants those identities the Key Vault Secrets User role on the environment Key Vault.
 
 ## 2. Add the SendGrid API key
 

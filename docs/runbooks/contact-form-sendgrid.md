@@ -1,14 +1,14 @@
 # Contact Form SendGrid Endpoint
 
-RNM Global Solutions website contact form submissions are accepted by the M1 Function App and sent through SendGrid from the backend.
+RNM Global Solutions website contact form submissions are accepted by the M1 contact Function App and sent through SendGrid from the backend.
 
 ## Endpoint
 
 ```text
-POST https://<FUNCTION_HOST>/api/contact/system-review
+POST https://<CONTACT_FUNCTION_HOST>/api/contact/system-review
 ```
 
-The endpoint is anonymous and does not use `x-rnm-api-key`.
+The endpoint is anonymous and does not use `x-rnm-api-key`. It is deployed to a separate contact Function App from the main webhook/API Function App.
 
 ## Allowed Browser Origins
 
@@ -19,9 +19,9 @@ https://www.rnmglobalsolutions.com
 https://rnmglobalsolutions.com
 ```
 
-Azure Function App global CORS is intentionally deployed with an empty allowed-origin list because app-level CORS applies to every HTTP function in the app. This endpoint handles CORS in `ContactSystemReviewFunction` only and returns CORS headers only for the two RNM website origins.
+The contact endpoint has its own Function App. That contact Function App uses app-level CORS with only the two RNM website origins. The main Function App keeps app-level CORS empty so health, webhooks, and internal test endpoints are not browser-CORS-enabled.
 
-Keep the Function App CORS blade empty for this behavior. Adding origins there applies browser CORS behavior across every HTTP function in the app, including health, webhooks, and internal test endpoints. The next Bicep deployment should reset the Function App CORS allowed-origin list to empty.
+Keep the main Function App CORS blade empty. Keep the contact Function App CORS blade limited to the two RNM origins above. Bicep manages both settings.
 
 ## Request Body
 
@@ -49,7 +49,7 @@ Required fields:
 ## Sample Curl
 
 ```bash
-curl -X POST "https://<FUNCTION_HOST>/api/contact/system-review" \
+curl -X POST "https://<CONTACT_FUNCTION_HOST>/api/contact/system-review" \
   -H "Content-Type: application/json" \
   -H "Origin: https://www.rnmglobalsolutions.com" \
   -d '{
@@ -75,35 +75,34 @@ Expected success:
 
 ## CORS Preflight
 
-Browsers may send an `OPTIONS` preflight before the `POST`. The endpoint handles that preflight directly.
+Browsers may send an `OPTIONS` preflight before the `POST`. The contact Function App handles that preflight through app-level CORS.
 
 ```bash
-curl -i -X OPTIONS "https://<FUNCTION_HOST>/api/contact/system-review" \
+curl -i -X OPTIONS "https://<CONTACT_FUNCTION_HOST>/api/contact/system-review" \
   -H "Origin: https://www.rnmglobalsolutions.com" \
   -H "Access-Control-Request-Method: POST" \
   -H "Access-Control-Request-Headers: Content-Type, x-correlation-id"
 ```
 
-Expected response headers include:
+Expected response headers include at least:
 
 ```text
 Access-Control-Allow-Origin: https://www.rnmglobalsolutions.com
-Access-Control-Allow-Methods: POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type, x-correlation-id
-Vary: Origin
 ```
+
+For a disallowed origin, Azure Functions may return `204 No Content`, but it must not include `Access-Control-Allow-Origin`. Browsers block that response.
 
 ## SendGrid Secret Handling
 
 The frontend never receives the SendGrid API key.
 
-The backend reads `SENDGRID_API_KEY` from the Function App environment. In Azure, Bicep configures that app setting as a Key Vault reference:
+The backend reads `SENDGRID_API_KEY` from the Function App environment. In Azure, Bicep configures that app setting as a Key Vault reference on both Function Apps:
 
 ```text
 SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/<SENDGRID_SECRET_NAME>/)
 ```
 
-The Function App managed identity resolves the secret at runtime. The SendGrid API key value must be created in Key Vault manually or by a secure pipeline.
+The Function App managed identities resolve the secret at runtime. The SendGrid API key value must be created in Key Vault manually or by a secure pipeline.
 
 ## Telemetry
 
