@@ -7,7 +7,11 @@
   "variable": [
     {
       "key": "functionHost",
-      "value": "https://<FUNCTION_HOST>"
+      "value": "https://<MAIN_FUNCTION_HOST>"
+    },
+    {
+      "key": "contactFunctionHost",
+      "value": "https://<CONTACT_FUNCTION_HOST>"
     },
     {
       "key": "tenantId",
@@ -221,9 +225,9 @@
           "raw": "{\n  \"fullName\": \"Jane Founder\",\n  \"email\": \"{{contactEmail}}\",\n  \"phone\": \"+15551234567\",\n  \"preferredChannels\": \"Email\",\n  \"currentTools\": \"CRM, spreadsheets\",\n  \"workflowNeedsImprovement\": \"We miss follow-ups when leads come in after hours.\",\n  \"website\": \"https://example.com\",\n  \"companyWebsiteConfirm\": \"\"\n}"
         },
         "url": {
-          "raw": "{{functionHost}}/api/contact/system-review",
+          "raw": "{{contactFunctionHost}}/api/contact/system-review",
           "host": [
-            "{{functionHost}}"
+            "{{contactFunctionHost}}"
           ],
           "path": [
             "api",
@@ -252,9 +256,9 @@
           }
         ],
         "url": {
-          "raw": "{{functionHost}}/api/contact/system-review",
+          "raw": "{{contactFunctionHost}}/api/contact/system-review",
           "host": [
-            "{{functionHost}}"
+            "{{contactFunctionHost}}"
           ],
           "path": [
             "api",

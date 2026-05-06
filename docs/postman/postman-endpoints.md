@@ -6,7 +6,8 @@ Import `docs/postman/RNM.Platform.M1.postman_collection.json` into Postman and c
 
 | Variable | Purpose |
 | --- | --- |
-| `functionHost` | Function App host, for example `https://<app>.azurewebsites.net` |
+| `functionHost` | Main Function App host, for example `https://<main-app>.azurewebsites.net` |
+| `contactFunctionHost` | Contact Function App host, for example `https://<contact-app>.azurewebsites.net` |
 | `tenantId` | Tenant route id, for example `sample-hvac-tenant` |
 | `internalApiKey` | Internal API key used by protected test endpoints |
 | `vapiWebhookSecret` | Vapi webhook secret for bearer-token testing |
@@ -116,9 +117,9 @@ This endpoint is available outside production by default. In production, it only
 
 ## POST `/api/contact/system-review`
 
-Public RNM website contact form endpoint for system review requests.
+Public RNM website contact form endpoint for system review requests. Use `contactFunctionHost`, not the main `functionHost`.
 
-This endpoint is anonymous and intentionally does not use `x-rnm-api-key`. Browser CORS is enforced in `ContactSystemReviewFunction` itself, not through Function App global CORS, so the restriction applies only to this route.
+This endpoint is anonymous and intentionally does not use `x-rnm-api-key`. It is deployed to a separate contact Function App with app-level CORS limited to the RNM website origins. The main Function App keeps app-level CORS empty.
 
 Allowed browser origins:
 
@@ -163,7 +164,7 @@ Expected success:
 
 ## OPTIONS `/api/contact/system-review`
 
-Route-level CORS preflight for the public contact endpoint.
+App-level CORS preflight for the separate public contact Function App.
 
 Headers:
 
@@ -173,20 +174,17 @@ Access-Control-Request-Method: POST
 Access-Control-Request-Headers: Content-Type, x-correlation-id
 ```
 
-Expected successful preflight response includes:
+Expected successful preflight response includes at least:
 
 ```text
 Access-Control-Allow-Origin: https://www.rnmglobalsolutions.com
-Access-Control-Allow-Methods: POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type, x-correlation-id
-Vary: Origin
 ```
 
-Calls from other browser origins do not receive allow headers and are rejected by the endpoint for POST requests. Non-browser callers such as Postman are not governed by browser CORS enforcement, but the endpoint still validates the `Origin` header when one is provided.
+Calls from other browser origins do not receive allow headers. Azure Functions may still return `204 No Content` for disallowed preflight requests, but without `Access-Control-Allow-Origin`; browsers treat that as blocked. The function also validates `Origin` on POST requests.
 
 ## Internal API Key Resolution
 
-Azure resolves `RNM_INTERNAL_API_KEY_SECRET_NAME` through a Key Vault reference:
+Azure resolves `RNM_INTERNAL_API_KEY_SECRET_NAME` through a Key Vault reference on the main Function App:
 
 ```text
 @Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-internal-api-key/)

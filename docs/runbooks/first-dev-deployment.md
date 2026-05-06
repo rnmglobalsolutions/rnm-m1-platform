@@ -57,6 +57,7 @@ Review the planned resources:
 - Key Vault
 - Flex Consumption hosting plan
 - Function App
+- Contact Function App
 - RBAC role assignments
 
 ## 3. Deploy infrastructure
@@ -71,6 +72,8 @@ Capture the outputs:
 
 - `functionAppName`
 - `functionAppDefaultHostName`
+- `contactFunctionAppName`
+- `contactFunctionAppDefaultHostName`
 - `keyVaultName`
 - `keyVaultUri`
 - `appInsightsName`
@@ -89,19 +92,19 @@ az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-t
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
 ```
 
-Bicep does not create the SendGrid secret value. It only configures the Function App app setting:
+Bicep does not create the SendGrid secret value. It configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:
 
 ```text
 SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
 ```
 
-Bicep also configures the internal API key setting as a Key Vault reference:
+Bicep also configures the internal API key setting as a Key Vault reference on the main Function App only:
 
 ```text
 RNM_INTERNAL_API_KEY_SECRET_NAME=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-internal-api-key/)
 ```
 
-The app setting name is retained for compatibility, but Azure resolves the setting to the internal API key value at runtime. The Function App uses its system-assigned managed identity to resolve Key Vault references. The deployment grants that identity the Key Vault Secrets User role on the environment Key Vault. Application code can read the resolved values with:
+The app setting name is retained for compatibility, but Azure resolves the setting to the internal API key value at runtime. The contact Function App does not receive this app setting because it does not host internal endpoints. The Function Apps use system-assigned managed identities to resolve Key Vault references. The deployment grants both identities the Key Vault Secrets User role on the environment Key Vault. Application code can read the resolved values with:
 
 ```csharp
 Environment.GetEnvironmentVariable("SENDGRID_API_KEY")
@@ -176,10 +179,45 @@ If protected test endpoints return `401`, verify:
 
 - `rnm-internal-api-key` exists in Key Vault.
 - `RNM_INTERNAL_API_KEY_SECRET_NAME` is a Key Vault reference to the `rnm-internal-api-key` secret.
-- The Function App managed identity has Key Vault Secrets User on the vault.
+- The Function App managed identities have Key Vault Secrets User on the vault.
 - You sent the `x-rnm-api-key` header.
 
-## 8. Promote to staging
+## 8. Test contact Function App CORS
+
+The public contact endpoint is deployed to a separate contact Function App. The main Function App keeps app-level CORS empty. The contact Function App allows browser calls only from:
+
+```text
+https://www.rnmglobalsolutions.com
+https://rnmglobalsolutions.com
+```
+
+Allowed origin preflight:
+
+```bash
+curl -i -X OPTIONS \
+  https://<CONTACT_FUNCTION_APP_DEFAULT_HOST_NAME>/api/contact/system-review \
+  -H "Origin: https://www.rnmglobalsolutions.com" \
+  -H "Access-Control-Request-Method: POST"
+```
+
+Expected response includes:
+
+```text
+Access-Control-Allow-Origin: https://www.rnmglobalsolutions.com
+```
+
+Disallowed origin preflight:
+
+```bash
+curl -i -X OPTIONS \
+  https://<CONTACT_FUNCTION_APP_DEFAULT_HOST_NAME>/api/contact/system-review \
+  -H "Origin: https://evil.example" \
+  -H "Access-Control-Request-Method: POST"
+```
+
+Azure Functions may return `204 No Content`, but the response must not include `Access-Control-Allow-Origin`.
+
+## 9. Promote to staging
 
 Staging is not automatic. Run **Actions -> Deploy Staging -> Run workflow** from GitHub after dev is healthy.
 
@@ -193,7 +231,7 @@ BICEP_PARAMETERS_FILE=infra/staging.bicepparam
 
 Seed staging Key Vault with staging provider credentials before end-to-end testing.
 
-## 9. Promote to production
+## 10. Promote to production
 
 Production is not automatic. Run **Actions -> Deploy Production -> Run workflow** from GitHub after staging has been accepted.
 

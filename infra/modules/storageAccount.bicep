@@ -1,6 +1,8 @@
 targetScope = 'resourceGroup'
 
 @description('Storage account name. Must be globally unique, lower-case, and 3-24 characters.')
+@minLength(3)
+@maxLength(24)
 param name string
 
 @description('Azure region for the storage account.')
@@ -40,6 +42,8 @@ resource deploymentContainer 'Microsoft.Storage/storageAccounts/blobServices/con
 }
 
 output storageAccountId string = storageAccount.id
+@minLength(3)
+@maxLength(24)
 output storageAccountName string = storageAccount.name
 output primaryBlobEndpoint string = storageAccount.properties.primaryEndpoints.blob
 output deploymentContainerName string = deploymentContainer.name
