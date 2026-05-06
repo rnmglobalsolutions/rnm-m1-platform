@@ -122,6 +122,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       ]
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
+      cors: {
+        allowedOrigins: []
+        supportCredentials: false
+      }
     }
   }
 }

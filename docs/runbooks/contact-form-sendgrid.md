@@ -19,9 +19,9 @@ https://www.rnmglobalsolutions.com
 https://rnmglobalsolutions.com
 ```
 
-Azure Function App global CORS is intentionally not used because it applies to every HTTP function in the app. This endpoint handles CORS in `ContactSystemReviewFunction` only and returns CORS headers only for the two RNM website origins.
+Azure Function App global CORS is intentionally deployed with an empty allowed-origin list because app-level CORS applies to every HTTP function in the app. This endpoint handles CORS in `ContactSystemReviewFunction` only and returns CORS headers only for the two RNM website origins.
 
-Keep the Function App CORS blade empty or unconfigured for this behavior. Adding origins there applies browser CORS behavior across every HTTP function in the app, including health, webhooks, and internal test endpoints.
+Keep the Function App CORS blade empty for this behavior. Adding origins there applies browser CORS behavior across every HTTP function in the app, including health, webhooks, and internal test endpoints. The next Bicep deployment should reset the Function App CORS allowed-origin list to empty.
 
 ## Request Body
 

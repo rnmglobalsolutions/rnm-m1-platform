@@ -58,13 +58,15 @@ public sealed class PackagingAndHostingTests
     }
 
     [Fact]
-    public void FunctionAppBicep_DoesNotConfigureAppWideCors()
+    public void FunctionAppBicep_ClearsAppWideCors()
     {
         var bicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "functionApp.bicep");
         var bicep = File.ReadAllText(bicepPath);
 
         Assert.DoesNotContain("allowedCorsOrigins", bicep);
-        Assert.DoesNotContain("cors:", bicep);
+        Assert.Contains("cors:", bicep);
+        Assert.Contains("allowedOrigins: []", bicep);
+        Assert.Contains("supportCredentials: false", bicep);
         Assert.DoesNotContain("'*'", bicep);
     }
 
