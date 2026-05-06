@@ -26,12 +26,6 @@ param internalApiKeySecretName string = 'rnm-internal-api-key'
 @description('SendGrid API key secret name in Key Vault. Bicep references this secret but does not create its value.')
 param sendGridApiKeySecretName string = 'sendgrid-api-key'
 
-@description('Allowed CORS origins for browser-accessible public endpoints.')
-param allowedCorsOrigins array = [
-  'https://www.rnmglobalsolutions.com'
-  'https://rnmglobalsolutions.com'
-]
-
 @description('Additional Function App settings. Values must be non-sensitive.')
 param additionalFunctionAppSettings object = {}
 
@@ -95,7 +89,6 @@ module functionApp 'modules/functionApp.bicep' = {
     configRoot: configRoot
     internalApiKeySecretName: internalApiKeySecretName
     sendGridApiKeySecretName: sendGridApiKeySecretName
-    allowedCorsOrigins: allowedCorsOrigins
     additionalAppSettings: additionalFunctionAppSettings
     tags: tags
   }

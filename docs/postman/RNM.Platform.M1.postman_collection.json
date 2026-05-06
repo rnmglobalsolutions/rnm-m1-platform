@@ -32,6 +32,14 @@
     {
       "key": "testEmail",
       "value": "your-test-email@example.com"
+    },
+    {
+      "key": "contactOrigin",
+      "value": "https://www.rnmglobalsolutions.com"
+    },
+    {
+      "key": "contactEmail",
+      "value": "your-contact-test@example.com"
     }
   ],
   "item": [
@@ -186,6 +194,72 @@
             "test",
             "email",
             "send"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Contact System Review",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Origin",
+            "value": "{{contactOrigin}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fullName\": \"Jane Founder\",\n  \"email\": \"{{contactEmail}}\",\n  \"phone\": \"+15551234567\",\n  \"preferredChannels\": \"Email\",\n  \"currentTools\": \"CRM, spreadsheets\",\n  \"workflowNeedsImprovement\": \"We miss follow-ups when leads come in after hours.\",\n  \"website\": \"https://example.com\",\n  \"companyWebsiteConfirm\": \"\"\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/contact/system-review",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "system-review"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Contact System Review CORS Preflight",
+      "request": {
+        "method": "OPTIONS",
+        "header": [
+          {
+            "key": "Origin",
+            "value": "{{contactOrigin}}"
+          },
+          {
+            "key": "Access-Control-Request-Method",
+            "value": "POST"
+          },
+          {
+            "key": "Access-Control-Request-Headers",
+            "value": "Content-Type, x-correlation-id"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/contact/system-review",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "contact",
+            "system-review"
           ]
         }
       }
