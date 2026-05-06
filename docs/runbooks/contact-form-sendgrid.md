@@ -19,7 +19,9 @@ https://www.rnmglobalsolutions.com
 https://rnmglobalsolutions.com
 ```
 
-Bicep configures Function App CORS with these exact origins and no wildcard. The function also checks the `Origin` header before sending email.
+Azure Function App global CORS is intentionally not used because it applies to every HTTP function in the app. This endpoint handles CORS in `ContactSystemReviewFunction` only and returns CORS headers only for the two RNM website origins.
+
+Keep the Function App CORS blade empty or unconfigured for this behavior. Adding origins there applies browser CORS behavior across every HTTP function in the app, including health, webhooks, and internal test endpoints.
 
 ## Request Body
 
@@ -69,6 +71,26 @@ Expected success:
   "received": true,
   "correlationId": "<correlation-id>"
 }
+```
+
+## CORS Preflight
+
+Browsers may send an `OPTIONS` preflight before the `POST`. The endpoint handles that preflight directly.
+
+```bash
+curl -i -X OPTIONS "https://<FUNCTION_HOST>/api/contact/system-review" \
+  -H "Origin: https://www.rnmglobalsolutions.com" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: Content-Type, x-correlation-id"
+```
+
+Expected response headers include:
+
+```text
+Access-Control-Allow-Origin: https://www.rnmglobalsolutions.com
+Access-Control-Allow-Methods: POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type, x-correlation-id
+Vary: Origin
 ```
 
 ## SendGrid Secret Handling

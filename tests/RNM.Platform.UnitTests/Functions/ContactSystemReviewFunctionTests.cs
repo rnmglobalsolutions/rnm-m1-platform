@@ -21,6 +21,7 @@ public sealed class ContactSystemReviewFunctionTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"received\":true", response.ReadBody());
+        Assert.Equal("https://www.rnmglobalsolutions.com", GetSingleHeader(response, "Access-Control-Allow-Origin"));
         Assert.True(emailSender.Requests.Count >= 1);
         var notification = emailSender.Requests[0];
         Assert.Equal("info@rnmglobalsolutions.com", notification.ToEmail);
@@ -162,6 +163,39 @@ public sealed class ContactSystemReviewFunctionTests
         });
     }
 
+    [Fact]
+    public async Task Handle_RejectsDisallowedOrigin()
+    {
+        var emailSender = new FakeEmailSender();
+        var request = CreateValidRequest();
+        request.Headers.Remove("Origin");
+        request.Headers.Add("Origin", "https://evil.example");
+
+        var response = (TestHttpResponseData)await CreateFunction(emailSender).Handle(
+            request,
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.False(response.Headers.TryGetValues("Access-Control-Allow-Origin", out _));
+        Assert.Empty(emailSender.Requests);
+    }
+
+    [Fact]
+    public async Task Handle_OptionsForAllowedOrigin_ReturnsCorsHeaders()
+    {
+        var request = new TestHttpRequestData(
+            "OPTIONS",
+            "https://platform.example.com/api/contact/system-review");
+        request.Headers.Add("Origin", "https://rnmglobalsolutions.com");
+
+        var response = (TestHttpResponseData)await CreateFunction().Handle(request, CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("https://rnmglobalsolutions.com", GetSingleHeader(response, "Access-Control-Allow-Origin"));
+        Assert.Equal("POST, OPTIONS", GetSingleHeader(response, "Access-Control-Allow-Methods"));
+        Assert.Equal("Content-Type, x-correlation-id", GetSingleHeader(response, "Access-Control-Allow-Headers"));
+    }
+
     private static ContactSystemReviewFunction CreateFunction(
         FakeEmailSender? emailSender = null,
         RecordingEventLogger? eventLogger = null)
@@ -208,6 +242,12 @@ public sealed class ContactSystemReviewFunctionTests
             body);
         request.Headers.Add("Origin", "https://www.rnmglobalsolutions.com");
         return request;
+    }
+
+    private static string GetSingleHeader(TestHttpResponseData response, string headerName)
+    {
+        Assert.True(response.Headers.TryGetValues(headerName, out var values));
+        return Assert.Single(values);
     }
 
     private sealed class FakeEmailSender : IEmailSender

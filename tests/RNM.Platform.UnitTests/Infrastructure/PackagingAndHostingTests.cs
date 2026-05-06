@@ -58,15 +58,13 @@ public sealed class PackagingAndHostingTests
     }
 
     [Fact]
-    public void FunctionAppBicep_ConfiguresRnmWebsiteCorsWithoutWildcard()
+    public void FunctionAppBicep_DoesNotConfigureAppWideCors()
     {
         var bicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "functionApp.bicep");
         var bicep = File.ReadAllText(bicepPath);
 
-        Assert.Contains("'https://www.rnmglobalsolutions.com'", bicep);
-        Assert.Contains("'https://rnmglobalsolutions.com'", bicep);
-        Assert.Contains("allowedOrigins: allowedCorsOrigins", bicep);
-        Assert.Contains("supportCredentials: false", bicep);
+        Assert.DoesNotContain("allowedCorsOrigins", bicep);
+        Assert.DoesNotContain("cors:", bicep);
         Assert.DoesNotContain("'*'", bicep);
     }
 

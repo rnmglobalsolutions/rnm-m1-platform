@@ -13,6 +13,8 @@ Import `docs/postman/RNM.Platform.M1.postman_collection.json` into Postman and c
 | `twilioSignature` | Twilio-generated request signature |
 | `correlationId` | Optional request correlation id |
 | `testEmail` | Recipient for the test email endpoint |
+| `contactOrigin` | Allowed browser origin for the public contact endpoint |
+| `contactEmail` | Email address used in contact form endpoint tests |
 
 ## GET `/api/health`
 
@@ -111,6 +113,76 @@ Expected success:
 ```
 
 This endpoint is available outside production by default. In production, it only runs when `RNM_ENABLE_TEST_EMAIL_ENDPOINT=true` is explicitly configured.
+
+## POST `/api/contact/system-review`
+
+Public RNM website contact form endpoint for system review requests.
+
+This endpoint is anonymous and intentionally does not use `x-rnm-api-key`. Browser CORS is enforced in `ContactSystemReviewFunction` itself, not through Function App global CORS, so the restriction applies only to this route.
+
+Allowed browser origins:
+
+```text
+https://www.rnmglobalsolutions.com
+https://rnmglobalsolutions.com
+```
+
+Headers:
+
+```text
+Content-Type: application/json
+Origin: https://www.rnmglobalsolutions.com
+x-correlation-id: <optional-correlation-id>
+```
+
+Body:
+
+```json
+{
+  "fullName": "Jane Founder",
+  "email": "jane@example.com",
+  "phone": "+15551234567",
+  "preferredChannels": "Email",
+  "currentTools": "CRM, spreadsheets",
+  "workflowNeedsImprovement": "We miss follow-ups when leads come in after hours.",
+  "website": "https://example.com",
+  "companyWebsiteConfirm": ""
+}
+```
+
+Expected success:
+
+```json
+{
+  "received": true,
+  "correlationId": "<correlation-id>"
+}
+```
+
+`companyWebsiteConfirm` is a honeypot field and must stay empty. When it is filled, the endpoint returns the same safe success response and does not send email.
+
+## OPTIONS `/api/contact/system-review`
+
+Route-level CORS preflight for the public contact endpoint.
+
+Headers:
+
+```text
+Origin: https://www.rnmglobalsolutions.com
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: Content-Type, x-correlation-id
+```
+
+Expected successful preflight response includes:
+
+```text
+Access-Control-Allow-Origin: https://www.rnmglobalsolutions.com
+Access-Control-Allow-Methods: POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type, x-correlation-id
+Vary: Origin
+```
+
+Calls from other browser origins do not receive allow headers and are rejected by the endpoint for POST requests. Non-browser callers such as Postman are not governed by browser CORS enforcement, but the endpoint still validates the `Origin` header when one is provided.
 
 ## Internal API Key Resolution
 

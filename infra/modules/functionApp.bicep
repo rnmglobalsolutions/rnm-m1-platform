@@ -37,12 +37,6 @@ param internalApiKeySecretName string = 'rnm-internal-api-key'
 @description('SendGrid API key secret name in Key Vault. The secret value is created outside Bicep.')
 param sendGridApiKeySecretName string = 'sendgrid-api-key'
 
-@description('Allowed CORS origins. Do not use wildcard origins.')
-param allowedCorsOrigins array = [
-  'https://www.rnmglobalsolutions.com'
-  'https://rnmglobalsolutions.com'
-]
-
 @description('Additional application settings.')
 param additionalAppSettings object = {}
 
@@ -128,10 +122,6 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       ]
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
-      cors: {
-        allowedOrigins: allowedCorsOrigins
-        supportCredentials: false
-      }
     }
   }
 }
