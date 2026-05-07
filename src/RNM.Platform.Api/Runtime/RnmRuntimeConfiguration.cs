@@ -8,8 +8,11 @@ internal sealed record RnmRuntimeConfiguration(
     string ConfigRoot,
     string InternalApiKey,
     string? KeyVaultUri,
-    bool AllowEnvironmentSecretFallback)
+    bool AllowEnvironmentSecretFallback,
+    bool RequireInternalApiKey)
 {
+    private const string RequireInternalApiKeyEnvironmentVariable = "RNM_REQUIRE_INTERNAL_API_KEY";
+
     public bool IsLocal =>
         string.Equals(EnvironmentName, "Development", StringComparison.OrdinalIgnoreCase)
         || string.Equals(EnvironmentName, "Local", StringComparison.OrdinalIgnoreCase);
@@ -26,6 +29,10 @@ internal sealed record RnmRuntimeConfiguration(
             string.Equals(
                 Environment.GetEnvironmentVariable("RNM_ALLOW_ENV_SECRET_FALLBACK"),
                 "true",
+                StringComparison.OrdinalIgnoreCase),
+            !string.Equals(
+                Environment.GetEnvironmentVariable(RequireInternalApiKeyEnvironmentVariable),
+                "false",
                 StringComparison.OrdinalIgnoreCase));
     }
 
@@ -53,7 +60,7 @@ internal sealed record RnmRuntimeConfiguration(
             throw new InvalidOperationException("RNM_CONFIG_ROOT is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(InternalApiKey))
+        if (RequireInternalApiKey && string.IsNullOrWhiteSpace(InternalApiKey))
         {
             throw new InvalidOperationException($"{ApiSecretNames.InternalApiKeySetting} is required.");
         }

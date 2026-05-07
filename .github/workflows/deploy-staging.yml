@@ -164,6 +164,28 @@ jobs:
             --output json
 
           for attempt in 1 2 3 4 5 6; do
+            warmup_status_code="$(curl --silent --output contact-warmup-response.txt --write-out '%{http_code}' \
+              -X POST "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
+              -H "Origin: https://www.rnmglobalsolutions.com" \
+              -H "Content-Type: application/json" \
+              --data '{"fullName":"Deployment Smoke Test","email":"smoke@example.com","phone":"","preferredChannels":"","currentTools":"","workflowNeedsImprovement":"Deployment smoke test.","website":"","companyWebsiteConfirm":"deployment-smoke-test"}')"
+
+            if [ "$warmup_status_code" = "200" ]; then
+              break
+            fi
+
+            if [ "$attempt" = "6" ]; then
+              echo "Contact Function App did not become ready. Status code: $warmup_status_code"
+              cat contact-warmup-response.txt
+              exit 1
+            fi
+
+            echo "Contact Function App not ready yet. Warmup attempt $attempt returned $warmup_status_code."
+            cat contact-warmup-response.txt
+            sleep 10
+          done
+
+          for attempt in 1 2 3 4 5 6; do
             status_code="$(curl --silent --include --output contact-cors-response.txt --write-out '%{http_code}' \
               -X OPTIONS "https://$CONTACT_FUNCTION_APP_HOST/api/contact/system-review" \
               -H "Origin: https://www.rnmglobalsolutions.com" \

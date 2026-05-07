@@ -46,16 +46,44 @@ public sealed class RuntimeConfigurationTests
         Assert.IsType<CompositeSecretProvider>(provider);
     }
 
+    [Fact]
+    public void Validate_RequiresInternalApiKey_ByDefault()
+    {
+        var configuration = CreateConfiguration(
+            "dev",
+            "https://example-vault.vault.azure.net/",
+            internalApiKey: string.Empty);
+
+        var exception = Assert.Throws<InvalidOperationException>(configuration.Validate);
+
+        Assert.Equal("RNM_INTERNAL_API_KEY_SECRET_NAME is required.", exception.Message);
+    }
+
+    [Fact]
+    public void Validate_AllowsMissingInternalApiKey_WhenRequirementDisabled()
+    {
+        var configuration = CreateConfiguration(
+            "dev",
+            "https://example-vault.vault.azure.net/",
+            internalApiKey: string.Empty,
+            requireInternalApiKey: false);
+
+        configuration.Validate();
+    }
+
     private static RnmRuntimeConfiguration CreateConfiguration(
         string environmentName,
         string? keyVaultUri,
-        bool allowFallback = false)
+        bool allowFallback = false,
+        string internalApiKey = "internal-api-key",
+        bool requireInternalApiKey = true)
     {
         return new RnmRuntimeConfiguration(
             environmentName,
             "../../../config",
-            "internal-api-key",
+            internalApiKey,
             keyVaultUri,
-            allowFallback);
+            allowFallback,
+            requireInternalApiKey);
     }
 }
