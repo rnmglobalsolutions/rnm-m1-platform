@@ -55,6 +55,7 @@ var functionAppName = '${resourceBaseName}-func'
 var contactFunctionAppName = '${resourceBaseName}-contact-func'
 var mainFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.ContactSystemReviewFunction.Disabled': 'true'
+  RNM_REQUIRE_INTERNAL_API_KEY: 'true'
 })
 var contactFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.Health.Disabled': 'true'
@@ -62,6 +63,7 @@ var contactFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'
   'AzureWebJobs.VapiInboundWebhook.Disabled': 'true'
   RNM_CONTACT_ALLOWED_ORIGINS: join(contactFunctionAllowedCorsOrigins, ',')
+  RNM_REQUIRE_INTERNAL_API_KEY: 'false'
 })
 
 module storageAccount 'modules/storageAccount.bicep' = {

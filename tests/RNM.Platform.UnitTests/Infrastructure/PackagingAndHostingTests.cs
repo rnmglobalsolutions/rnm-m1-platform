@@ -33,7 +33,7 @@ public sealed class PackagingAndHostingTests
         Assert.DoesNotContain("name: 'Y1'", bicep);
         Assert.Contains("type: 'SystemAssignedIdentity'", bicep);
         Assert.Contains("name: 'dotnet-isolated'", bicep);
-        Assert.Contains("version: '10.0'", bicep);
+        Assert.Contains("version: '10'", bicep);
         Assert.Contains("instanceMemoryMB int = 512", bicep);
     }
 
@@ -89,6 +89,8 @@ public sealed class PackagingAndHostingTests
         Assert.Contains("'AzureWebJobs.TestEmailSend.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.Health.Disabled': 'true'", bicep);
         Assert.Contains("RNM_CONTACT_ALLOWED_ORIGINS: join(contactFunctionAllowedCorsOrigins, ',')", bicep);
+        Assert.Contains("RNM_REQUIRE_INTERNAL_API_KEY: 'true'", bicep);
+        Assert.Contains("RNM_REQUIRE_INTERNAL_API_KEY: 'false'", bicep);
         Assert.Contains("includeInternalApiKeySecretReference: true", bicep);
         Assert.Contains("includeInternalApiKeySecretReference: false", bicep);
     }
