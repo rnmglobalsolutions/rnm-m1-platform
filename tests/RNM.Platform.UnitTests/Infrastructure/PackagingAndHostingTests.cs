@@ -33,7 +33,7 @@ public sealed class PackagingAndHostingTests
         Assert.DoesNotContain("name: 'Y1'", bicep);
         Assert.Contains("type: 'SystemAssignedIdentity'", bicep);
         Assert.Contains("name: 'dotnet-isolated'", bicep);
-        Assert.Contains("version: '10'", bicep);
+        Assert.Contains("version: '10.0'", bicep);
         Assert.Contains("instanceMemoryMB int = 512", bicep);
     }
 
