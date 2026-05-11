@@ -123,6 +123,45 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
 
             var serviceType = request.ServiceType ?? GetFieldValue(qualificationResult, "serviceNeed");
             var preferredWindow = request.PreferredWindow ?? GetFieldValue(qualificationResult, "preferredTime");
+
+            var contactResult = await crmApplicationService
+                .EnsureContactAsync(
+                    new CrmContactEnsureRequest(
+                        tenantId,
+                        verticalId,
+                        correlationId,
+                        qualificationResult),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            latestCrmState = contactResult.State;
+
+            await LogAsync(
+                    TelemetryEventNames.WorkflowCrmCompleted,
+                    correlationId,
+                    tenantId,
+                    verticalId,
+                    "contact_ensured",
+                    qualificationResult.State,
+                    qualificationResult.ServiceAreaDecision.State,
+                    null,
+                    contactResult.State,
+                    null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!contactResult.Succeeded || string.IsNullOrWhiteSpace(contactResult.ProviderContactId))
+            {
+                var stopped = new InboundBookingWorkflowResult(
+                    InboundBookingWorkflowOutcome.CrmStopped,
+                    qualificationResult.State,
+                    qualificationResult.ServiceAreaDecision.State,
+                    null,
+                    contactResult.State,
+                    null);
+                await LogCompletedAsync(correlationId, tenantId, verticalId, stopped, cancellationToken).ConfigureAwait(false);
+                return stopped;
+            }
+
             var bookingResult = await bookingApplicationService
                 .ProcessAsync(
                     new BookingRequest(
@@ -134,7 +173,8 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                         serviceType,
                         preferredWindow,
                         request.SelectedSlot,
-                        request.AutoSelectFirstAvailableSlot),
+                        request.AutoSelectFirstAvailableSlot,
+                        contactResult.ProviderContactId),
                     cancellationToken)
                 .ConfigureAwait(false);
             latestBookingState = bookingResult.State;
@@ -155,23 +195,26 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
 
             if (!bookingResult.IsBooked)
             {
-                var stopped = InboundBookingWorkflowResult.Stopped(
+                var stopped = new InboundBookingWorkflowResult(
                     InboundBookingWorkflowOutcome.BookingStopped,
                     qualificationResult.State,
                     qualificationResult.ServiceAreaDecision.State,
-                    bookingResult.State);
+                    bookingResult.State,
+                    latestCrmState,
+                    ConfirmationState: null);
                 await LogCompletedAsync(correlationId, tenantId, verticalId, stopped, cancellationToken).ConfigureAwait(false);
                 return stopped;
             }
 
             var crmResult = await crmApplicationService
-                .SyncBookedLeadAsync(
-                    new CrmSyncRequest(
+                .CompleteBookedLeadSyncAsync(
+                    new CrmPostBookingSyncRequest(
                         tenantId,
                         verticalId,
                         correlationId,
                         qualificationResult,
                         bookingResult,
+                        contactResult.ProviderContactId,
                         serviceType),
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -403,7 +446,8 @@ public enum InboundBookingWorkflowOutcome
     Completed = 0,
     QualificationStopped = 1,
     BookingStopped = 2,
-    Failed = 3
+    Failed = 3,
+    CrmStopped = 4
 }
 
 public enum ConfirmationWorkflowState

@@ -177,7 +177,8 @@ public sealed class BookingApplicationService
             request.QualificationResult.LeadData,
             selectedSlot,
             request.ServiceType,
-            request.PreferredWindow);
+            request.PreferredWindow,
+            request.ProviderContactId);
     }
 
     private static AvailableSlot? FindAvailableSlot(

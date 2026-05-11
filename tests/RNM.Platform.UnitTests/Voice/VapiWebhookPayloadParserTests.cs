@@ -104,6 +104,46 @@ public sealed class VapiWebhookPayloadParserTests
     }
 
     [Fact]
+    public void Parse_CurrentVapiToolCallList_ReturnsTypedEnvelope()
+    {
+        var parser = new VapiWebhookPayloadParser();
+
+        var result = parser.Parse(
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": {
+                  "id": "call-123",
+                  "customer": { "number": "+15551234567" }
+                },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "book_hvac_appointment",
+                    "arguments": {
+                      "serviceNeed": "AC repair",
+                      "zipCode": "75001"
+                    }
+                  }
+                ]
+              }
+            }
+            """,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Envelope);
+        Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
+        Assert.Equal("call-123", result.Envelope.CallId);
+        Assert.Equal("+15551234567", result.Envelope.CallerPhoneNumber);
+        Assert.NotNull(result.Envelope.ToolCall);
+        Assert.Equal("tool-1", result.Envelope.ToolCall.ToolCallId);
+        Assert.Equal("book_hvac_appointment", result.Envelope.ToolCall.Name);
+        Assert.Contains("serviceNeed", result.Envelope.ToolCall.ArgumentsJson);
+    }
+
+    [Fact]
     public void Parse_MalformedJson_ReturnsInvalidResult()
     {
         var parser = new VapiWebhookPayloadParser();

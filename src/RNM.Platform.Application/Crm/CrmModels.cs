@@ -54,6 +54,21 @@ public sealed record CrmOperationResult(
     CrmFailureReason? FailureReason = null,
     string? Message = null);
 
+public sealed record CrmContactEnsureRequest(
+    string TenantId,
+    string VerticalId,
+    string CorrelationId,
+    QualificationResult QualificationResult);
+
+public sealed record CrmPostBookingSyncRequest(
+    string TenantId,
+    string VerticalId,
+    string CorrelationId,
+    QualificationResult QualificationResult,
+    BookingDecisionResult BookingDecision,
+    string ProviderContactId,
+    string? ServiceType = null);
+
 public sealed record CrmSyncRequest(
     string TenantId,
     string VerticalId,

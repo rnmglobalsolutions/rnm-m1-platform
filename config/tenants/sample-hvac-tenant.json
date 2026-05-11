@@ -1,7 +1,7 @@
 {
   "tenantId": "sample-hvac-tenant",
   "verticalId": "hvac",
-  "businessName": "Sample HVAC Company",
+  "businessName": "RNM HVAC Co.",
   "timeZone": "America/Chicago",
   "serviceArea": {
     "zipCodes": ["75001", "75002"],

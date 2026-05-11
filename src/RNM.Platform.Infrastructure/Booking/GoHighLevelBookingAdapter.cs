@@ -78,7 +78,8 @@ public sealed class GoHighLevelBookingAdapter : IBookingAdapter
         try
         {
             var credentials = await GetCredentialsAsync(request.TenantId, cancellationToken).ConfigureAwait(false);
-            var providerContactId = GetFieldValue(request, "providerContactId")
+            var providerContactId = request.ProviderContactId
+                ?? GetFieldValue(request, "providerContactId")
                 ?? GetFieldValue(request, "contactId");
             if (credentials is null
                 || string.IsNullOrWhiteSpace(credentials.CalendarId)
