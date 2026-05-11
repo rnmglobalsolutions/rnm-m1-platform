@@ -35,6 +35,8 @@ public sealed class InboundBookingWorkflowTests
         Assert.Equal(ConfirmationWorkflowState.Completed, result.ConfirmationState);
         Assert.Equal(1, harness.BookingAdapter.CreateBookingCallCount);
         Assert.Equal(1, harness.CrmAdapter.UpsertCallCount);
+        Assert.Equal(1, harness.CrmAdapter.LinkBookingCallCount);
+        Assert.Equal("contact-123", harness.BookingAdapter.LastCreateBookingRequest?.ProviderContactId);
         Assert.Equal(1, harness.SmsSender.SendCallCount);
         Assert.Equal(1, harness.EmailSender.SendCallCount);
         Assert.Contains(harness.EventLogger.Events, EventNamed(TelemetryEventNames.WorkflowCompleted));
@@ -94,14 +96,14 @@ public sealed class InboundBookingWorkflowTests
         Assert.True(result.WorkflowCompleted);
         Assert.False(result.BookingSucceeded);
         Assert.Equal(BookingDecisionState.NoAvailability, result.BookingState);
-        Assert.Null(result.CrmState);
+        Assert.Equal(CrmSyncState.Succeeded, result.CrmState);
         Assert.Null(result.ConfirmationState);
-        Assert.Equal(0, harness.CrmAdapter.UpsertCallCount);
+        Assert.Equal(1, harness.CrmAdapter.UpsertCallCount);
         Assert.Equal(0, harness.SmsSender.SendCallCount);
     }
 
     [Fact]
-    public async Task ProcessAsync_SendsSms_WhenCrmFailsAfterBookingSuccess()
+    public async Task ProcessAsync_StopsBeforeBooking_WhenCrmContactCannotBeCreated()
     {
         var crmAdapter = new FakeCrmAdapter
         {
@@ -115,6 +117,32 @@ public sealed class InboundBookingWorkflowTests
 
         var result = await harness.Workflow.ProcessAsync(CreateWorkflowRequest(), CancellationToken.None);
 
+        Assert.Equal(InboundBookingWorkflowOutcome.CrmStopped, result.Outcome);
+        Assert.True(result.WorkflowCompleted);
+        Assert.False(result.BookingSucceeded);
+        Assert.False(result.CrmSucceeded);
+        Assert.False(result.ConfirmationSucceeded);
+        Assert.Null(result.BookingState);
+        Assert.Equal(CrmSyncState.Failed, result.CrmState);
+        Assert.Equal(0, harness.BookingAdapter.CreateBookingCallCount);
+        Assert.Equal(0, harness.SmsSender.SendCallCount);
+        Assert.Contains(harness.EventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.WorkflowCompleted
+            && recordedEvent.Properties.TryGetValue("outcome", out var outcome)
+            && outcome == InboundBookingWorkflowOutcome.CrmStopped.ToString());
+    }
+
+    [Fact]
+    public async Task ProcessAsync_SendsSms_WhenPostBookingCrmSyncFails()
+    {
+        var crmAdapter = new FakeCrmAdapter
+        {
+            BookingLinkResult = new CrmOperationResult(false, CrmFailureReason.BookingLinkFailed)
+        };
+        var harness = CreateHarness(crmAdapter: crmAdapter);
+
+        var result = await harness.Workflow.ProcessAsync(CreateWorkflowRequest(), CancellationToken.None);
+
         Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
         Assert.True(result.WorkflowCompleted);
         Assert.True(result.BookingSucceeded);
@@ -122,6 +150,7 @@ public sealed class InboundBookingWorkflowTests
         Assert.True(result.ConfirmationSucceeded);
         Assert.Equal(BookingDecisionState.Booked, result.BookingState);
         Assert.Equal(CrmSyncState.Failed, result.CrmState);
+        Assert.Equal(1, harness.BookingAdapter.CreateBookingCallCount);
         Assert.Equal(1, harness.SmsSender.SendCallCount);
         Assert.Contains(harness.EventLogger.Events, recordedEvent =>
             recordedEvent.EventName == TelemetryEventNames.WorkflowCrmCompleted
@@ -365,6 +394,8 @@ public sealed class InboundBookingWorkflowTests
 
         public int CreateBookingCallCount { get; private set; }
 
+        public CreateBookingRequest? LastCreateBookingRequest { get; private set; }
+
         public Task<BookingAvailabilityResult> CheckAvailabilityAsync(
             BookingAvailabilityRequest request,
             CancellationToken cancellationToken)
@@ -378,6 +409,7 @@ public sealed class InboundBookingWorkflowTests
             CancellationToken cancellationToken)
         {
             CreateBookingCallCount++;
+            LastCreateBookingRequest = request;
             return Task.FromResult(CreateResult);
         }
     }
@@ -387,7 +419,12 @@ public sealed class InboundBookingWorkflowTests
         public CrmContactUpsertResult UpsertResult { get; init; } =
             new(Succeeded: true, Created: true, ProviderContactId: "contact-123");
 
+        public CrmOperationResult BookingLinkResult { get; init; } =
+            new(Succeeded: true);
+
         public int UpsertCallCount { get; private set; }
+
+        public int LinkBookingCallCount { get; private set; }
 
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
@@ -415,7 +452,13 @@ public sealed class InboundBookingWorkflowTests
         public Task<CrmOperationResult> LinkBookingToContactAsync(
             CrmBookingLinkRequest request,
             CancellationToken cancellationToken) =>
-            Task.FromResult(new CrmOperationResult(true));
+            Task.FromResult(RecordBookingLink());
+
+        private CrmOperationResult RecordBookingLink()
+        {
+            LinkBookingCallCount++;
+            return BookingLinkResult;
+        }
     }
 
     private sealed class FakeSmsSender : ISmsSender

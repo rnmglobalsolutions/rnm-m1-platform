@@ -27,10 +27,50 @@ public sealed class CrmApplicationService
     {
         if (!request.BookingDecision.IsBooked || string.IsNullOrWhiteSpace(request.BookingDecision.ProviderBookingId))
         {
-            return await SkipAsync(request, CrmFailureReason.BookingNotCompleted, cancellationToken)
+            return await SkipAsync(
+                    new CrmPostBookingSyncRequest(
+                        request.TenantId,
+                        request.VerticalId,
+                        request.CorrelationId,
+                        request.QualificationResult,
+                        request.BookingDecision,
+                        ProviderContactId: string.Empty,
+                        request.ServiceType),
+                    CrmFailureReason.BookingNotCompleted,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
+        var ensureResult = await EnsureContactAsync(
+                new CrmContactEnsureRequest(
+                    request.TenantId,
+                    request.VerticalId,
+                    request.CorrelationId,
+                    request.QualificationResult),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!ensureResult.Succeeded || string.IsNullOrWhiteSpace(ensureResult.ProviderContactId))
+        {
+            return ensureResult;
+        }
+
+        return await CompleteBookedLeadSyncAsync(
+                new CrmPostBookingSyncRequest(
+                    request.TenantId,
+                    request.VerticalId,
+                    request.CorrelationId,
+                    request.QualificationResult,
+                    request.BookingDecision,
+                    ensureResult.ProviderContactId,
+                    request.ServiceType),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<CrmSyncResult> EnsureContactAsync(
+        CrmContactEnsureRequest request,
+        CancellationToken cancellationToken)
+    {
         var phoneNumber = request.QualificationResult.LeadData.CallerPhoneNumber;
         var email = GetFieldValue(request, "email");
         if (string.IsNullOrWhiteSpace(phoneNumber) && string.IsNullOrWhiteSpace(email))
@@ -98,6 +138,26 @@ public sealed class CrmApplicationService
                 cancellationToken)
             .ConfigureAwait(false);
 
+        return new CrmSyncResult(CrmSyncState.Succeeded, contactId);
+    }
+
+    public async Task<CrmSyncResult> CompleteBookedLeadSyncAsync(
+        CrmPostBookingSyncRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.BookingDecision.IsBooked || string.IsNullOrWhiteSpace(request.BookingDecision.ProviderBookingId))
+        {
+            return await SkipAsync(request, CrmFailureReason.BookingNotCompleted, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ProviderContactId))
+        {
+            return await FailAsync(request, CrmFailureReason.MissingProviderContactId, null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var contactId = request.ProviderContactId;
         var noteResult = await TryOperationAsync(
                 () => crmAdapter.AddInteractionNoteAsync(CreateNoteRequest(request, contactId), cancellationToken))
             .ConfigureAwait(false);
@@ -140,7 +200,7 @@ public sealed class CrmApplicationService
     }
 
     private static CrmContactLookupRequest CreateLookupRequest(
-        CrmSyncRequest request,
+        CrmContactEnsureRequest request,
         string? phoneNumber,
         string? email)
     {
@@ -152,7 +212,7 @@ public sealed class CrmApplicationService
     }
 
     private static CrmContactUpsertRequest CreateUpsertRequest(
-        CrmSyncRequest request,
+        CrmContactEnsureRequest request,
         CrmContactLookupResult lookupResult,
         string? phoneNumber,
         string? email)
@@ -170,7 +230,7 @@ public sealed class CrmApplicationService
     }
 
     private static CrmInteractionNoteRequest CreateNoteRequest(
-        CrmSyncRequest request,
+        CrmPostBookingSyncRequest request,
         string providerContactId)
     {
         var note = $"Inbound call booking outcome: {request.BookingDecision.State}; qualification: {request.QualificationResult.State}.";
@@ -182,7 +242,7 @@ public sealed class CrmApplicationService
     }
 
     private static CrmTagRequest CreateTagRequest(
-        CrmSyncRequest request,
+        CrmPostBookingSyncRequest request,
         string providerContactId)
     {
         var tags = new List<string>
@@ -206,7 +266,7 @@ public sealed class CrmApplicationService
     }
 
     private static CrmBookingLinkRequest CreateBookingLinkRequest(
-        CrmSyncRequest request,
+        CrmPostBookingSyncRequest request,
         string providerContactId,
         string providerBookingId)
     {
@@ -217,7 +277,7 @@ public sealed class CrmApplicationService
             providerBookingId);
     }
 
-    private static string? GetFieldValue(CrmSyncRequest request, string fieldName)
+    private static string? GetFieldValue(CrmContactEnsureRequest request, string fieldName)
     {
         return request.QualificationResult.LeadData.Fields.TryGetValue(fieldName, out var value)
             ? value
@@ -259,7 +319,7 @@ public sealed class CrmApplicationService
     }
 
     private async Task<CrmSyncResult> FailAsync(
-        CrmSyncRequest request,
+        CrmContactEnsureRequest request,
         CrmFailureReason reason,
         string? providerContactId,
         CancellationToken cancellationToken)
@@ -271,7 +331,7 @@ public sealed class CrmApplicationService
     }
 
     private async Task<CrmSyncResult> SkipAsync(
-        CrmSyncRequest request,
+        CrmContactEnsureRequest request,
         CrmFailureReason reason,
         CancellationToken cancellationToken)
     {
@@ -283,7 +343,56 @@ public sealed class CrmApplicationService
 
     private async Task LogAsync(
         string eventName,
-        CrmSyncRequest request,
+        CrmContactEnsureRequest request,
+        CrmSyncResult? result,
+        CancellationToken cancellationToken)
+    {
+        var properties = new SafeTelemetryProperties()
+            .Add("correlationId", request.CorrelationId)
+            .Add("tenantId", request.TenantId)
+            .Add("verticalId", request.VerticalId)
+            .Add("qualificationState", request.QualificationResult.State.ToString())
+            .AddIf(result is not null, "crmState", result?.State.ToString())
+            .AddIf(result?.FailureReason is not null, "failureReason", result?.FailureReason.ToString())
+            .ToDictionary();
+
+        try
+        {
+            await eventLogger.LogEventAsync(eventName, properties, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // CRM telemetry is best-effort.
+        }
+    }
+
+    private async Task<CrmSyncResult> FailAsync(
+        CrmPostBookingSyncRequest request,
+        CrmFailureReason reason,
+        string? providerContactId,
+        CancellationToken cancellationToken)
+    {
+        var failed = new CrmSyncResult(CrmSyncState.Failed, providerContactId, reason);
+        await LogAsync(TelemetryEventNames.CrmFailed, request, failed, cancellationToken)
+            .ConfigureAwait(false);
+        return failed;
+    }
+
+    private async Task<CrmSyncResult> SkipAsync(
+        CrmPostBookingSyncRequest request,
+        CrmFailureReason reason,
+        CancellationToken cancellationToken)
+    {
+        var skipped = new CrmSyncResult(CrmSyncState.Skipped, ProviderContactId: null, reason);
+        await LogAsync(TelemetryEventNames.CrmSkipped, request, skipped, cancellationToken)
+            .ConfigureAwait(false);
+        return skipped;
+    }
+
+    private async Task LogAsync(
+        string eventName,
+        CrmPostBookingSyncRequest request,
         CrmSyncResult? result,
         CancellationToken cancellationToken)
     {

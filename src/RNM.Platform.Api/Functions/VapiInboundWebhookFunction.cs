@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using RNM.Platform.Api.Http;
@@ -184,6 +185,39 @@ public sealed class VapiInboundWebhookFunction
 
             await LogWebhookAsync(apiTelemetryEventName, correlationId, null, tenantContext.TenantId, "vapi", workflowOutcome, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (parseResult.Envelope.ToolCall is not null)
+            {
+                var toolResult = JsonSerializer.Serialize(new
+                {
+                    accepted = true,
+                    processed,
+                    correlationId,
+                    tenantId = tenantContext.TenantId,
+                    eventType = inboundCallEvent.EventType.ToString(),
+                    outcome = workflowOutcome,
+                    bookingSucceeded = workflowResult.BookingSucceeded,
+                    crmSucceeded = workflowResult.CrmSucceeded,
+                    confirmationSucceeded = workflowResult.ConfirmationSucceeded
+                });
+
+                return responseWriter.WriteJson(
+                    request,
+                    HttpStatusCode.OK,
+                    new
+                    {
+                        results = new[]
+                        {
+                            new
+                            {
+                                name = parseResult.Envelope.ToolCall.Name,
+                                toolCallId = parseResult.Envelope.ToolCall.ToolCallId,
+                                result = toolResult
+                            }
+                        }
+                    },
+                    correlationId);
+            }
 
             return responseWriter.WriteJson(
                 request,

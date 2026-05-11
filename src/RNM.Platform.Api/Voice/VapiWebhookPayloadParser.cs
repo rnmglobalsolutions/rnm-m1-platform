@@ -103,6 +103,10 @@ public sealed class VapiWebhookPayloadParser
     {
         var toolCalls = TryGetArray(root, "toolCalls")
             ?? TryGetArray(message, "toolCalls")
+            ?? TryGetArray(root, "toolCallList")
+            ?? TryGetArray(message, "toolCallList")
+            ?? TryGetArray(root, "toolWithToolCallList")
+            ?? TryGetArray(message, "toolWithToolCallList")
             ?? TryGetArray(root, "tool_calls")
             ?? TryGetArray(message, "tool_calls");
 
@@ -125,17 +129,25 @@ public sealed class VapiWebhookPayloadParser
     private static VapiToolCallRequest ToToolCall(JsonElement toolCall)
     {
         var function = TryGetObject(toolCall, "function");
+        var nestedToolCall = TryGetObject(toolCall, "toolCall");
         return new VapiToolCallRequest(
             FirstNonEmpty(
                 TryGetSafeScalarString(toolCall, "id"),
                 TryGetSafeScalarString(toolCall, "toolCallId"),
+                TryGetSafeScalarString(nestedToolCall, "id"),
+                TryGetSafeScalarString(nestedToolCall, "toolCallId"),
                 TryGetSafeScalarString(toolCall, "callId")),
             FirstNonEmpty(
                 TryGetSafeScalarString(toolCall, "name"),
+                TryGetSafeScalarString(nestedToolCall, "name"),
                 TryGetSafeScalarString(function, "name")),
             FirstNonEmpty(
                 TryGetRawJson(toolCall, "arguments"),
-                TryGetRawJson(function, "arguments")));
+                TryGetRawJson(toolCall, "parameters"),
+                TryGetRawJson(nestedToolCall, "arguments"),
+                TryGetRawJson(nestedToolCall, "parameters"),
+                TryGetRawJson(function, "arguments"),
+                TryGetRawJson(function, "parameters")));
     }
 
     private static JsonElement? TryGetObject(JsonElement? element, string name)
