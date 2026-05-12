@@ -3,13 +3,14 @@ using System.Text;
 using System.Text.Json;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
-using RNM.Platform.Application.Ports.Booking;
+using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.GoHighLevel;
+using RNM.Platform.Infrastructure.Providers;
 using RNM.Platform.Infrastructure.Secrets;
 
 namespace RNM.Platform.Infrastructure.Booking;
 
-public sealed class GoHighLevelBookingAdapter : IBookingAdapter
+public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
@@ -25,6 +26,8 @@ public sealed class GoHighLevelBookingAdapter : IBookingAdapter
         this.secretProvider = secretProvider;
         this.httpClient = httpClient;
     }
+
+    public string ProviderName => ProviderNames.GoHighLevelCalendar;
 
     public async Task<BookingAvailabilityResult> CheckAvailabilityAsync(
         BookingAvailabilityRequest request,
@@ -132,7 +135,7 @@ public sealed class GoHighLevelBookingAdapter : IBookingAdapter
             .GetTenantConfigurationAsync(tenantId, cancellationToken)
             .ConfigureAwait(false);
         var secretValue = await secretProvider
-            .GetSecretAsync(tenantConfiguration.SecretNames.BookingApiKey, cancellationToken)
+            .GetSecretAsync(tenantConfiguration.GetBookingCredentialsSecretName(), cancellationToken)
             .ConfigureAwait(false);
 
         return GoHighLevelCredentials.TryParse(secretValue, out var credentials)

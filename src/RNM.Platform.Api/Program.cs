@@ -67,20 +67,36 @@ var host = new HostBuilder()
         services.AddSingleton<BookingApplicationService>();
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
-        services.AddHttpClient<IBookingAdapter, GoHighLevelBookingAdapter>(client =>
+        services.AddSingleton<AzureTableCrmAdapter>();
+        services.AddSingleton<ICrmProviderAdapter>(serviceProvider =>
+            serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
+        services.AddHttpClient<GoogleCalendarBookingAdapter>(client =>
+        {
+            client.BaseAddress = new Uri("https://www.googleapis.com/calendar/v3/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddTransient<IBookingProviderAdapter>(serviceProvider =>
+            serviceProvider.GetRequiredService<GoogleCalendarBookingAdapter>());
+        services.AddHttpClient<GoHighLevelBookingAdapter>(client =>
         {
             client.BaseAddress = RnmRuntimeConfiguration.CreateUriFromEnvironment(
                 "RNM_GHL_BASE_URL",
                 "https://services.leadconnectorhq.com/");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-        services.AddHttpClient<ICrmAdapter, GoHighLevelCrmAdapter>(client =>
+        services.AddTransient<IBookingProviderAdapter>(serviceProvider =>
+            serviceProvider.GetRequiredService<GoHighLevelBookingAdapter>());
+        services.AddHttpClient<GoHighLevelCrmAdapter>(client =>
         {
             client.BaseAddress = RnmRuntimeConfiguration.CreateUriFromEnvironment(
                 "RNM_GHL_BASE_URL",
                 "https://services.leadconnectorhq.com/");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
+        services.AddTransient<ICrmProviderAdapter>(serviceProvider =>
+            serviceProvider.GetRequiredService<GoHighLevelCrmAdapter>());
+        services.AddSingleton<IBookingAdapter, ConfiguredBookingAdapter>();
+        services.AddSingleton<ICrmAdapter, ConfiguredCrmAdapter>();
         services.AddHttpClient<ISmsSender, TwilioSmsSender>(client =>
         {
             client.BaseAddress = new Uri("https://api.twilio.com/2010-04-01/");

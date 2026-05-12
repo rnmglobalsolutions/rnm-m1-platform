@@ -3,13 +3,14 @@ using System.Text;
 using System.Text.Json;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Crm;
-using RNM.Platform.Application.Ports.Crm;
+using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.GoHighLevel;
+using RNM.Platform.Infrastructure.Providers;
 using RNM.Platform.Infrastructure.Secrets;
 
 namespace RNM.Platform.Infrastructure.Crm;
 
-public sealed class GoHighLevelCrmAdapter : ICrmAdapter
+public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
@@ -25,6 +26,8 @@ public sealed class GoHighLevelCrmAdapter : ICrmAdapter
         this.secretProvider = secretProvider;
         this.httpClient = httpClient;
     }
+
+    public string ProviderName => ProviderNames.GoHighLevel;
 
     public async Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
         CrmContactLookupRequest request,
@@ -145,7 +148,7 @@ public sealed class GoHighLevelCrmAdapter : ICrmAdapter
             .GetTenantConfigurationAsync(tenantId, cancellationToken)
             .ConfigureAwait(false);
         var secretValue = await secretProvider
-            .GetSecretAsync(tenantConfiguration.SecretNames.CrmApiKey, cancellationToken)
+            .GetSecretAsync(tenantConfiguration.GetCrmCredentialsSecretName(), cancellationToken)
             .ConfigureAwait(false);
 
         return GoHighLevelCredentials.TryParse(secretValue, out var credentials)
