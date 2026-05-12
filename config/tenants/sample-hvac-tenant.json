@@ -9,14 +9,16 @@
     "referralMessage": "We do not currently service that area, but we can have the office follow up if a referral is available."
   },
   "providers": {
-    "crmProvider": "GoHighLevel",
-    "bookingProvider": "GoHighLevelCalendar",
+    "crmProvider": "AzureTable",
+    "bookingProvider": "GoogleCalendar",
     "smsProvider": "Twilio",
     "emailProvider": "SendGrid"
   },
   "secretNames": {
-    "crmApiKey": "tenant-sample-hvac-ghl-api-key",
-    "bookingApiKey": "tenant-sample-hvac-ghl-api-key",
+    "crmApiKey": "tenant-rnm-hvac-crm-credentials",
+    "bookingApiKey": "tenant-rnm-hvac-google-calendar-credentials",
+    "crmCredentials": "tenant-rnm-hvac-crm-credentials",
+    "bookingCredentials": "tenant-rnm-hvac-google-calendar-credentials",
     "voiceWebhookSecret": "tenant-sample-hvac-vapi-webhook-secret",
     "twilioAccountSid": "tenant-sample-hvac-twilio-account-sid",
     "twilioAuthToken": "tenant-sample-hvac-twilio-auth-token",

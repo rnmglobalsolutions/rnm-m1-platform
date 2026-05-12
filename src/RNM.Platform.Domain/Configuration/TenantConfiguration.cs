@@ -24,7 +24,9 @@ public sealed record SecretNameConfiguration(
     string VoiceWebhookSecret,
     string TwilioAccountSid,
     string TwilioAuthToken,
-    string EmailConnectionString);
+    string EmailConnectionString,
+    string? CrmCredentials = null,
+    string? BookingCredentials = null);
 
 public sealed record CommunicationConfiguration(
     string SmsFromPhoneNumber,

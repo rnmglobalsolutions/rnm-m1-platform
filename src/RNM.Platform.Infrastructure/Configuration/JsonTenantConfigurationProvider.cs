@@ -83,7 +83,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                     SecretNames?.VoiceWebhookSecret ?? SecretNames?.VapiWebhookSecret ?? string.Empty,
                     SecretNames?.TwilioAccountSid ?? string.Empty,
                     SecretNames?.TwilioAuthToken ?? string.Empty,
-                    SecretNames?.EmailConnectionString ?? string.Empty),
+                    SecretNames?.EmailConnectionString ?? string.Empty,
+                    SecretNames?.CrmCredentials,
+                    SecretNames?.BookingCredentials),
                 new CommunicationConfiguration(
                     Communication?.SmsFromPhoneNumber ?? string.Empty,
                     Communication?.EmailFromAddress,
@@ -112,7 +114,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? VapiWebhookSecret,
         string? TwilioAccountSid,
         string? TwilioAuthToken,
-        string? EmailConnectionString);
+        string? EmailConnectionString,
+        string? CrmCredentials,
+        string? BookingCredentials);
 
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,
