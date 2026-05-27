@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using RNM.Platform.Api.Functions;
 using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
@@ -18,7 +20,8 @@ public sealed class EndpointTelemetryTests
     {
         var eventLogger = new RecordingEventLogger();
         var workflow = new RecordingInboundBookingWorkflow();
-        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var processor = new RecordingInboundCallEventProcessor();
+        var function = CreateVapiFunction(eventLogger, workflow: workflow, processor: processor);
         var request = CreatePostRequest(
             "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
             """
@@ -37,7 +40,8 @@ public sealed class EndpointTelemetryTests
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.Contains("\"accepted\":true", response.ReadBody());
-        var callEvent = Assert.Single(workflow.Events);
+        Assert.Empty(workflow.Events);
+        var callEvent = Assert.Single(processor.Events);
         Assert.Equal(InboundCallEventType.CallStarted, callEvent.EventType);
         Assert.Equal("call-123", callEvent.Session.ProviderCallId);
         Assert.Equal("+15551234567", callEvent.Session.CallerPhoneNumber);
@@ -75,7 +79,9 @@ public sealed class EndpointTelemetryTests
                       "zipCode": "75001",
                       "urgency": "today",
                       "preferredTime": "tomorrow morning",
-                      "name": "Jane Customer"
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
                     }
                   }
                 ]
@@ -97,6 +103,46 @@ public sealed class EndpointTelemetryTests
         var callEvent = Assert.Single(workflow.Events);
         Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
         Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_UnsupportedToolCall_ReturnsToolResultWithoutRunningWorkflow()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow();
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "unknown_tool",
+                    "arguments": {
+                      "name": "Jane Customer"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(workflow.Events);
+        Assert.Contains("\"results\"", body);
+        Assert.Contains("ignored_unsupported_tool", body);
+        Assert.Contains("bookingSucceeded", body);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.VoiceEventUnsupported));
         AssertValidCorrelationHeader(response);
     }
 
@@ -150,6 +196,39 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
+    public async Task TwilioWebhook_ValidSignature_LogsSmsStatusWithoutPhoneNumbers()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var function = CreateTwilioFunction(eventLogger);
+        var body = "MessageSid=SM123&MessageStatus=delivered&To=%2B15551234567&From=%2B15550001000";
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/twilio/sms-status",
+            body);
+        AddValidTwilioSignature(request, body);
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Contains("\"accepted\":true", response.ReadBody());
+
+        var statusEvent = Assert.Single(eventLogger.Events, EventNamed(TelemetryEventNames.SmsStatusReceived));
+        Assert.Equal("tenant-a", statusEvent.Properties["tenantId"]);
+        Assert.Equal("twilio", statusEvent.Properties["provider"]);
+        Assert.Equal("SM123", statusEvent.Properties["messageSid"]);
+        Assert.Equal("delivered", statusEvent.Properties["messageStatus"]);
+        Assert.DoesNotContain(statusEvent.Properties.Keys, key => string.Equals(key, "to", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(statusEvent.Properties.Keys, key => string.Equals(key, "from", StringComparison.OrdinalIgnoreCase));
+        Assert.All(eventLogger.Events, AssertNoSensitiveTelemetry);
+        Assert.All(eventLogger.Events, recordedEvent =>
+        {
+            Assert.DoesNotContain(recordedEvent.Properties.Values, value => value.Contains("+15551234567", StringComparison.Ordinal));
+            Assert.DoesNotContain(recordedEvent.Properties.Values, value => value.Contains("+15550001000", StringComparison.Ordinal));
+        });
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
     public async Task VapiWebhook_TenantResolutionFailure_EmitsRouteTenantTelemetryOnly()
     {
         var eventLogger = new RecordingEventLogger();
@@ -194,7 +273,8 @@ public sealed class EndpointTelemetryTests
     public async Task VapiWebhook_CallEndedEvent_IsParsedIntoPlatformEvent()
     {
         var workflow = new RecordingInboundBookingWorkflow();
-        var function = CreateVapiFunction(new RecordingEventLogger(), workflow: workflow);
+        var processor = new RecordingInboundCallEventProcessor();
+        var function = CreateVapiFunction(new RecordingEventLogger(), workflow: workflow, processor: processor);
         var request = CreatePostRequest(
             "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
             """{"message":{"type":"call-ended","call":{"id":"call-456"}}}""");
@@ -204,7 +284,8 @@ public sealed class EndpointTelemetryTests
             .Handle(request, "tenant-a", CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var callEvent = Assert.Single(workflow.Events);
+        Assert.Empty(workflow.Events);
+        var callEvent = Assert.Single(processor.Events);
         Assert.Equal(InboundCallEventType.CallEnded, callEvent.EventType);
         Assert.Equal("call-456", callEvent.Session.ProviderCallId);
     }
@@ -255,7 +336,8 @@ public sealed class EndpointTelemetryTests
     public async Task VapiWebhook_MissingCallFields_IsHandledSafely()
     {
         var workflow = new RecordingInboundBookingWorkflow();
-        var function = CreateVapiFunction(new RecordingEventLogger(), workflow: workflow);
+        var processor = new RecordingInboundCallEventProcessor();
+        var function = CreateVapiFunction(new RecordingEventLogger(), workflow: workflow, processor: processor);
         var request = CreatePostRequest(
             "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
             """{"type":"call-started"}""");
@@ -265,7 +347,8 @@ public sealed class EndpointTelemetryTests
             .Handle(request, "tenant-a", CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var callEvent = Assert.Single(workflow.Events);
+        Assert.Empty(workflow.Events);
+        var callEvent = Assert.Single(processor.Events);
         Assert.Equal(InboundCallEventType.CallStarted, callEvent.EventType);
         Assert.Null(callEvent.Session.ProviderCallId);
         Assert.Null(callEvent.Session.CallerPhoneNumber);
@@ -292,11 +375,54 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
-    public async Task VapiWebhook_ProcessorException_ReturnsShapedInternalServerError()
+    public async Task VapiWebhook_WorkflowException_ReturnsShapedInternalServerError()
     {
         var function = CreateVapiFunction(
             new RecordingEventLogger(),
             workflow: new RecordingInboundBookingWorkflow(throwOnProcess: true));
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "book_hvac_appointment",
+                    "arguments": {
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com",
+                      "serviceNeed": "AC repair",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 75001",
+                      "zipCode": "75001",
+                      "urgency": "today",
+                      "preferredTime": "tomorrow morning"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("\"code\":\"internal_error\"", response.ReadBody());
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_ProcessorException_ReturnsShapedInternalServerError()
+    {
+        var function = CreateVapiFunction(
+            new RecordingEventLogger(),
+            processor: new RecordingInboundCallEventProcessor(throwOnProcess: true));
         var request = CreatePostRequest(
             "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
             """{"type":"call-started","callId":"call-123"}""");
@@ -426,6 +552,7 @@ public sealed class EndpointTelemetryTests
         RecordingEventLogger eventLogger,
         TenantResolver? tenantResolver = null,
         RecordingInboundBookingWorkflow? workflow = null,
+        RecordingInboundCallEventProcessor? processor = null,
         StubSecretProvider? secretProvider = null,
         VapiWebhookOptions? options = null)
     {
@@ -441,6 +568,7 @@ public sealed class EndpointTelemetryTests
             eventLogger,
             new VapiWebhookPayloadParser(options),
             new VapiWebhookMapper(),
+            processor ?? new RecordingInboundCallEventProcessor(),
             workflow ?? new RecordingInboundBookingWorkflow(),
             new LimitedRequestBodyReader(),
             options);
@@ -471,6 +599,15 @@ public sealed class EndpointTelemetryTests
     private static TestHttpRequestData CreatePostRequest(string url, string body)
     {
         return new TestHttpRequestData("POST", url, body);
+    }
+
+    private static void AddValidTwilioSignature(TestHttpRequestData request, string body)
+    {
+        var formValues = new FormUrlEncodedBodyParser().Parse(body);
+        var signatureBase = new TwilioSignatureValidator().BuildSignatureBase(request.Url, formValues);
+        using var hmac = new HMACSHA1(Encoding.UTF8.GetBytes("expected-secret"));
+        var signature = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(signatureBase)));
+        request.Headers.Add("X-Twilio-Signature", signature);
     }
 
     private static Predicate<RecordedTelemetryEvent> EventNamed(string eventName)

@@ -1,7 +1,7 @@
 {
   "tenantId": "sample-hvac-tenant",
   "verticalId": "hvac",
-  "businessName": "RNM HVAC Co.",
+  "businessName": "RNM Global Solutions HVAC Demo",
   "timeZone": "America/Chicago",
   "serviceArea": {
     "zipCodes": ["75001", "75002"],
@@ -25,12 +25,12 @@
     "emailConnectionString": "tenant-sample-hvac-email-connection"
   },
   "communication": {
-    "smsFromPhoneNumber": "+15550001000",
+    "smsFromPhoneNumber": "+13466231270",
     "emailFromAddress": "info@rnmglobalsolutions.com",
     "confirmationTemplates": {
-      "smsBodyTemplate": "Your {{serviceType}} appointment is booked for {{bookingDate}} at {{bookingTime}}.",
-      "emailSubjectTemplate": "Appointment confirmed for {{bookingDate}}",
-      "emailBodyTemplate": "Your {{serviceType}} appointment is booked for {{bookingStart}}."
+      "smsBodyTemplate": "RNM Global Solutions: Your HVAC demo appointment is booked for {{bookingDate}} at {{bookingTime}}. Reply STOP to opt out.",
+      "emailSubjectTemplate": "RNM HVAC demo appointment confirmed for {{bookingDate}}",
+      "emailBodyTemplate": "RNM Global Solutions has booked your HVAC demo appointment for {{bookingStart}}."
     }
   }
 }

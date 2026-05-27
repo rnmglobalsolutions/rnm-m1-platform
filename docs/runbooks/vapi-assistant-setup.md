@@ -1,6 +1,6 @@
 # Vapi Assistant Setup
 
-Use this runbook to configure the RNM HVAC Co. demo assistant for M1.
+Use this runbook to configure the RNM Global Solutions HVAC Demo assistant for M1.
 
 ## Server URL
 
@@ -26,19 +26,19 @@ tenant-sample-hvac-vapi-webhook-secret
 Name:
 
 ```text
-RNM HVAC Co. Inbound Booking Assistant
+RNM Global Solutions HVAC Demo Assistant
 ```
 
 First message:
 
 ```text
-Thank you for calling RNM HVAC Co. How can I help with your heating or cooling system today?
+Thank you for calling the RNM Global Solutions HVAC Demo. How can I help with your heating or cooling system today?
 ```
 
 System prompt:
 
 ```text
-You are the inbound phone assistant for RNM HVAC Co.
+You are the inbound phone assistant for RNM Global Solutions HVAC Demo.
 
 Your goal is to qualify HVAC callers and book a real appointment when appropriate.
 
@@ -49,14 +49,15 @@ Tone:
 
 You must collect these fields before booking:
 - Customer full name
-- Best phone number
+- Best phone number, preferably in E.164 format
+- Email address in a valid email format
+- Confirmed email address
 - Service need
 - Property type
 - Service address
 - ZIP code
 - Urgency
 - Preferred appointment time window
-- Email address, optional but ask once
 
 Service area:
 - The current demo service ZIP codes are 75001 and 75002.
@@ -66,7 +67,7 @@ Service area:
 Booking behavior:
 - After collecting the required fields, call the `book_hvac_appointment` tool.
 - Do not claim an appointment is booked until the tool result indicates `bookingSucceeded: true`.
-- If booking succeeds, confirm the appointment and tell the caller they will receive confirmation by SMS and, if an email was provided, email.
+- If booking succeeds, confirm the appointment and tell the caller they will receive confirmation by SMS and email.
 - If booking fails or there is no availability, apologize and offer to have the office follow up.
 
 Rules:
@@ -83,6 +84,8 @@ Create a custom server/API tool named:
 ```text
 book_hvac_appointment
 ```
+
+M1 acknowledges Vapi call lifecycle events quickly. The booking workflow runs only for this supported tool name.
 
 Description:
 
@@ -121,11 +124,11 @@ Tool parameters:
     },
     "phoneNumber": {
       "type": "string",
-      "description": "Customer callback phone number in E.164 format when possible."
+      "description": "Customer callback phone number in E.164 format when possible. Must contain at least 10 digits."
     },
     "email": {
       "type": "string",
-      "description": "Customer email address. Optional."
+      "description": "Valid customer email address confirmed with the caller."
     },
     "serviceNeed": {
       "type": "string",
@@ -155,6 +158,7 @@ Tool parameters:
   "required": [
     "name",
     "phoneNumber",
+    "email",
     "serviceNeed",
     "propertyType",
     "serviceAddress",
@@ -203,11 +207,15 @@ Before client demos:
 
 1. Confirm dev deployment passed.
 2. Confirm `tenant-sample-hvac-vapi-webhook-secret` exists in Key Vault.
-3. Confirm `tenant-sample-hvac-ghl-api-key` includes `accessToken`, `locationId`, and `calendarId`.
-4. Confirm `rnm-dev-sendgrid-api-key` exists and SendGrid sender/domain is verified.
-5. Confirm Twilio SMS can be sent, or tell demo viewers SMS is pending 10DLC campaign approval.
-6. Make one test call and verify:
-   - GHL contact created or updated.
-   - GHL appointment created.
-   - SendGrid email sent when an email is provided.
-   - Application Insights has the correlation ID events.
+3. Confirm `tenant-rnm-hvac-google-calendar-credentials` exists in Key Vault and includes either refresh credentials or a valid short-lived `accessToken`.
+4. Confirm the Function App storage account is available for the `AzureTable` CRM/contact ledger.
+5. Confirm `rnm-dev-sendgrid-api-key` exists and SendGrid sender/domain is verified.
+6. Confirm Twilio SMS can be sent, or tell demo viewers SMS is pending 10DLC campaign approval.
+7. Confirm `communication.smsFromPhoneNumber` in `config/tenants/sample-hvac-tenant.json` has been replaced with the dedicated demo Twilio number added to the RNM Global Solutions Messaging Service/campaign.
+8. Make one in-service-area test call and verify:
+   - Azure Table contact record created or updated.
+   - Google Calendar appointment created.
+   - Twilio SMS sent when SMS is enabled.
+   - SendGrid email sent to the confirmed email address.
+   - Application Insights has webhook, workflow, booking, CRM, confirmation, and SMS status telemetry under the correlation ID.
+9. Make one out-of-service-area test call using ZIP `99999` and verify no booking or confirmation is created.

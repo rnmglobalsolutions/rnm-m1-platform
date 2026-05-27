@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using RNM.Platform.Application.Observability;
@@ -41,11 +42,12 @@ public sealed class QualificationService
         {
             missingRequiredFields.Add("zipCode");
         }
+        var hasInvalidContactFields = HasInvalidContactFields(fields);
 
         var leadData = new QualifiedLeadData(
             fields,
             zipCode,
-            request.InboundCallEvent.Session.CallerPhoneNumber);
+            SelectLeadPhoneNumber(fields, request.InboundCallEvent.Session.CallerPhoneNumber));
 
         var distinctMissingRequiredFields = missingRequiredFields
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -53,6 +55,7 @@ public sealed class QualificationService
         var state = serviceAreaDecision.State switch
         {
             ServiceAreaDecisionState.InvalidZipCode => QualificationResultState.InvalidInput,
+            _ when hasInvalidContactFields => QualificationResultState.InvalidInput,
             _ when distinctMissingRequiredFields.Length > 0 => QualificationResultState.MissingRequiredFields,
             ServiceAreaDecisionState.InServiceArea => QualificationResultState.Qualified,
             ServiceAreaDecisionState.OutOfServiceArea => QualificationResultState.OutOfServiceArea,
@@ -183,6 +186,64 @@ public sealed class QualificationService
         }
 
         return null;
+    }
+
+    private static string? SelectLeadPhoneNumber(
+        IReadOnlyDictionary<string, string> fields,
+        string? sessionPhoneNumber)
+    {
+        return FirstNonEmpty(
+            GetFieldValue(fields, "phoneNumber"),
+            GetFieldValue(fields, "phone"),
+            GetFieldValue(fields, "callerPhoneNumber"),
+            sessionPhoneNumber);
+    }
+
+    private static string? GetFieldValue(
+        IReadOnlyDictionary<string, string> fields,
+        string fieldName)
+    {
+        return fields.TryGetValue(fieldName, out var value)
+            ? value
+            : null;
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+    }
+
+    private static bool HasInvalidContactFields(IReadOnlyDictionary<string, string> fields)
+    {
+        var email = GetFieldValue(fields, "email");
+        if (!string.IsNullOrWhiteSpace(email) && !IsValidEmail(email))
+        {
+            return true;
+        }
+
+        var phoneNumber = FirstNonEmpty(
+            GetFieldValue(fields, "phoneNumber"),
+            GetFieldValue(fields, "phone"),
+            GetFieldValue(fields, "callerPhoneNumber"));
+        return !string.IsNullOrWhiteSpace(phoneNumber) && CountDigits(phoneNumber) < 10;
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        try
+        {
+            var parsed = new MailAddress(email);
+            return string.Equals(parsed.Address, email.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static int CountDigits(string value)
+    {
+        return value.Count(char.IsDigit);
     }
 
     private async Task LogResultAsync(

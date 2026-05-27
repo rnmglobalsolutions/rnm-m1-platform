@@ -35,6 +35,7 @@ public static class TelemetryEventNames
     public const string ConfirmationRequested = "confirmation.requested";
     public const string SmsConfirmationSent = "sms.confirmation.sent";
     public const string SmsConfirmationFailed = "sms.confirmation.failed";
+    public const string SmsStatusReceived = "sms.status.received";
     public const string EmailConfirmationSent = "email.confirmation.sent";
     public const string EmailConfirmationFailed = "email.confirmation.failed";
     public const string EmailConfirmationSkipped = "email.confirmation.skipped";

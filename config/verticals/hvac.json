@@ -2,6 +2,9 @@
   "verticalId": "hvac",
   "displayName": "HVAC",
   "qualificationFields": [
+    "name",
+    "phoneNumber",
+    "email",
     "serviceNeed",
     "propertyType",
     "serviceAddress",

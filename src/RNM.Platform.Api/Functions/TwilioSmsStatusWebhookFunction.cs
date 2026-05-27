@@ -91,6 +91,21 @@ public sealed class TwilioSmsStatusWebhookFunction
 
             await LogWebhookAsync(TelemetryEventNames.WebhookValidationSucceeded, correlationId, null, tenantContext.TenantId, "twilio", "valid", cancellationToken)
                 .ConfigureAwait(false);
+
+            var webhook = CreateStatusWebhook(tenantContext.TenantId, formValues);
+            if (webhook is null)
+            {
+                await LogWebhookAsync(TelemetryEventNames.ApiRequestFailed, correlationId, null, tenantContext.TenantId, "twilio", "invalid_payload", cancellationToken)
+                    .ConfigureAwait(false);
+
+                return responseWriter.WriteSafeError(
+                    request,
+                    HttpStatusCode.BadRequest,
+                    safeErrorResponseFactory.CreateBadRequest(correlationId));
+            }
+
+            await HandleAsync(webhook, cancellationToken).ConfigureAwait(false);
+
             await LogWebhookAsync(TelemetryEventNames.ApiRequestCompleted, correlationId, null, tenantContext.TenantId, "twilio", "accepted", cancellationToken)
                 .ConfigureAwait(false);
 
@@ -152,7 +167,51 @@ public sealed class TwilioSmsStatusWebhookFunction
         TwilioSmsStatusWebhook request,
         CancellationToken cancellationToken)
     {
-        throw new NotImplementedException("Webhook processing is not implemented in the initial scaffold.");
+        var properties = new SafeTelemetryProperties()
+            .Add("tenantId", request.TenantId)
+            .Add("provider", "twilio")
+            .Add("messageSid", request.MessageSid)
+            .Add("messageStatus", request.MessageStatus)
+            .AddIf(!string.IsNullOrWhiteSpace(request.ErrorCode), "errorCode", request.ErrorCode)
+            .ToDictionary();
+
+        return eventLogger.TryLogEventAsync(TelemetryEventNames.SmsStatusReceived, properties, cancellationToken);
+    }
+
+    private static TwilioSmsStatusWebhook? CreateStatusWebhook(
+        string tenantId,
+        IReadOnlyCollection<KeyValuePair<string, string>> formValues)
+    {
+        var values = formValues
+            .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Last().Value,
+                StringComparer.OrdinalIgnoreCase);
+
+        var messageSid = GetValue(values, "MessageSid") ?? GetValue(values, "SmsSid");
+        var messageStatus = GetValue(values, "MessageStatus") ?? GetValue(values, "SmsStatus");
+        if (string.IsNullOrWhiteSpace(messageSid) || string.IsNullOrWhiteSpace(messageStatus))
+        {
+            return null;
+        }
+
+        return new TwilioSmsStatusWebhook(
+            tenantId,
+            messageSid,
+            messageStatus,
+            GetValue(values, "ErrorCode"),
+            GetValue(values, "To"),
+            GetValue(values, "From"));
+    }
+
+    private static string? GetValue(
+        IReadOnlyDictionary<string, string> values,
+        string name)
+    {
+        return values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : null;
     }
 
     private Task LogWebhookAsync(

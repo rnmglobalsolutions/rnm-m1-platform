@@ -92,6 +92,8 @@ az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-t
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
 ```
 
+The tenant-level Vapi, Twilio, and Google Calendar secrets can also be seeded with the helper script documented in `docs/runbooks/seed-sample-hvac-tenant-secrets.md`.
+
 Bicep does not create the SendGrid secret value. It configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:
 
 ```text
@@ -111,19 +113,30 @@ Environment.GetEnvironmentVariable("SENDGRID_API_KEY")
 Environment.GetEnvironmentVariable("RNM_INTERNAL_API_KEY_SECRET_NAME")
 ```
 
-For GoHighLevel, use JSON so the adapters have the access token plus provider ids:
+The sample HVAC tenant currently uses `AzureTable` for CRM and `GoogleCalendar` for booking. Azure Table CRM uses the Function App storage account and does not require a CRM provider secret value.
+
+For Google Calendar, store the tenant booking credentials as JSON:
 
 ```bash
 az keyvault secret set \
   --vault-name <KEY_VAULT_NAME> \
-  --name tenant-sample-hvac-ghl-api-key \
+  --name tenant-rnm-hvac-google-calendar-credentials \
   --value '{
-    "accessToken": "<GHL_ACCESS_TOKEN>",
-    "locationId": "<GHL_LOCATION_ID>",
-    "calendarId": "<GHL_CALENDAR_ID>",
-    "apiVersion": "2021-07-28"
+    "calendarId": "<GOOGLE_CALENDAR_ID>",
+    "refreshToken": "<GOOGLE_OAUTH_REFRESH_TOKEN>",
+    "clientId": "<GOOGLE_OAUTH_CLIENT_ID>",
+    "clientSecret": "<GOOGLE_OAUTH_CLIENT_SECRET>",
+    "timeZone": "America/Chicago",
+    "businessStart": "09:00:00",
+    "businessEnd": "17:00:00",
+    "appointmentMinutes": 60,
+    "slotStepMinutes": 30,
+    "lookAheadDays": 14,
+    "includeWeekends": false
   }'
 ```
+
+For a short-lived dev smoke test only, the Google Calendar secret can include `accessToken` instead of refresh credentials.
 
 ## 5. Publish locally
 

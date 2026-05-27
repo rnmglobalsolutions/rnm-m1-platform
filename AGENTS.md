@@ -74,6 +74,101 @@ If this does not work end-to-end, stop adding features.
 
 ---
 
+## PERFORMANCE TARGETS
+
+Build for a real inbound phone experience.
+
+Targets:
+
+* Inbound answer latency target: under 2 seconds.
+* Webhook acknowledgment target: under 500ms when possible.
+* Booking availability lookup target: under 3 seconds.
+* SMS and email confirmation should be triggered immediately after successful booking.
+* Avoid avoidable production cold-start impact where practical.
+* Any operation that may exceed webhook or voice latency targets should move to asynchronous processing.
+
+Rules:
+
+* Do not block voice interactions on non-critical work.
+* Keep provider calls bounded by timeouts.
+* Prefer fast failure with safe recovery over long waits.
+* Measure latency with correlation IDs before optimizing.
+* Before redesigning webhook flow, measure real Vapi end-to-end latency; if workflow work cannot reliably meet the acknowledgment target, split fast acknowledgment from asynchronous processing.
+
+---
+
+## COST DISCIPLINE
+
+Revenue-first also means cost-aware.
+
+Rules:
+
+* Prefer serverless-first architecture.
+* Avoid unnecessary always-on compute.
+* Do not introduce infrastructure that increases monthly cost without direct MVP value.
+* Monitor AI token usage.
+* Monitor Vapi, Twilio, ElevenLabs, Deepgram, and Claude costs.
+* Use cheaper models for simple backend classification, extraction, or formatting tasks.
+* Use expensive reasoning models only when business value justifies the cost.
+* Prefer configuration and small adapters over new services.
+
+---
+
+## MVP HARD BOUNDARIES
+
+The current phase must not include:
+
+* full dashboards
+* RAG or vector databases
+* multi-agent orchestration supervisor
+* SaaS billing
+* advanced analytics
+* enterprise RBAC implementation
+* complex UI
+* multi-vertical feature parity
+* long-term nurture systems unless required for the current revenue slice
+
+If a requested change crosses these boundaries, defer it unless it is required to complete:
+
+Call → Qualification → Booking → CRM → SMS/Email → Logs
+
+---
+
+## FAILURE PHILOSOPHY
+
+The system must fail safely.
+
+Rules:
+
+* Never lose a lead silently.
+* If CRM fails, preserve the lead and booking intent.
+* If booking fails, escalate or create a retryable event.
+* If SMS or email fails, log, retry when appropriate, and alert when needed.
+* External provider failures must not corrupt tenant state.
+* All failure logs must include correlationId and tenantId when available.
+* Return safe errors only; do not expose stack traces, secrets, or raw provider payloads.
+* Expected business stops should be logged as outcomes, not treated as runtime crashes.
+
+---
+
+## DELIVERY DISCIPLINE
+
+Do not add features until this path works end-to-end:
+
+Call → Qualification → Booking → CRM → SMS/Email → Logs
+
+Rules:
+
+* Any new abstraction must support the current revenue path.
+* If a change does not help the current MVP, defer it.
+* Prefer simple, testable code over theoretical flexibility.
+* Keep changes small enough to verify.
+* Add tests proportional to risk and blast radius.
+* Update runbooks when operational behavior changes.
+* Do not hide incomplete provider behavior behind optimistic responses.
+
+---
+
 ## PLATFORM PHILOSOPHY
 
 * Core platform is industry-agnostic
