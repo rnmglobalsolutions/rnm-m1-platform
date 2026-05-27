@@ -93,6 +93,42 @@ public sealed class QualificationServiceTests
     }
 
     [Fact]
+    public async Task QualifyAsync_ReturnsInvalidInput_WhenEmailIsMalformed()
+    {
+        var service = CreateService();
+        var request = CreateRequest(
+            requiredFields: ["serviceNeed", "email"],
+            fields: new Dictionary<string, string>
+            {
+                ["serviceNeed"] = "Repair",
+                ["email"] = "not-an-email",
+                ["zipCode"] = "75001"
+            });
+
+        var result = await service.QualifyAsync(request, CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.InvalidInput, result.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_ReturnsInvalidInput_WhenPhoneNumberHasTooFewDigits()
+    {
+        var service = CreateService();
+        var request = CreateRequest(
+            requiredFields: ["serviceNeed", "phoneNumber"],
+            fields: new Dictionary<string, string>
+            {
+                ["serviceNeed"] = "Repair",
+                ["phoneNumber"] = "555",
+                ["zipCode"] = "75001"
+            });
+
+        var result = await service.QualifyAsync(request, CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.InvalidInput, result.State);
+    }
+
+    [Fact]
     public async Task QualifyAsync_ReturnsOutOfServiceArea_WhenZipIsOutsideAllowedList()
     {
         var eventLogger = new RecordingQualificationEventLogger();

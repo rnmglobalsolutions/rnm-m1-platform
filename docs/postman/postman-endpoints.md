@@ -57,6 +57,47 @@ Sample body:
 
 Expected valid response is usually `202 Accepted`.
 
+Call lifecycle events are acknowledged quickly and do not run the booking workflow. The booking workflow starts only when Vapi sends the supported tool call:
+
+```text
+book_hvac_appointment
+```
+
+### Vapi tool-call body for booking
+
+```json
+{
+  "message": {
+    "type": "tool-calls",
+    "call": {
+      "id": "call-123",
+      "customer": {
+        "number": "+15551234567"
+      }
+    },
+    "toolCallList": [
+      {
+        "id": "tool-123",
+        "name": "book_hvac_appointment",
+        "arguments": {
+          "name": "Jane Customer",
+          "phoneNumber": "+15551234567",
+          "email": "jane@example.com",
+          "serviceNeed": "AC not cooling",
+          "propertyType": "residential",
+          "serviceAddress": "123 Main Street, Addison, TX 75001",
+          "zipCode": "75001",
+          "urgency": "today",
+          "preferredTime": "tomorrow afternoon"
+        }
+      }
+    ]
+  }
+}
+```
+
+Expected valid tool response is `200 OK` with Vapi's tool result shape. Treat `bookingSucceeded: true` as the only booking confirmation signal.
+
 ## POST `/api/tenants/{tenantId}/webhooks/twilio/sms-status`
 
 Twilio SMS delivery-status webhook endpoint.
@@ -75,7 +116,7 @@ Sample form fields:
 MessageSid=SM1234567890
 MessageStatus=delivered
 To=+15551234567
-From=+15550001000
+From=<NEW_DEMO_TWILIO_NUMBER>
 ```
 
 Twilio signatures depend on the exact URL and form fields. Use a real Twilio webhook call or generate the signature with Twilio tooling for a valid request.

@@ -43,6 +43,21 @@ public sealed class InboundBookingWorkflowTests
     }
 
     [Fact]
+    public async Task ProcessAsync_UsesToolPhoneNumber_WhenSessionPhoneIsMissing()
+    {
+        var harness = CreateHarness();
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(callerPhoneNumber: null),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.True(result.BookingSucceeded);
+        Assert.Equal("+15551234567", harness.BookingAdapter.LastCreateBookingRequest?.LeadData.CallerPhoneNumber);
+        Assert.Equal("+15551234567", harness.SmsSender.LastRequest?.ToPhoneNumber);
+    }
+
+    [Fact]
     public async Task ProcessAsync_Stops_WhenQualificationFails()
     {
         var harness = CreateHarness();
@@ -181,7 +196,7 @@ public sealed class InboundBookingWorkflowTests
     }
 
     [Fact]
-    public async Task ProcessAsync_SkipsEmail_WhenEmailIsMissing()
+    public async Task ProcessAsync_StopsBeforeBooking_WhenRequiredEmailIsMissing()
     {
         var harness = CreateHarness();
 
@@ -189,14 +204,15 @@ public sealed class InboundBookingWorkflowTests
             CreateWorkflowRequest(argumentsJson: CreateArgumentsJson(email: null)),
             CancellationToken.None);
 
-        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(InboundBookingWorkflowOutcome.QualificationStopped, result.Outcome);
         Assert.True(result.WorkflowCompleted);
-        Assert.True(result.BookingSucceeded);
-        Assert.True(result.ConfirmationSucceeded);
-        Assert.Equal(ConfirmationWorkflowState.Completed, result.ConfirmationState);
-        Assert.Equal(1, harness.SmsSender.SendCallCount);
+        Assert.False(result.BookingSucceeded);
+        Assert.False(result.ConfirmationSucceeded);
+        Assert.Equal(QualificationResultState.MissingRequiredFields, result.QualificationState);
+        Assert.Contains(harness.EventLogger.Events, EventNamed(TelemetryEventNames.QualificationMissingFields));
+        Assert.Equal(0, harness.BookingAdapter.CreateBookingCallCount);
+        Assert.Equal(0, harness.SmsSender.SendCallCount);
         Assert.Equal(0, harness.EmailSender.SendCallCount);
-        Assert.Contains(harness.EventLogger.Events, EventNamed(TelemetryEventNames.EmailConfirmationSkipped));
     }
 
     [Fact]
@@ -281,7 +297,8 @@ public sealed class InboundBookingWorkflowTests
 
     private static InboundBookingWorkflowRequest CreateWorkflowRequest(
         string? argumentsJson = null,
-        string? transcript = null)
+        string? transcript = null,
+        string? callerPhoneNumber = "+15551234567")
     {
         return new InboundBookingWorkflowRequest(
             new InboundCallEvent(
@@ -289,7 +306,7 @@ public sealed class InboundBookingWorkflowTests
                 "hvac",
                 "corr-123",
                 InboundCallEventType.ActionRequested,
-                new CallSession("call-123", "+15551234567"),
+                new CallSession("call-123", callerPhoneNumber),
                 "test",
                 "tool-call",
                 transcript,
@@ -313,6 +330,7 @@ public sealed class InboundBookingWorkflowTests
           "serviceAddress": "{{serviceAddress}}",
           "urgency": "Soon",
           "preferredTime": "Afternoon",
+          "phoneNumber": "+15551234567",
           "name": "Jane Customer"{{emailProperty}}
         }
         """;
@@ -371,7 +389,7 @@ public sealed class InboundBookingWorkflowTests
             return Task.FromResult(new VerticalConfiguration(
                 new VerticalId(verticalId),
                 "HVAC",
-                ["serviceNeed", "propertyType", "serviceAddress", "urgency", "preferredTime"],
+                ["name", "phoneNumber", "email", "serviceNeed", "propertyType", "serviceAddress", "urgency", "preferredTime"],
                 ["GeneralInquiry"],
                 ServiceAreaFieldAliasConfiguration.Defaults()));
         }
@@ -468,11 +486,14 @@ public sealed class InboundBookingWorkflowTests
 
         public int SendCallCount { get; private set; }
 
+        public SmsMessageRequest? LastRequest { get; private set; }
+
         public Task<SmsSendResult> SendSmsAsync(
             SmsMessageRequest request,
             CancellationToken cancellationToken)
         {
             SendCallCount++;
+            LastRequest = request;
             return Task.FromResult(SendResult);
         }
     }

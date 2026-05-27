@@ -61,6 +61,7 @@ var host = new HostBuilder()
         services.AddSingleton(VapiWebhookOptions.FromEnvironment());
         services.AddSingleton<VapiWebhookPayloadParser>();
         services.AddSingleton<VapiWebhookMapper>();
+        services.AddSingleton<IInboundCallEventProcessor, InboundCallEventProcessor>();
         services.AddSingleton<IInboundBookingWorkflow, InboundBookingWorkflow>();
         services.AddSingleton<ServiceAreaValidator>();
         services.AddSingleton<QualificationService>();

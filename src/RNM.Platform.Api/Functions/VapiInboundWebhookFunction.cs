@@ -16,6 +16,8 @@ namespace RNM.Platform.Api.Functions;
 
 public sealed class VapiInboundWebhookFunction
 {
+    private const string BookHvacAppointmentToolName = "book_hvac_appointment";
+
     private readonly TenantResolver tenantResolver;
     private readonly VapiWebhookValidator vapiWebhookValidator;
     private readonly ISecretProvider secretProvider;
@@ -25,6 +27,7 @@ public sealed class VapiInboundWebhookFunction
     private readonly IEventLogger eventLogger;
     private readonly VapiWebhookPayloadParser payloadParser;
     private readonly VapiWebhookMapper webhookMapper;
+    private readonly IInboundCallEventProcessor inboundCallEventProcessor;
     private readonly IInboundBookingWorkflow inboundBookingWorkflow;
     private readonly LimitedRequestBodyReader requestBodyReader;
     private readonly VapiWebhookOptions options;
@@ -39,6 +42,7 @@ public sealed class VapiInboundWebhookFunction
         IEventLogger eventLogger,
         VapiWebhookPayloadParser payloadParser,
         VapiWebhookMapper webhookMapper,
+        IInboundCallEventProcessor inboundCallEventProcessor,
         IInboundBookingWorkflow inboundBookingWorkflow,
         LimitedRequestBodyReader requestBodyReader,
         VapiWebhookOptions options)
@@ -52,6 +56,7 @@ public sealed class VapiInboundWebhookFunction
         this.eventLogger = eventLogger;
         this.payloadParser = payloadParser;
         this.webhookMapper = webhookMapper;
+        this.inboundCallEventProcessor = inboundCallEventProcessor;
         this.inboundBookingWorkflow = inboundBookingWorkflow;
         this.requestBodyReader = requestBodyReader;
         this.options = options;
@@ -161,6 +166,88 @@ public sealed class VapiInboundWebhookFunction
                     correlationId);
             }
 
+            if (inboundCallEvent.EventType is not InboundCallEventType.ActionRequested)
+            {
+                var processingResult = await inboundCallEventProcessor
+                    .ProcessAsync(inboundCallEvent, cancellationToken)
+                    .ConfigureAwait(false);
+
+                await LogVoiceEventAsync(
+                        TelemetryEventNames.VoiceEventProcessed,
+                        correlationId,
+                        tenantContext.TenantId,
+                        parseResult.Envelope.RawEventType,
+                        inboundCallEvent.EventType.ToString(),
+                        processingResult.Outcome,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                await LogWebhookAsync(TelemetryEventNames.ApiRequestCompleted, correlationId, null, tenantContext.TenantId, "vapi", processingResult.Outcome, cancellationToken)
+                    .ConfigureAwait(false);
+
+                return responseWriter.WriteJson(
+                    request,
+                    HttpStatusCode.Accepted,
+                    new
+                    {
+                        accepted = processingResult.Accepted,
+                        processed = processingResult.Processed,
+                        correlationId,
+                        tenantId = tenantContext.TenantId,
+                        eventType = inboundCallEvent.EventType.ToString(),
+                        outcome = processingResult.Outcome
+                    },
+                    correlationId);
+            }
+
+            if (!IsSupportedToolCall(inboundCallEvent.ActionRequest))
+            {
+                const string unsupportedToolOutcome = "ignored_unsupported_tool";
+
+                await LogVoiceEventAsync(
+                        TelemetryEventNames.VoiceEventUnsupported,
+                        correlationId,
+                        tenantContext.TenantId,
+                        parseResult.Envelope.RawEventType,
+                        inboundCallEvent.EventType.ToString(),
+                        unsupportedToolOutcome,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                await LogWebhookAsync(TelemetryEventNames.ApiRequestCompleted, correlationId, null, tenantContext.TenantId, "vapi", unsupportedToolOutcome, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (parseResult.Envelope.ToolCall is not null)
+                {
+                    return WriteToolResult(
+                        request,
+                        parseResult.Envelope.ToolCall.Name,
+                        parseResult.Envelope.ToolCall.ToolCallId,
+                        correlationId,
+                        tenantContext.TenantId,
+                        inboundCallEvent.EventType.ToString(),
+                        unsupportedToolOutcome,
+                        processed: false,
+                        bookingSucceeded: false,
+                        crmSucceeded: false,
+                        confirmationSucceeded: false);
+                }
+
+                return responseWriter.WriteJson(
+                    request,
+                    HttpStatusCode.Accepted,
+                    new
+                    {
+                        accepted = true,
+                        processed = false,
+                        correlationId,
+                        tenantId = tenantContext.TenantId,
+                        eventType = inboundCallEvent.EventType.ToString(),
+                        outcome = unsupportedToolOutcome
+                    },
+                    correlationId);
+            }
+
             var workflowResult = await inboundBookingWorkflow
                 .ProcessAsync(inboundCallEvent, cancellationToken)
                 .ConfigureAwait(false);
@@ -188,35 +275,18 @@ public sealed class VapiInboundWebhookFunction
 
             if (parseResult.Envelope.ToolCall is not null)
             {
-                var toolResult = JsonSerializer.Serialize(new
-                {
-                    accepted = true,
-                    processed,
-                    correlationId,
-                    tenantId = tenantContext.TenantId,
-                    eventType = inboundCallEvent.EventType.ToString(),
-                    outcome = workflowOutcome,
-                    bookingSucceeded = workflowResult.BookingSucceeded,
-                    crmSucceeded = workflowResult.CrmSucceeded,
-                    confirmationSucceeded = workflowResult.ConfirmationSucceeded
-                });
-
-                return responseWriter.WriteJson(
+                return WriteToolResult(
                     request,
-                    HttpStatusCode.OK,
-                    new
-                    {
-                        results = new[]
-                        {
-                            new
-                            {
-                                name = parseResult.Envelope.ToolCall.Name,
-                                toolCallId = parseResult.Envelope.ToolCall.ToolCallId,
-                                result = toolResult
-                            }
-                        }
-                    },
-                    correlationId);
+                    parseResult.Envelope.ToolCall.Name,
+                    parseResult.Envelope.ToolCall.ToolCallId,
+                    correlationId,
+                    tenantContext.TenantId,
+                    inboundCallEvent.EventType.ToString(),
+                    workflowOutcome,
+                    processed,
+                    workflowResult.BookingSucceeded,
+                    workflowResult.CrmSucceeded,
+                    workflowResult.ConfirmationSucceeded);
             }
 
             return responseWriter.WriteJson(
@@ -279,6 +349,58 @@ public sealed class VapiInboundWebhookFunction
                 HttpStatusCode.InternalServerError,
                 safeErrorResponseFactory.CreateInternalServerError(correlationId));
         }
+    }
+
+    private HttpResponseData WriteToolResult(
+        HttpRequestData request,
+        string? toolName,
+        string? toolCallId,
+        string correlationId,
+        string tenantId,
+        string eventType,
+        string outcome,
+        bool processed,
+        bool bookingSucceeded,
+        bool crmSucceeded,
+        bool confirmationSucceeded)
+    {
+        var toolResult = JsonSerializer.Serialize(new
+        {
+            accepted = true,
+            processed,
+            correlationId,
+            tenantId,
+            eventType,
+            outcome,
+            bookingSucceeded,
+            crmSucceeded,
+            confirmationSucceeded
+        });
+
+        return responseWriter.WriteJson(
+            request,
+            HttpStatusCode.OK,
+            new
+            {
+                results = new[]
+                {
+                    new
+                    {
+                        name = toolName,
+                        toolCallId,
+                        result = toolResult
+                    }
+                }
+            },
+            correlationId);
+    }
+
+    private static bool IsSupportedToolCall(StructuredActionRequest? actionRequest)
+    {
+        return string.Equals(
+            actionRequest?.Name,
+            BookHvacAppointmentToolName,
+            StringComparison.Ordinal);
     }
 
     private Task LogWebhookAsync(
