@@ -98,6 +98,26 @@ book_hvac_appointment
 
 Expected valid tool response is `200 OK` with Vapi's tool result shape. Treat `bookingSucceeded: true` as the only booking confirmation signal.
 
+### Vapi direct API request body for booking
+
+Vapi's `apiRequest` Tool UI may send the request body as a flat JSON object instead of a `toolCallList` envelope. M1 accepts this shape for `book_hvac_appointment` when all required booking fields are present:
+
+```json
+{
+  "name": "Jane Customer",
+  "phoneNumber": "+15551234567",
+  "email": "jane@example.com",
+  "serviceNeed": "AC not cooling",
+  "propertyType": "residential",
+  "serviceAddress": "123 Main Street, Addison, TX 75001",
+  "zipCode": "75001",
+  "urgency": "today",
+  "preferredTime": "tomorrow afternoon"
+}
+```
+
+Expected valid direct response is `200 OK` with `bookingSucceeded`, `crmSucceeded`, `confirmationSucceeded`, `outcome`, `tenantId`, and `correlationId` at the top level. Treat `bookingSucceeded: true` as the only booking confirmation signal.
+
 ## POST `/api/tenants/{tenantId}/webhooks/twilio/sms-status`
 
 Twilio SMS delivery-status webhook endpoint.

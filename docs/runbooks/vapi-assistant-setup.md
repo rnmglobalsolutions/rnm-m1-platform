@@ -112,6 +112,14 @@ Authorization: Bearer <VAPI_WEBHOOK_SECRET>
 Content-Type: application/json
 ```
 
+For the Vapi `apiRequest` Tool UI:
+
+- Add the request body fields manually if the UI does not allow pasting the whole schema.
+- Keep all required fields marked required.
+- Enable schema lock/no additional properties after all fields are added.
+- Do not add static body fields for the first M1 test.
+- If the browser-based Test Tool shows a network/CORS error, retry with Vapi's CORS proxy option or test from Postman. Do not enable broad CORS on the main Function App for webhooks.
+
 Tool parameters:
 
 ```json
@@ -171,7 +179,7 @@ Tool parameters:
 
 ## Expected Tool Result
 
-The RNM webhook returns Vapi's tool result shape:
+When Vapi sends a `toolCallList` webhook envelope, the RNM webhook returns Vapi's tool result shape:
 
 ```json
 {
@@ -182,6 +190,21 @@ The RNM webhook returns Vapi's tool result shape:
       "result": "{\"accepted\":true,\"processed\":true,\"outcome\":\"Completed\",\"bookingSucceeded\":true,\"crmSucceeded\":true,\"confirmationSucceeded\":true}"
     }
   ]
+}
+```
+
+When Vapi sends a direct `apiRequest` body from the Tool UI, the RNM webhook returns the result directly:
+
+```json
+{
+  "accepted": true,
+  "processed": true,
+  "outcome": "Completed",
+  "bookingSucceeded": true,
+  "crmSucceeded": true,
+  "confirmationSucceeded": true,
+  "tenantId": "sample-hvac-tenant",
+  "correlationId": "<correlation-id>"
 }
 ```
 
