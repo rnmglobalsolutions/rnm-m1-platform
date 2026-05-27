@@ -5,6 +5,22 @@ namespace RNM.Platform.Api.Voice;
 
 public sealed class VapiWebhookPayloadParser
 {
+    private const string DirectApiRequestRawEventType = "api-request";
+    private const string DirectBookingToolName = "book_hvac_appointment";
+
+    private static readonly string[] DirectApiRequestRequiredFields =
+    [
+        "name",
+        "phoneNumber",
+        "email",
+        "serviceNeed",
+        "propertyType",
+        "serviceAddress",
+        "zipCode",
+        "urgency",
+        "preferredTime"
+    ];
+
     private readonly VapiWebhookOptions options;
 
     public VapiWebhookPayloadParser(VapiWebhookOptions? options = null)
@@ -37,13 +53,14 @@ public sealed class VapiWebhookPayloadParser
             var message = TryGetObject(root, "message");
             var call = TryGetObject(root, "call") ?? TryGetObject(message, "call");
             var customer = TryGetObject(call, "customer") ?? TryGetObject(root, "customer");
-            var toolCall = TryGetFirstToolCall(root, message);
+            var toolCall = TryGetFirstToolCall(root, message) ?? TryGetDirectApiRequestToolCall(root);
 
             var rawEventType = FirstNonEmpty(
                 TryGetSafeScalarString(root, "event"),
                 TryGetSafeScalarString(root, "type"),
                 TryGetSafeScalarString(message, "type"),
-                TryGetSafeScalarString(root, "eventType")) ?? "unknown";
+                TryGetSafeScalarString(root, "eventType"))
+                ?? (IsDirectApiRequestToolCall(toolCall) ? DirectApiRequestRawEventType : "unknown");
             var eventKind = MapEventKind(rawEventType, toolCall);
 
             var envelope = new VapiWebhookEnvelope(
@@ -124,6 +141,35 @@ public sealed class VapiWebhookPayloadParser
             ?? TryGetObject(message, "function_call");
 
         return functionCall is null ? null : ToToolCall(functionCall.Value);
+    }
+
+    private static VapiToolCallRequest? TryGetDirectApiRequestToolCall(JsonElement root)
+    {
+        if (!HasAllRequiredDirectApiRequestFields(root))
+        {
+            return null;
+        }
+
+        return new VapiToolCallRequest(
+            FirstNonEmpty(
+                TryGetSafeScalarString(root, "toolCallId"),
+                TryGetSafeScalarString(root, "id"),
+                TryGetSafeScalarString(root, "callId")),
+            DirectBookingToolName,
+            root.GetRawText());
+    }
+
+    private static bool HasAllRequiredDirectApiRequestFields(JsonElement root)
+    {
+        return root.ValueKind is JsonValueKind.Object
+            && DirectApiRequestRequiredFields.All(fieldName =>
+                !string.IsNullOrWhiteSpace(TryGetSafeScalarString(root, fieldName)));
+    }
+
+    private static bool IsDirectApiRequestToolCall(VapiToolCallRequest? toolCall)
+    {
+        return string.Equals(toolCall?.Name, DirectBookingToolName, StringComparison.Ordinal)
+            && toolCall?.ArgumentsJson is not null;
     }
 
     private static VapiToolCallRequest ToToolCall(JsonElement toolCall)

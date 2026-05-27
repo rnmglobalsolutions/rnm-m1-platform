@@ -107,6 +107,45 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
+    public async Task VapiWebhook_DirectApiRequestBody_ReturnsDirectToolResult()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow();
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "today",
+              "preferredTime": "tomorrow morning"
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("\"results\"", body);
+        Assert.Contains("\"bookingSucceeded\":true", body);
+        Assert.Contains("\"crmSucceeded\":true", body);
+        Assert.Contains("\"confirmationSucceeded\":true", body);
+        var callEvent = Assert.Single(workflow.Events);
+        Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
+        Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        Assert.Equal("+15551234567", callEvent.Session.CallerPhoneNumber);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
     public async Task VapiWebhook_UnsupportedToolCall_ReturnsToolResultWithoutRunningWorkflow()
     {
         var eventLogger = new RecordingEventLogger();

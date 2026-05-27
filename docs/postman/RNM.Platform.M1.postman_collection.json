@@ -146,6 +146,44 @@
       }
     },
     {
+      "name": "Vapi Book HVAC Appointment Direct API Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{vapiWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jane Customer\",\n  \"phoneNumber\": \"+15551234567\",\n  \"email\": \"jane@example.com\",\n  \"serviceNeed\": \"AC not cooling\",\n  \"propertyType\": \"residential\",\n  \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n  \"zipCode\": \"75001\",\n  \"urgency\": \"today\",\n  \"preferredTime\": \"tomorrow afternoon\"\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "vapi",
+            "inbound"
+          ]
+        }
+      }
+    },
+    {
       "name": "Twilio SMS Status Webhook",
       "request": {
         "method": "POST",

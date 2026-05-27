@@ -144,6 +144,37 @@ public sealed class VapiWebhookPayloadParserTests
     }
 
     [Fact]
+    public void Parse_DirectApiRequestBody_ReturnsBookingToolCall()
+    {
+        var parser = new VapiWebhookPayloadParser();
+
+        var result = parser.Parse(
+            """
+            {
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "today",
+              "preferredTime": "tomorrow morning"
+            }
+            """,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Envelope);
+        Assert.Equal("api-request", result.Envelope.RawEventType);
+        Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
+        Assert.Equal("+15551234567", result.Envelope.CallerPhoneNumber);
+        Assert.NotNull(result.Envelope.ToolCall);
+        Assert.Equal("book_hvac_appointment", result.Envelope.ToolCall.Name);
+        Assert.Contains("serviceNeed", result.Envelope.ToolCall.ArgumentsJson);
+    }
+
+    [Fact]
     public void Parse_MalformedJson_ReturnsInvalidResult()
     {
         var parser = new VapiWebhookPayloadParser();

@@ -10,6 +10,7 @@ using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Tenancy;
+using RNM.Platform.Contracts.Voice;
 using RNM.Platform.Infrastructure.Secrets;
 
 namespace RNM.Platform.Api.Functions;
@@ -275,6 +276,23 @@ public sealed class VapiInboundWebhookFunction
 
             if (parseResult.Envelope.ToolCall is not null)
             {
+                if (IsDirectApiRequestToolCall(parseResult.Envelope))
+                {
+                    return WriteDirectToolResult(
+                        request,
+                        workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed
+                            ? HttpStatusCode.InternalServerError
+                            : HttpStatusCode.OK,
+                        correlationId,
+                        tenantContext.TenantId,
+                        inboundCallEvent.EventType.ToString(),
+                        workflowOutcome,
+                        processed,
+                        workflowResult.BookingSucceeded,
+                        workflowResult.CrmSucceeded,
+                        workflowResult.ConfirmationSucceeded);
+                }
+
                 return WriteToolResult(
                     request,
                     parseResult.Envelope.ToolCall.Name,
@@ -351,6 +369,36 @@ public sealed class VapiInboundWebhookFunction
         }
     }
 
+    private HttpResponseData WriteDirectToolResult(
+        HttpRequestData request,
+        HttpStatusCode statusCode,
+        string correlationId,
+        string tenantId,
+        string eventType,
+        string outcome,
+        bool processed,
+        bool bookingSucceeded,
+        bool crmSucceeded,
+        bool confirmationSucceeded)
+    {
+        return responseWriter.WriteJson(
+            request,
+            statusCode,
+            new
+            {
+                accepted = true,
+                processed,
+                correlationId,
+                tenantId,
+                eventType,
+                outcome,
+                bookingSucceeded,
+                crmSucceeded,
+                confirmationSucceeded
+            },
+            correlationId);
+    }
+
     private HttpResponseData WriteToolResult(
         HttpRequestData request,
         string? toolName,
@@ -401,6 +449,12 @@ public sealed class VapiInboundWebhookFunction
             actionRequest?.Name,
             BookHvacAppointmentToolName,
             StringComparison.Ordinal);
+    }
+
+    private static bool IsDirectApiRequestToolCall(VapiWebhookEnvelope envelope)
+    {
+        return string.Equals(envelope.RawEventType, "api-request", StringComparison.Ordinal)
+            && string.Equals(envelope.ToolCall?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal);
     }
 
     private Task LogWebhookAsync(
