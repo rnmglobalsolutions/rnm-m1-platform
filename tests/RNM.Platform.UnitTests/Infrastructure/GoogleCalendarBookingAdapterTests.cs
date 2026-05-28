@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Qualification;
@@ -70,6 +71,11 @@ public sealed class GoogleCalendarBookingAdapterTests
         Assert.Equal(2, handler.Requests.Count);
         Assert.Equal("/calendar/v3/freeBusy", handler.Requests[0].RequestUri?.AbsolutePath);
         Assert.EndsWith("/calendar/v3/calendars/primary/events", handler.Requests[1].RequestUri?.AbsolutePath);
+        var eventPayload = handler.RequestBodies[1];
+        using var document = JsonDocument.Parse(eventPayload);
+        Assert.Equal("2026-05-11T10:00:00-05:00", document.RootElement.GetProperty("start").GetProperty("dateTime").GetString());
+        Assert.Equal("2026-05-11T11:00:00-05:00", document.RootElement.GetProperty("end").GetProperty("dateTime").GetString());
+        Assert.Equal("America/Chicago", document.RootElement.GetProperty("start").GetProperty("timeZone").GetString());
     }
 
     [Fact]
@@ -223,14 +229,19 @@ public sealed class GoogleCalendarBookingAdapterTests
 
         public List<HttpRequestMessage> Requests { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             Requests.Add(request);
-            return Task.FromResult(responses.Count == 0
+            RequestBodies.Add(request.Content is null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            return responses.Count == 0
                 ? new HttpResponseMessage(HttpStatusCode.NotFound)
-                : responses.Dequeue());
+                : responses.Dequeue();
         }
     }
 }

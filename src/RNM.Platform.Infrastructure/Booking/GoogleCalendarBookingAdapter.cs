@@ -291,6 +291,9 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
     private static object CreateEventPayload(CreateBookingRequest request, string timeZone)
     {
+        var zone = ResolveTimeZone(timeZone);
+        var localStartsAt = TimeZoneInfo.ConvertTime(request.Slot.StartsAt, zone);
+        var localEndsAt = TimeZoneInfo.ConvertTime(request.Slot.EndsAt, zone);
         var submittedName = GetFieldValue(request, "name");
         var email = GetFieldValue(request, "email");
         var phone = request.LeadData.CallerPhoneNumber;
@@ -316,8 +319,8 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         {
             summary = $"RNM booking - {serviceType}",
             description = description.ToString(),
-            start = new { dateTime = request.Slot.StartsAt, timeZone },
-            end = new { dateTime = request.Slot.EndsAt, timeZone },
+            start = new { dateTime = localStartsAt, timeZone },
+            end = new { dateTime = localEndsAt, timeZone },
             attendees,
             extendedProperties = new
             {
