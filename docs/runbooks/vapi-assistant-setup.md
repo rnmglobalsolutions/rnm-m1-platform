@@ -68,6 +68,12 @@ Email capture:
 - Do not guess, autocorrect, or normalize the email address without confirmation.
 - Do not call book_hvac_appointment until the caller confirms the final email address is correct.
 
+Preferred time capture:
+- If the caller gives a time range, preserve the exact range with AM/PM in preferredTime.
+- Include the caller's timezone when they mention it, such as "between 4pm and 6pm America/Chicago".
+- Do not reduce a specific range like "between 4 and 6pm" to a vague word like "afternoon".
+- If AM/PM is unclear, ask a quick follow-up before calling the booking tool.
+
 Service area:
 - The current demo service ZIP codes are 75001 and 75002.
 - If the caller is outside the service area, apologize briefly and say the office can follow up.
@@ -169,7 +175,7 @@ Tool parameters:
     },
     "preferredTime": {
       "type": "string",
-      "description": "Caller preferred appointment window."
+      "description": "Caller preferred appointment window. Preserve explicit ranges and AM/PM, for example: between 4pm and 6pm America/Chicago."
     }
   },
   "required": [
