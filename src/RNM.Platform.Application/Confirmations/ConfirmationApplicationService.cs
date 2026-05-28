@@ -154,8 +154,9 @@ public sealed class ConfirmationApplicationService
         string template,
         BookingConfirmationRequest request)
     {
-        var startsAt = request.BookingDecision.SelectedSlot?.StartsAt;
-        var endsAt = request.BookingDecision.SelectedSlot?.EndsAt;
+        var zone = ResolveTimeZone(request.TimeZone);
+        var startsAt = ConvertToLocal(request.BookingDecision.SelectedSlot?.StartsAt, zone);
+        var endsAt = ConvertToLocal(request.BookingDecision.SelectedSlot?.EndsAt, zone);
 
         return template
             .Replace("{{tenantId}}", request.TenantId, StringComparison.OrdinalIgnoreCase)
@@ -165,6 +166,27 @@ public sealed class ConfirmationApplicationService
             .Replace("{{bookingEnd}}", endsAt?.ToString("O") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace("{{bookingDate}}", startsAt?.ToString("yyyy-MM-dd") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace("{{bookingTime}}", startsAt?.ToString("HH:mm") ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DateTimeOffset? ConvertToLocal(DateTimeOffset? value, TimeZoneInfo zone)
+    {
+        return value is null ? null : TimeZoneInfo.ConvertTime(value.Value, zone);
+    }
+
+    private static TimeZoneInfo ResolveTimeZone(string timeZone)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(timeZone);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.Utc;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.Utc;
+        }
     }
 
     private static ConfirmationChannelResult Sent(

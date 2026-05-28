@@ -13,6 +13,7 @@ public sealed record BookingConfirmationRequest(
     string? CustomerPhoneNumber,
     string? CustomerEmail,
     string? ServiceType,
+    string TimeZone,
     ConfirmationTemplateSet Templates);
 
 public sealed record ConfirmationTemplateSet(

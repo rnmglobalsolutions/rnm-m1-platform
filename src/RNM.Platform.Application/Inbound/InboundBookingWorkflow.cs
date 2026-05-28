@@ -245,6 +245,7 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                         qualificationResult.LeadData.CallerPhoneNumber,
                         GetFieldValue(qualificationResult, "email"),
                         serviceType,
+                        tenantConfiguration.TimeZone,
                         ConfirmationTemplateSet.FromConfiguration(tenantConfiguration.Communication.ConfirmationTemplates)),
                     cancellationToken)
                 .ConfigureAwait(false);

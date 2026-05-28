@@ -173,9 +173,9 @@ public sealed class ConfirmationApplicationServiceTests
             CancellationToken.None);
 
         Assert.True(result.SmsSent);
-        Assert.Equal("configured sms 2026-05-01 14:00 maintenance", smsSender.LastRequest?.Body);
+        Assert.Equal("configured sms 2026-05-01 09:00 maintenance", smsSender.LastRequest?.Body);
         Assert.Equal("configured email 2026-05-01", emailSender.LastRequest?.Subject);
-        Assert.Equal("configured body 2026-05-01T14:00:00.0000000+00:00", emailSender.LastRequest?.Body);
+        Assert.Equal("configured body 2026-05-01T09:00:00.0000000-05:00", emailSender.LastRequest?.Body);
     }
 
     [Fact]
@@ -232,6 +232,7 @@ public sealed class ConfirmationApplicationServiceTests
             customerPhoneNumber,
             customerEmail,
             serviceType,
+            "America/Chicago",
             templates ?? new ConfirmationTemplateSet(
                 "SMS template for {{bookingDate}} {{bookingTime}}",
                 "Email subject {{bookingDate}}",
