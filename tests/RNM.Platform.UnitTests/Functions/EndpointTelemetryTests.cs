@@ -184,6 +184,9 @@ public sealed class EndpointTelemetryTests
         Assert.Contains("availabilityFound", body);
         Assert.Contains("firstAvailableSlot", body);
         Assert.Contains("Friday, May 29 at 4:00 PM", body);
+        Assert.Contains("selectedSlotLabel", body);
+        Assert.Contains("selectedSlotStart", body);
+        Assert.Contains("selectedSlotEnd", body);
         Assert.Contains("messageForAssistant", body);
         var workflowRequest = Assert.Single(workflow.Requests);
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);

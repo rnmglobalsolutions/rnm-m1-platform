@@ -750,7 +750,16 @@ public sealed class VapiInboundWebhookFunction
         string slotId,
         string startsAt,
         string endsAt,
-        string label);
+        string label)
+    {
+        public string selectedSlotId => slotId;
+
+        public string selectedSlotStart => startsAt;
+
+        public string selectedSlotEnd => endsAt;
+
+        public string selectedSlotLabel => label;
+    }
 
     private Task LogWebhookAsync(
         string eventName,
