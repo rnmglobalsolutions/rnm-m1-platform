@@ -128,7 +128,7 @@ az keyvault secret set \
     "clientSecret": "<GOOGLE_OAUTH_CLIENT_SECRET>",
     "timeZone": "America/Chicago",
     "businessStart": "09:00:00",
-    "businessEnd": "17:00:00",
+    "businessEnd": "18:00:00",
     "appointmentMinutes": 60,
     "slotStepMinutes": 30,
     "lookAheadDays": 14,

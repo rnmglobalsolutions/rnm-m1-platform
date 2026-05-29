@@ -5,8 +5,11 @@ using RNM.Platform.Api.Functions;
 using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Api.Voice;
+using RNM.Platform.Application.Booking;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Qualification;
 using RNM.Platform.Application.Tenancy;
 using RNM.Platform.SharedKernel.Correlation;
 using Xunit;
@@ -103,6 +106,78 @@ public sealed class EndpointTelemetryTests
         var callEvent = Assert.Single(workflow.Events);
         Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
         Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_AvailabilityToolCall_ReturnsSlotsWithoutAutoBooking()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.AvailabilityFound,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null)
+        {
+            AvailableSlots =
+            [
+                new AvailableSlot(
+                    "slot-1",
+                    new DateTimeOffset(2026, 5, 29, 21, 0, 0, TimeSpan.Zero),
+                    new DateTimeOffset(2026, 5, 29, 21, 30, 0, TimeSpan.Zero),
+                    "Friday, May 29 at 4:00 PM")
+            ]
+        });
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": {
+                  "id": "call-123",
+                  "customer": { "number": "+15551234567" }
+                },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "check_hvac_availability",
+                    "arguments": {
+                      "serviceNeed": "AC repair",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 75001",
+                      "zipCode": "75001",
+                      "urgency": "urgent",
+                      "availabilityMode": "earliest",
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"results\"", body);
+        Assert.Contains("\"toolCallId\":\"tool-1\"", body);
+        Assert.Contains("availabilityFound", body);
+        Assert.Contains("firstAvailableSlot", body);
+        Assert.Contains("Friday, May 29 at 4:00 PM", body);
+        Assert.Contains("messageForAssistant", body);
+        var workflowRequest = Assert.Single(workflow.Requests);
+        Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        Assert.False(workflowRequest.RequirePreferredWindow);
+        Assert.Equal("check_hvac_availability", workflowRequest.InboundCallEvent.ActionRequest?.Name);
         AssertValidCorrelationHeader(response);
     }
 

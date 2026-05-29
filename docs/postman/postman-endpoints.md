@@ -57,11 +57,51 @@ Sample body:
 
 Expected valid response is usually `202 Accepted`.
 
-Call lifecycle events are acknowledged quickly and do not run the booking workflow. The booking workflow starts only when Vapi sends the supported tool call:
+Call lifecycle events are acknowledged quickly and do not run the booking workflow. The workflow starts only when Vapi sends a supported tool call:
 
 ```text
+check_hvac_availability
 book_hvac_appointment
 ```
+
+### Vapi tool-call body for availability
+
+Use `check_hvac_availability` to inspect real calendar availability without creating an appointment. For urgent calls where the caller has not provided a specific day/time yet, send `availabilityMode: "earliest"`.
+
+```json
+{
+  "message": {
+    "type": "tool-calls",
+    "call": {
+      "id": "call-123",
+      "customer": {
+        "number": "+15551234567"
+      }
+    },
+    "toolCallList": [
+      {
+        "id": "tool-123",
+        "name": "check_hvac_availability",
+        "arguments": {
+          "name": "Jane Customer",
+          "phoneNumber": "+15551234567",
+          "email": "jane@example.com",
+          "serviceNeed": "AC not cooling",
+          "propertyType": "residential",
+          "serviceAddress": "123 Main Street, Addison, TX 75001",
+          "zipCode": "75001",
+          "urgency": "urgent",
+          "availabilityMode": "earliest"
+        }
+      }
+    ]
+  }
+}
+```
+
+For a caller-requested window, use `availabilityMode: "preferred_window"` and include `preferredTime`, for example `tomorrow between 4pm and 6pm America/Chicago`.
+
+Expected valid tool response is `200 OK` with Vapi's tool result shape and an inner JSON result containing `availabilityFound`, `requestedWindowAvailable`, `firstAvailableSlot`, `suggestedSlots`, `timezone`, and `messageForAssistant`. This tool does not create a booking or send confirmations.
 
 ### Vapi tool-call body for booking
 
@@ -117,6 +157,24 @@ Vapi's `apiRequest` Tool UI may send the request body as a flat JSON object inst
 ```
 
 Expected valid direct response is `200 OK` with `bookingSucceeded`, `crmSucceeded`, `confirmationSucceeded`, `outcome`, `tenantId`, and `correlationId` at the top level. Treat `bookingSucceeded: true` as the only booking confirmation signal.
+
+### Vapi direct API request body for availability
+
+```json
+{
+  "name": "Jane Customer",
+  "phoneNumber": "+15551234567",
+  "email": "jane@example.com",
+  "serviceNeed": "AC not cooling",
+  "propertyType": "residential",
+  "serviceAddress": "123 Main Street, Addison, TX 75001",
+  "zipCode": "75001",
+  "urgency": "urgent",
+  "availabilityMode": "earliest"
+}
+```
+
+Expected valid direct response is `200 OK` with `availabilityFound`, `firstAvailableSlot`, `suggestedSlots`, `timezone`, `outcome`, `tenantId`, and `correlationId` at the top level.
 
 ## POST `/api/tenants/{tenantId}/webhooks/twilio/sms-status`
 

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Infrastructure.Configuration;
@@ -16,6 +17,9 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
     private static readonly TimeSpan DefaultBusinessEnd = new(17, 0, 0);
     private static readonly TimeSpan DefaultAppointmentDuration = TimeSpan.FromMinutes(60);
     private static readonly TimeSpan DefaultSlotStep = TimeSpan.FromMinutes(30);
+    private static readonly Regex PreferredTimePattern = new(
+        @"(?<!\d)(?<hour>2[0-3]|1\d|0?\d)(?::(?<minute>[0-5]\d))?\s*(?<period>a\.?m\.?|p\.?m\.?)?",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
     private readonly ISecretProvider secretProvider;
@@ -269,7 +273,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                     var slotEnd = new DateTimeOffset(localSlotEnd, zone.GetUtcOffset(localSlotEnd)).ToUniversalTime();
                     if (slotStart >= startsAt
                         && slotEnd <= endsAt
-                        && MatchesPreferredWindow(localSlotStart, preferredWindow)
+                        && MatchesPreferredWindow(localSlotStart, localNow.Date, preferredWindow)
                         && !OverlapsAny(slotStart, slotEnd, busyTimes))
                     {
                         slots.Add(new AvailableSlot(
@@ -369,7 +373,10 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         return busyTimes.Any(busy => startsAt < busy.EndsAt && endsAt > busy.StartsAt);
     }
 
-    private static bool MatchesPreferredWindow(DateTime localSlotStart, string? preferredWindow)
+    private static bool MatchesPreferredWindow(
+        DateTime localSlotStart,
+        DateTime localToday,
+        string? preferredWindow)
     {
         if (string.IsNullOrWhiteSpace(preferredWindow))
         {
@@ -377,6 +384,17 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
 
         var normalized = preferredWindow.Trim();
+        if (!MatchesPreferredDay(localSlotStart.Date, localToday, normalized))
+        {
+            return false;
+        }
+
+        var explicitWindow = TryParsePreferredTimeWindow(normalized);
+        if (explicitWindow is not null)
+        {
+            return explicitWindow.Matches(localSlotStart.TimeOfDay);
+        }
+
         if (normalized.Contains("morning", StringComparison.OrdinalIgnoreCase))
         {
             return localSlotStart.TimeOfDay < TimeSpan.FromHours(12);
@@ -394,6 +412,136 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
 
         return true;
+    }
+
+    private static bool MatchesPreferredDay(
+        DateTime localSlotDate,
+        DateTime localToday,
+        string preferredWindow)
+    {
+        if (preferredWindow.Contains("today", StringComparison.OrdinalIgnoreCase))
+        {
+            return localSlotDate == localToday;
+        }
+
+        if (preferredWindow.Contains("tomorrow", StringComparison.OrdinalIgnoreCase))
+        {
+            return localSlotDate == localToday.AddDays(1);
+        }
+
+        if (preferredWindow.Contains("next week", StringComparison.OrdinalIgnoreCase))
+        {
+            var nextWeekStart = localToday.AddDays(7);
+            var nextWeekEnd = nextWeekStart.AddDays(7);
+            return localSlotDate >= nextWeekStart && localSlotDate < nextWeekEnd;
+        }
+
+        var weekday = TryParseWeekday(preferredWindow);
+        if (weekday is not null)
+        {
+            return localSlotDate == NextOccurrence(localToday, weekday.Value);
+        }
+
+        return true;
+    }
+
+    private static DayOfWeek? TryParseWeekday(string value)
+    {
+        foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>())
+        {
+            if (value.Contains(day.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                return day;
+            }
+        }
+
+        return null;
+    }
+
+    private static DateTime NextOccurrence(DateTime localToday, DayOfWeek day)
+    {
+        var daysUntilTarget = ((int)day - (int)localToday.DayOfWeek + 7) % 7;
+        return localToday.AddDays(daysUntilTarget == 0 ? 7 : daysUntilTarget);
+    }
+
+    private static PreferredTimeWindow? TryParsePreferredTimeWindow(string preferredWindow)
+    {
+        var matches = PreferredTimePattern
+            .Matches(preferredWindow)
+            .Where(match => match.Success)
+            .Select(match => PreferredTimeToken.FromMatch(match))
+            .Where(token => token is not null)
+            .Cast<PreferredTimeToken>()
+            .ToArray();
+
+        if (matches.Length >= 2)
+        {
+            var start = InferPeriod(matches[0], matches[1], isStart: true);
+            var end = InferPeriod(matches[1], start, isStart: false);
+            var startTime = ToTimeSpan(start);
+            var endTime = ToTimeSpan(end);
+
+            return endTime > startTime
+                ? new PreferredTimeWindow(startTime, endTime)
+                : null;
+        }
+
+        if (matches.Length == 1 && matches[0].Period is not null)
+        {
+            var time = ToTimeSpan(matches[0]);
+            if (preferredWindow.Contains("after", StringComparison.OrdinalIgnoreCase))
+            {
+                return new PreferredTimeWindow(time, null);
+            }
+
+            if (preferredWindow.Contains("before", StringComparison.OrdinalIgnoreCase))
+            {
+                return new PreferredTimeWindow(null, time);
+            }
+
+            return new PreferredTimeWindow(time, time.Add(TimeSpan.FromHours(1)));
+        }
+
+        return null;
+    }
+
+    private static PreferredTimeToken InferPeriod(
+        PreferredTimeToken token,
+        PreferredTimeToken other,
+        bool isStart)
+    {
+        if (token.Period is not null || token.Hour > 12)
+        {
+            return token;
+        }
+
+        if (other.Period is null)
+        {
+            return token;
+        }
+
+        var inferredPeriod = other.Period;
+        if (isStart && other.Period is TimePeriod.Pm && token.Hour > other.Hour)
+        {
+            inferredPeriod = TimePeriod.Am;
+        }
+
+        return token with { Period = inferredPeriod };
+    }
+
+    private static TimeSpan ToTimeSpan(PreferredTimeToken token)
+    {
+        var hour = token.Hour;
+        if (token.Period is TimePeriod.Pm && hour < 12)
+        {
+            hour += 12;
+        }
+        else if (token.Period is TimePeriod.Am && hour is 12)
+        {
+            hour = 0;
+        }
+
+        return new TimeSpan(hour, token.Minute, 0);
     }
 
     private static TimeZoneInfo ResolveTimeZone(string timeZone)
@@ -449,6 +597,51 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
     private static CreateBookingResult FailedBooking(string message) =>
         new(false, null, BookingFailureReason.AdapterFailure, message);
+
+    private sealed record PreferredTimeWindow(TimeSpan? StartsAt, TimeSpan? EndsAt)
+    {
+        public bool Matches(TimeSpan slotStart)
+        {
+            return (StartsAt is null || slotStart >= StartsAt)
+                && (EndsAt is null || slotStart < EndsAt);
+        }
+    }
+
+    private sealed record PreferredTimeToken(int Hour, int Minute, TimePeriod? Period)
+    {
+        public static PreferredTimeToken? FromMatch(Match match)
+        {
+            if (!int.TryParse(match.Groups["hour"].Value, out var hour)
+                || hour > 23
+                || !TryParseMinute(match, out var minute))
+            {
+                return null;
+            }
+
+            var periodValue = match.Groups["period"].Value;
+            var period = periodValue.StartsWith("a", StringComparison.OrdinalIgnoreCase)
+                ? TimePeriod.Am
+                : periodValue.StartsWith("p", StringComparison.OrdinalIgnoreCase)
+                    ? TimePeriod.Pm
+                    : (TimePeriod?)null;
+
+            return new PreferredTimeToken(hour, minute, period);
+        }
+
+        private static bool TryParseMinute(Match match, out int minute)
+        {
+            minute = 0;
+            var minuteValue = match.Groups["minute"].Value;
+            return string.IsNullOrWhiteSpace(minuteValue)
+                || int.TryParse(minuteValue, out minute);
+        }
+    }
+
+    private enum TimePeriod
+    {
+        Am,
+        Pm
+    }
 
     private sealed record BusyTime(DateTimeOffset StartsAt, DateTimeOffset EndsAt);
 

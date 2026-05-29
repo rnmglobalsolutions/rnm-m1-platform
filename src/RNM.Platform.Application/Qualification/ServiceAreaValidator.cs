@@ -2,6 +2,8 @@ namespace RNM.Platform.Application.Qualification;
 
 public sealed class ServiceAreaValidator
 {
+    private const string AnyValidZipCode = "*";
+
     public bool IsInServiceArea(string? zipCode, IReadOnlyCollection<string> configuredZipCodes)
     {
         return Validate(zipCode, configuredZipCodes).State is ServiceAreaDecisionState.InServiceArea;
@@ -18,6 +20,13 @@ public sealed class ServiceAreaValidator
         if (!IsValidUsZipCode(normalizedZipCode))
         {
             return ServiceAreaDecision.InvalidZipCode();
+        }
+
+        if (configuredZipCodes
+            .Select(NormalizeZipCode)
+            .Contains(AnyValidZipCode, StringComparer.Ordinal))
+        {
+            return ServiceAreaDecision.InServiceArea();
         }
 
         if (configuredZipCodes.Count == 0)

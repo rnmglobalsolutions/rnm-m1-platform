@@ -118,6 +118,30 @@ public sealed class InboundBookingWorkflowTests
     }
 
     [Fact]
+    public async Task ProcessAsync_ChecksAvailabilityWithoutBooking_WhenAutoSelectIsDisabled()
+    {
+        var harness = CreateHarness();
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(
+                argumentsJson: CreateArgumentsJson(preferredTime: null),
+                autoSelectFirstAvailableSlot: false,
+                requirePreferredWindow: false),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.BookingStopped, result.Outcome);
+        Assert.True(result.WorkflowCompleted);
+        Assert.False(result.BookingSucceeded);
+        Assert.True(result.CrmSucceeded);
+        Assert.Equal(BookingDecisionState.AvailabilityFound, result.BookingState);
+        Assert.NotEmpty(result.AvailableSlots);
+        Assert.Equal(1, harness.BookingAdapter.AvailabilityCallCount);
+        Assert.Equal(0, harness.BookingAdapter.CreateBookingCallCount);
+        Assert.Equal(0, harness.SmsSender.SendCallCount);
+        Assert.Equal(0, harness.EmailSender.SendCallCount);
+    }
+
+    [Fact]
     public async Task ProcessAsync_StopsBeforeBooking_WhenCrmContactCannotBeCreated()
     {
         var crmAdapter = new FakeCrmAdapter
@@ -298,7 +322,9 @@ public sealed class InboundBookingWorkflowTests
     private static InboundBookingWorkflowRequest CreateWorkflowRequest(
         string? argumentsJson = null,
         string? transcript = null,
-        string? callerPhoneNumber = "+15551234567")
+        string? callerPhoneNumber = "+15551234567",
+        bool autoSelectFirstAvailableSlot = true,
+        bool requirePreferredWindow = true)
     {
         return new InboundBookingWorkflowRequest(
             new InboundCallEvent(
@@ -312,16 +338,22 @@ public sealed class InboundBookingWorkflowTests
                 transcript,
                 "assistant",
                 new StructuredActionRequest("action-123", "bookAppointment", argumentsJson ?? CreateArgumentsJson()),
-                new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero)));
+                new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero)),
+            AutoSelectFirstAvailableSlot: autoSelectFirstAvailableSlot,
+            RequirePreferredWindow: requirePreferredWindow);
     }
 
     private static string CreateArgumentsJson(
         string serviceAddress = "123 Main St, Addison, TX 75001",
-        string? email = "lead@example.com")
+        string? email = "lead@example.com",
+        string? preferredTime = "Afternoon")
     {
         var emailProperty = email is null
             ? string.Empty
             : $@",""email"":""{email}""";
+        var preferredTimeProperty = preferredTime is null
+            ? string.Empty
+            : $@",""preferredTime"":""{preferredTime}""";
 
         return $$"""
         {
@@ -329,9 +361,8 @@ public sealed class InboundBookingWorkflowTests
           "propertyType": "Residential",
           "serviceAddress": "{{serviceAddress}}",
           "urgency": "Soon",
-          "preferredTime": "Afternoon",
           "phoneNumber": "+15551234567",
-          "name": "Jane Customer"{{emailProperty}}
+          "name": "Jane Customer"{{emailProperty}}{{preferredTimeProperty}}
         }
         """;
     }

@@ -31,6 +31,62 @@ public sealed class GoogleCalendarBookingAdapterTests
     }
 
     [Fact]
+    public async Task CheckAvailabilityAsync_RespectsExplicitPreferredTimeRange()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                businessEnd: "18:00:00",
+                appointmentMinutes: 30,
+                slotStepMinutes: 30),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest("between 4 and 6pm Chicago time"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.HasAvailability);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        Assert.All(result.Slots, slot =>
+        {
+            var localStart = TimeZoneInfo.ConvertTime(slot.StartsAt, zone).TimeOfDay;
+            Assert.True(localStart >= TimeSpan.FromHours(16), $"Expected slot at or after 4pm, got {localStart}.");
+            Assert.True(localStart < TimeSpan.FromHours(18), $"Expected slot before 6pm, got {localStart}.");
+        });
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_RespectsPreferredDayAndTimeRange()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                businessEnd: "18:00:00",
+                appointmentMinutes: 30,
+                slotStepMinutes: 30),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest("tomorrow between 4pm and 6pm America/Chicago"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.HasAvailability);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        var expectedDate = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow.AddHours(2), zone).Date.AddDays(1);
+        Assert.All(result.Slots, slot =>
+        {
+            var localStart = TimeZoneInfo.ConvertTime(slot.StartsAt, zone);
+            Assert.Equal(expectedDate, localStart.Date);
+            Assert.True(localStart.TimeOfDay >= TimeSpan.FromHours(16), $"Expected slot at or after 4pm, got {localStart.TimeOfDay}.");
+            Assert.True(localStart.TimeOfDay < TimeSpan.FromHours(18), $"Expected slot before 6pm, got {localStart.TimeOfDay}.");
+        });
+    }
+
+    [Fact]
     public async Task CheckAvailabilityAsync_ReturnsNoAvailability_WhenFreeBusyBlocksBusinessHours()
     {
         var adapter = CreateAdapter(
@@ -122,13 +178,14 @@ public sealed class GoogleCalendarBookingAdapterTests
             httpClient);
     }
 
-    private static BookingAvailabilityRequest CreateAvailabilityRequest() =>
+    private static BookingAvailabilityRequest CreateAvailabilityRequest(
+        string preferredWindow = "Afternoon") =>
         new(
             "tenant-a",
             "hvac",
             "corr-123",
             "Repair",
-            "Afternoon",
+            preferredWindow,
             "America/Chicago");
 
     private static CreateBookingRequest CreateBookingRequest()
@@ -155,16 +212,20 @@ public sealed class GoogleCalendarBookingAdapterTests
             "Afternoon");
     }
 
-    private static string CreateCredentialsJson(int lookAheadDays = 14) =>
+    private static string CreateCredentialsJson(
+        int lookAheadDays = 14,
+        string businessEnd = "17:00:00",
+        int appointmentMinutes = 60,
+        int slotStepMinutes = 60) =>
         $$"""
         {
           "calendarId": "primary",
           "accessToken": "token",
           "timeZone": "America/Chicago",
           "businessStart": "09:00:00",
-          "businessEnd": "17:00:00",
-          "appointmentMinutes": 60,
-          "slotStepMinutes": 60,
+          "businessEnd": "{{businessEnd}}",
+          "appointmentMinutes": {{appointmentMinutes}},
+          "slotStepMinutes": {{slotStepMinutes}},
           "lookAheadDays": {{lookAheadDays}},
           "includeWeekends": true
         }

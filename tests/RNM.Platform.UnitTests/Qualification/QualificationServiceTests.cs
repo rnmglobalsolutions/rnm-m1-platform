@@ -248,6 +248,25 @@ public sealed class QualificationServiceTests
     }
 
     [Fact]
+    public async Task QualifyAsync_ReturnsQualified_WhenWildcardZipCodeIsConfigured()
+    {
+        var service = CreateService();
+        var request = CreateRequest(
+            requiredFields: ["serviceNeed"],
+            allowedZipCodes: ["*"],
+            fields: new Dictionary<string, string>
+            {
+                ["serviceNeed"] = "Repair",
+                ["zipCode"] = "99999"
+            });
+
+        var result = await service.QualifyAsync(request, CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.Qualified, result.State);
+        Assert.Equal(ServiceAreaDecisionState.InServiceArea, result.ServiceAreaDecision.State);
+    }
+
+    [Fact]
     public async Task QualifyAsync_UsesVerticalRequiredFields()
     {
         var service = CreateService();
