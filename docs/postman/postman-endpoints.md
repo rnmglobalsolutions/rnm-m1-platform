@@ -66,7 +66,7 @@ book_hvac_appointment
 
 ### Vapi tool-call body for availability
 
-Use `check_hvac_availability` to inspect real calendar availability without creating an appointment. For urgent calls where the caller has not provided a specific day/time yet, send `availabilityMode: "earliest"`.
+Use `check_hvac_availability` to inspect real calendar availability without creating an appointment. For urgent calls where the caller has not provided a specific day/time yet, send `availabilityMode: "earliest"`. Urgent requests can use the urgent-only schedule configured in Key Vault, currently Monday-Sunday 7:30am-9:00pm America/Chicago.
 
 ```json
 {
@@ -105,6 +105,8 @@ Expected valid tool response is `200 OK` with Vapi's tool result shape and an in
 
 ### Vapi tool-call body for booking
 
+Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy the accepted slot values from `firstAvailableSlot` or one of the returned `suggestedSlots`. M1 will not auto-book a slot unless `customerConfirmedSlot` is `true` and the selected slot is still available.
+
 ```json
 {
   "message": {
@@ -128,7 +130,12 @@ Expected valid tool response is `200 OK` with Vapi's tool result shape and an in
           "serviceAddress": "123 Main Street, Addison, TX 75001",
           "zipCode": "75001",
           "urgency": "today",
-          "preferredTime": "tomorrow afternoon"
+          "preferredTime": "Friday, May 29 at 4:00 PM",
+          "selectedSlotId": "<copy firstAvailableSlot.slotId>",
+          "selectedSlotStart": "<copy firstAvailableSlot.startsAt>",
+          "selectedSlotEnd": "<copy firstAvailableSlot.endsAt>",
+          "selectedSlotLabel": "<copy firstAvailableSlot.label>",
+          "customerConfirmedSlot": true
         }
       }
     ]
@@ -152,7 +159,12 @@ Vapi's `apiRequest` Tool UI may send the request body as a flat JSON object inst
   "serviceAddress": "123 Main Street, Addison, TX 75001",
   "zipCode": "75001",
   "urgency": "today",
-  "preferredTime": "tomorrow afternoon"
+  "preferredTime": "Friday, May 29 at 4:00 PM",
+  "selectedSlotId": "<copy firstAvailableSlot.slotId>",
+  "selectedSlotStart": "<copy firstAvailableSlot.startsAt>",
+  "selectedSlotEnd": "<copy firstAvailableSlot.endsAt>",
+  "selectedSlotLabel": "<copy firstAvailableSlot.label>",
+  "customerConfirmedSlot": true
 }
 ```
 
