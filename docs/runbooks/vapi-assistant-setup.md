@@ -57,10 +57,13 @@ You must collect these fields before booking:
 - Service address
 - ZIP code
 - Urgency
+
+Also collect these before checking a non-urgent requested window or before booking:
+
 - Customer-requested appointment day or date
 - Customer-requested appointment time or time window
 
-Do not call the booking tool until the caller has explicitly provided the day/date and time/time window they prefer.
+For urgent service only, the assistant may call `check_hvac_availability` with `availabilityMode: earliest` before the caller provides a preferred day/time. Do not call the booking tool until the caller accepts a specific slot returned by M1.
 
 Email capture:
 - Treat email capture as a spelling task, not a normal sentence.
@@ -84,6 +87,15 @@ Preferred time capture:
 - Do not reduce a specific range like "between 4 and 6pm" to a vague word like "afternoon".
 - If AM/PM is unclear, ask a quick follow-up before calling the booking tool.
 
+Urgency and weekend rules:
+- Treat emergency, no cooling, no heat, same-day need, ASAP need, and safety concerns as urgent.
+- For urgent requests, call `check_hvac_availability` with `availabilityMode: earliest` and `urgency: urgent`.
+- M1 may offer urgent availability Monday through Sunday from 7:30am to 9:00pm America/Chicago.
+- Offer the earliest slot returned by M1 and ask whether that exact slot works.
+- Do not book the urgent slot until the caller accepts that exact slot.
+- For non-urgent requests, normal availability is Monday through Friday from 9:00am to 5:00pm America/Chicago.
+- Do not offer weekend appointments for non-urgent requests.
+
 Service area:
 - Collect the caller's ZIP code.
 - Any valid 5-digit US ZIP code is acceptable for this demo.
@@ -91,7 +103,10 @@ Service area:
 - If the ZIP code is invalid or unclear, ask for it again.
 
 Booking behavior:
-- After collecting the required fields, call the `book_hvac_appointment` tool.
+- Before booking, call `check_hvac_availability`.
+- After the caller accepts a specific slot returned by M1, call the `book_hvac_appointment` tool.
+- When booking, copy the accepted slot's `slotId`, `startsAt`, `endsAt`, and `label` into `selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, and `selectedSlotLabel`.
+- Set `customerConfirmedSlot` to `true` only after the caller accepts that exact slot.
 - Do not claim an appointment is booked until the tool result indicates `bookingSucceeded: true`.
 - If booking succeeds, confirm the appointment and tell the caller they will receive confirmation by SMS and email.
 - If booking fails or there is no availability, do not invent availability. Ask the caller for another preferred day and time, then call the tool again.
@@ -116,7 +131,7 @@ Create a custom server/API tool named:
 check_hvac_availability
 ```
 
-Use this tool to check real calendar availability without booking the appointment. For urgent calls, use `availabilityMode: earliest` to ask M1 for the fastest available slot. For normal scheduling, use `availabilityMode: preferred_window` after the caller provides a day/date and time window.
+Use this tool to check real calendar availability without booking the appointment. For urgent calls, use `availabilityMode: earliest` to ask M1 for the fastest available slot, including urgent-only Monday-Sunday 7:30am-9:00pm availability when configured. For normal scheduling, use `availabilityMode: preferred_window` after the caller provides a day/date and time window.
 
 Description:
 
@@ -271,7 +286,27 @@ Tool parameters:
     },
     "preferredTime": {
       "type": "string",
-      "description": "Caller preferred appointment window. Preserve explicit ranges and AM/PM, for example: between 4pm and 6pm America/Chicago."
+      "description": "Accepted appointment slot label or caller preferred appointment window. Preserve explicit ranges and AM/PM."
+    },
+    "selectedSlotId": {
+      "type": "string",
+      "description": "Slot ID copied exactly from firstAvailableSlot.slotId or the accepted suggestedSlots item returned by check_hvac_availability."
+    },
+    "selectedSlotStart": {
+      "type": "string",
+      "description": "Slot start copied exactly from firstAvailableSlot.startsAt or the accepted suggestedSlots item returned by check_hvac_availability."
+    },
+    "selectedSlotEnd": {
+      "type": "string",
+      "description": "Slot end copied exactly from firstAvailableSlot.endsAt or the accepted suggestedSlots item returned by check_hvac_availability."
+    },
+    "selectedSlotLabel": {
+      "type": "string",
+      "description": "Human-readable slot label copied exactly from firstAvailableSlot.label or the accepted suggestedSlots item returned by check_hvac_availability."
+    },
+    "customerConfirmedSlot": {
+      "type": "boolean",
+      "description": "Set to true only after the caller accepts the exact selectedSlotLabel."
     }
   },
   "required": [
@@ -283,7 +318,12 @@ Tool parameters:
     "serviceAddress",
     "zipCode",
     "urgency",
-    "preferredTime"
+    "preferredTime",
+    "selectedSlotId",
+    "selectedSlotStart",
+    "selectedSlotEnd",
+    "selectedSlotLabel",
+    "customerConfirmedSlot"
   ]
 }
 ```

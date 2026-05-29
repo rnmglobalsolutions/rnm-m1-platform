@@ -87,6 +87,172 @@ public sealed class GoogleCalendarBookingAdapterTests
     }
 
     [Fact]
+    public async Task CheckAvailabilityAsync_ExcludesWeekendSlots_WhenRequestIsNotUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest("Saturday morning", urgency: "maintenance"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.HasAvailability);
+        Assert.Empty(result.Slots);
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_IncludesWeekendSlots_WhenRequestIsUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest("Saturday between 8pm and 9pm", urgency: "urgent"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.HasAvailability);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        Assert.All(result.Slots, slot =>
+        {
+            var localStart = TimeZoneInfo.ConvertTime(slot.StartsAt, zone);
+            Assert.Equal(DayOfWeek.Saturday, localStart.DayOfWeek);
+            Assert.True(localStart.TimeOfDay >= TimeSpan.FromHours(20), $"Expected slot at or after 8pm, got {localStart.TimeOfDay}.");
+            Assert.True(localStart.TimeOfDay < TimeSpan.FromHours(21), $"Expected slot before 9pm, got {localStart.TimeOfDay}.");
+        });
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_UsesUrgentStartTime_WhenRequestIsUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest("Saturday between 7:30am and 8:30am", urgency: "emergency"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.HasAvailability);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        var firstLocalStart = TimeZoneInfo.ConvertTime(result.Slots.OrderBy(slot => slot.StartsAt).First().StartsAt, zone);
+        Assert.Equal(DayOfWeek.Saturday, firstLocalStart.DayOfWeek);
+        Assert.Equal(new TimeSpan(7, 30, 0), firstLocalStart.TimeOfDay);
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_TreatsNoCoolingServiceNeedAsUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest(
+                preferredWindow: "Saturday between 8pm and 9pm",
+                urgency: "soon",
+                serviceType: "No cooling in the house"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.HasAvailability);
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        Assert.All(result.Slots, slot =>
+        {
+            var localStart = TimeZoneInfo.ConvertTime(slot.StartsAt, zone);
+            Assert.Equal(DayOfWeek.Saturday, localStart.DayOfWeek);
+            Assert.True(localStart.TimeOfDay >= TimeSpan.FromHours(20), $"Expected slot at or after 8pm, got {localStart.TimeOfDay}.");
+            Assert.True(localStart.TimeOfDay < TimeSpan.FromHours(21), $"Expected slot before 9pm, got {localStart.TimeOfDay}.");
+        });
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_DoesNotTreatNotUrgentAsUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest(
+                preferredWindow: "Saturday between 8pm and 9pm",
+                urgency: "not urgent"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.HasAvailability);
+        Assert.Empty(result.Slots);
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_ExcludesAfterHoursSlots_WhenRequestIsNotUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest(
+                preferredWindow: "Monday between 8pm and 9pm",
+                urgency: "maintenance"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.HasAvailability);
+        Assert.Empty(result.Slots);
+    }
+
+    [Fact]
     public async Task CheckAvailabilityAsync_ReturnsNoAvailability_WhenFreeBusyBlocksBusinessHours()
     {
         var adapter = CreateAdapter(
@@ -179,14 +345,17 @@ public sealed class GoogleCalendarBookingAdapterTests
     }
 
     private static BookingAvailabilityRequest CreateAvailabilityRequest(
-        string preferredWindow = "Afternoon") =>
+        string preferredWindow = "Afternoon",
+        string? urgency = "Soon",
+        string? serviceType = "Repair") =>
         new(
             "tenant-a",
             "hvac",
             "corr-123",
-            "Repair",
+            serviceType,
             preferredWindow,
-            "America/Chicago");
+            "America/Chicago",
+            urgency);
 
     private static CreateBookingRequest CreateBookingRequest()
     {
@@ -216,7 +385,11 @@ public sealed class GoogleCalendarBookingAdapterTests
         int lookAheadDays = 14,
         string businessEnd = "17:00:00",
         int appointmentMinutes = 60,
-        int slotStepMinutes = 60) =>
+        int slotStepMinutes = 60,
+        bool includeWeekends = true,
+        bool includeWeekendsForUrgent = false,
+        string urgentBusinessStart = "09:00:00",
+        string urgentBusinessEnd = "17:00:00") =>
         $$"""
         {
           "calendarId": "primary",
@@ -224,10 +397,13 @@ public sealed class GoogleCalendarBookingAdapterTests
           "timeZone": "America/Chicago",
           "businessStart": "09:00:00",
           "businessEnd": "{{businessEnd}}",
+          "urgentBusinessStart": "{{urgentBusinessStart}}",
+          "urgentBusinessEnd": "{{urgentBusinessEnd}}",
           "appointmentMinutes": {{appointmentMinutes}},
           "slotStepMinutes": {{slotStepMinutes}},
           "lookAheadDays": {{lookAheadDays}},
-          "includeWeekends": true
+          "includeWeekends": {{includeWeekends.ToString().ToLowerInvariant()}},
+          "includeWeekendsForUrgent": {{includeWeekendsForUrgent.ToString().ToLowerInvariant()}}
         }
         """;
 

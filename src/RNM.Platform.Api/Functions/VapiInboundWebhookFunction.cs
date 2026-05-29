@@ -255,12 +255,7 @@ public sealed class VapiInboundWebhookFunction
             var isAvailabilityToolCall = IsAvailabilityToolCall(inboundCallEvent.ActionRequest);
             var workflowResult = await inboundBookingWorkflow
                 .ProcessAsync(
-                    isAvailabilityToolCall
-                        ? new InboundBookingWorkflowRequest(
-                            inboundCallEvent,
-                            AutoSelectFirstAvailableSlot: false,
-                            RequirePreferredWindow: RequiresPreferredWindow(inboundCallEvent.ActionRequest))
-                        : new InboundBookingWorkflowRequest(inboundCallEvent),
+                    CreateWorkflowRequest(inboundCallEvent, isAvailabilityToolCall),
                     cancellationToken)
                 .ConfigureAwait(false);
             var apiTelemetryEventName = workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed
@@ -665,6 +660,61 @@ public sealed class VapiInboundWebhookFunction
         return !string.IsNullOrWhiteSpace(GetActionArgument(actionRequest, "preferredTime"));
     }
 
+    private static InboundBookingWorkflowRequest CreateWorkflowRequest(
+        InboundCallEvent inboundCallEvent,
+        bool isAvailabilityToolCall)
+    {
+        if (isAvailabilityToolCall)
+        {
+            return new InboundBookingWorkflowRequest(
+                inboundCallEvent,
+                AutoSelectFirstAvailableSlot: false,
+                RequirePreferredWindow: RequiresPreferredWindow(inboundCallEvent.ActionRequest));
+        }
+
+        return new InboundBookingWorkflowRequest(
+            inboundCallEvent,
+            SelectedSlot: TryCreateConfirmedSelectedSlot(inboundCallEvent.ActionRequest),
+            AutoSelectFirstAvailableSlot: false,
+            RequirePreferredWindow: true);
+    }
+
+    private static AvailableSlot? TryCreateConfirmedSelectedSlot(StructuredActionRequest? actionRequest)
+    {
+        if (!GetActionArgumentBoolean(actionRequest, "customerConfirmedSlot"))
+        {
+            return null;
+        }
+
+        var slotId = GetActionArgument(actionRequest, "selectedSlotId");
+        var label = GetActionArgument(actionRequest, "selectedSlotLabel");
+        var startsAtValue = GetActionArgument(actionRequest, "selectedSlotStart")
+            ?? GetActionArgument(actionRequest, "startsAt");
+        var endsAtValue = GetActionArgument(actionRequest, "selectedSlotEnd")
+            ?? GetActionArgument(actionRequest, "endsAt");
+
+        if (!DateTimeOffset.TryParse(startsAtValue, out var startsAt)
+            || !DateTimeOffset.TryParse(endsAtValue, out var endsAt)
+            || endsAt <= startsAt)
+        {
+            return null;
+        }
+
+        return new AvailableSlot(
+            string.IsNullOrWhiteSpace(slotId) ? null : slotId,
+            startsAt.ToUniversalTime(),
+            endsAt.ToUniversalTime(),
+            label);
+    }
+
+    private static bool GetActionArgumentBoolean(StructuredActionRequest? actionRequest, string fieldName)
+    {
+        var value = GetActionArgument(actionRequest, fieldName);
+        return bool.TryParse(value, out var parsed)
+            ? parsed
+            : string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? GetActionArgument(StructuredActionRequest? actionRequest, string fieldName)
     {
         if (string.IsNullOrWhiteSpace(actionRequest?.ArgumentsJson))
@@ -675,11 +725,20 @@ public sealed class VapiInboundWebhookFunction
         try
         {
             using var document = JsonDocument.Parse(actionRequest.ArgumentsJson);
-            return document.RootElement.ValueKind is JsonValueKind.Object
-                && document.RootElement.TryGetProperty(fieldName, out var property)
-                && property.ValueKind is JsonValueKind.String
-                    ? property.GetString()
-                    : null;
+            if (document.RootElement.ValueKind is not JsonValueKind.Object
+                || !document.RootElement.TryGetProperty(fieldName, out var property))
+            {
+                return null;
+            }
+
+            return property.ValueKind switch
+            {
+                JsonValueKind.String => property.GetString(),
+                JsonValueKind.True => bool.TrueString,
+                JsonValueKind.False => bool.FalseString,
+                JsonValueKind.Number => property.GetRawText(),
+                _ => null
+            };
         }
         catch (JsonException)
         {

@@ -34,6 +34,22 @@
       "value": "{{$guid}}"
     },
     {
+      "key": "selectedSlotId",
+      "value": "copy-from-check-availability"
+    },
+    {
+      "key": "selectedSlotStart",
+      "value": "copy-from-check-availability"
+    },
+    {
+      "key": "selectedSlotEnd",
+      "value": "copy-from-check-availability"
+    },
+    {
+      "key": "selectedSlotLabel",
+      "value": "copy-from-check-availability"
+    },
+    {
       "key": "testEmail",
       "value": "your-test-email@example.com"
     },
@@ -203,7 +219,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"book_hvac_appointment\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"today\",\n          \"preferredTime\": \"tomorrow afternoon\"\n        }\n      }\n    ]\n  }\n}"
+          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"book_hvac_appointment\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"today\",\n          \"preferredTime\": \"{{selectedSlotLabel}}\",\n          \"selectedSlotId\": \"{{selectedSlotId}}\",\n          \"selectedSlotStart\": \"{{selectedSlotStart}}\",\n          \"selectedSlotEnd\": \"{{selectedSlotEnd}}\",\n          \"selectedSlotLabel\": \"{{selectedSlotLabel}}\",\n          \"customerConfirmedSlot\": true\n        }\n      }\n    ]\n  }\n}"
         },
         "url": {
           "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
@@ -241,7 +257,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Jane Customer\",\n  \"phoneNumber\": \"+15551234567\",\n  \"email\": \"jane@example.com\",\n  \"serviceNeed\": \"AC not cooling\",\n  \"propertyType\": \"residential\",\n  \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n  \"zipCode\": \"75001\",\n  \"urgency\": \"today\",\n  \"preferredTime\": \"tomorrow afternoon\"\n}"
+          "raw": "{\n  \"name\": \"Jane Customer\",\n  \"phoneNumber\": \"+15551234567\",\n  \"email\": \"jane@example.com\",\n  \"serviceNeed\": \"AC not cooling\",\n  \"propertyType\": \"residential\",\n  \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n  \"zipCode\": \"75001\",\n  \"urgency\": \"today\",\n  \"preferredTime\": \"{{selectedSlotLabel}}\",\n  \"selectedSlotId\": \"{{selectedSlotId}}\",\n  \"selectedSlotStart\": \"{{selectedSlotStart}}\",\n  \"selectedSlotEnd\": \"{{selectedSlotEnd}}\",\n  \"selectedSlotLabel\": \"{{selectedSlotLabel}}\",\n  \"customerConfirmedSlot\": true\n}"
         },
         "url": {
           "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",

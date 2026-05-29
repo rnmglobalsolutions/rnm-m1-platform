@@ -81,7 +81,12 @@ public sealed class EndpointTelemetryTests
                       "serviceAddress": "123 Main St, Addison TX 75001",
                       "zipCode": "75001",
                       "urgency": "today",
-                      "preferredTime": "tomorrow morning",
+                      "preferredTime": "Friday, May 29 at 4:00 PM",
+                      "selectedSlotId": "slot-1",
+                      "selectedSlotStart": "2026-05-29T21:00:00Z",
+                      "selectedSlotEnd": "2026-05-29T21:30:00Z",
+                      "selectedSlotLabel": "Friday, May 29 at 4:00 PM",
+                      "customerConfirmedSlot": true,
                       "name": "Jane Customer",
                       "phoneNumber": "+15551234567",
                       "email": "jane@example.com"
@@ -104,8 +109,14 @@ public sealed class EndpointTelemetryTests
         Assert.Contains("crmSucceeded", body);
         Assert.Contains("confirmationSucceeded", body);
         var callEvent = Assert.Single(workflow.Events);
+        var workflowRequest = Assert.Single(workflow.Requests);
         Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
         Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        Assert.NotNull(workflowRequest.SelectedSlot);
+        Assert.Equal("slot-1", workflowRequest.SelectedSlot?.SlotId);
+        Assert.Equal(new DateTimeOffset(2026, 5, 29, 21, 0, 0, TimeSpan.Zero), workflowRequest.SelectedSlot?.StartsAt);
+        Assert.Equal(new DateTimeOffset(2026, 5, 29, 21, 30, 0, TimeSpan.Zero), workflowRequest.SelectedSlot?.EndsAt);
         AssertValidCorrelationHeader(response);
     }
 
@@ -199,7 +210,12 @@ public sealed class EndpointTelemetryTests
               "serviceAddress": "123 Main St, Addison TX 75001",
               "zipCode": "75001",
               "urgency": "today",
-              "preferredTime": "tomorrow morning"
+              "preferredTime": "Friday, May 29 at 4:00 PM",
+              "selectedSlotId": "slot-1",
+              "selectedSlotStart": "2026-05-29T16:00:00-05:00",
+              "selectedSlotEnd": "2026-05-29T16:30:00-05:00",
+              "selectedSlotLabel": "Friday, May 29 at 4:00 PM",
+              "customerConfirmedSlot": true
             }
             """);
         request.Headers.Add("Authorization", "Bearer expected-secret");
@@ -214,9 +230,70 @@ public sealed class EndpointTelemetryTests
         Assert.Contains("\"crmSucceeded\":true", body);
         Assert.Contains("\"confirmationSucceeded\":true", body);
         var callEvent = Assert.Single(workflow.Events);
+        var workflowRequest = Assert.Single(workflow.Requests);
         Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
         Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
         Assert.Equal("+15551234567", callEvent.Session.CallerPhoneNumber);
+        Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        Assert.Equal("slot-1", workflowRequest.SelectedSlot?.SlotId);
+        Assert.Equal(new DateTimeOffset(2026, 5, 29, 21, 0, 0, TimeSpan.Zero), workflowRequest.SelectedSlot?.StartsAt);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_BookingToolCallWithoutConfirmedSlot_DoesNotAutoSelectSlot()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.AvailabilityFound,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": {
+                  "id": "call-123",
+                  "customer": { "number": "+15551234567" }
+                },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "book_hvac_appointment",
+                    "arguments": {
+                      "serviceNeed": "AC repair",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 75001",
+                      "zipCode": "75001",
+                      "urgency": "today",
+                      "preferredTime": "Friday, May 29 at 4:00 PM",
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("bookingSucceeded", body);
+        var workflowRequest = Assert.Single(workflow.Requests);
+        Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        Assert.Null(workflowRequest.SelectedSlot);
+        Assert.True(workflowRequest.RequirePreferredWindow);
         AssertValidCorrelationHeader(response);
     }
 

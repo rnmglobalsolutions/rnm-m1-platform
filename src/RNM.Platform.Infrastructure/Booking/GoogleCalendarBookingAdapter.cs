@@ -17,6 +17,18 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
     private static readonly TimeSpan DefaultBusinessEnd = new(17, 0, 0);
     private static readonly TimeSpan DefaultAppointmentDuration = TimeSpan.FromMinutes(60);
     private static readonly TimeSpan DefaultSlotStep = TimeSpan.FromMinutes(30);
+    private static readonly string[] NonUrgentSignals =
+    [
+        "not urgent",
+        "non urgent",
+        "non-urgent",
+        "nonurgent",
+        "routine",
+        "maintenance",
+        "quote",
+        "estimate"
+    ];
+
     private static readonly Regex PreferredTimePattern = new(
         @"(?<!\d)(?<hour>2[0-3]|1\d|0?\d)(?::(?<minute>[0-5]\d))?\s*(?<period>a\.?m\.?|p\.?m\.?)?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -69,12 +81,17 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                 startsAt,
                 endsAt,
                 request.TimeZone,
+                request.ServiceType,
                 request.PreferredWindow,
                 credentials.BusinessStart,
                 credentials.BusinessEnd,
+                credentials.UrgentBusinessStart,
+                credentials.UrgentBusinessEnd,
                 credentials.AppointmentDuration,
                 credentials.SlotStep,
-                credentials.IncludeWeekends);
+                credentials.IncludeWeekends,
+                credentials.IncludeWeekendsForUrgent,
+                request.Urgency);
 
             return new BookingAvailabilityResult(slots.Count > 0, slots);
         }
@@ -242,14 +259,26 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         DateTimeOffset startsAt,
         DateTimeOffset endsAt,
         string timeZone,
+        string? serviceType,
         string? preferredWindow,
         TimeSpan businessStart,
         TimeSpan businessEnd,
+        TimeSpan urgentBusinessStart,
+        TimeSpan urgentBusinessEnd,
         TimeSpan appointmentDuration,
         TimeSpan slotStep,
-        bool includeWeekends)
+        bool includeWeekends,
+        bool includeWeekendsForUrgent,
+        string? urgency)
     {
-        if (businessEnd <= businessStart || appointmentDuration <= TimeSpan.Zero || slotStep <= TimeSpan.Zero)
+        var isUrgent = IsUrgent(urgency, serviceType);
+        var effectiveBusinessStart = isUrgent ? urgentBusinessStart : businessStart;
+        var effectiveBusinessEnd = isUrgent ? urgentBusinessEnd : businessEnd;
+        var effectiveIncludeWeekends = isUrgent
+            ? includeWeekends || includeWeekendsForUrgent
+            : includeWeekends;
+
+        if (effectiveBusinessEnd <= effectiveBusinessStart || appointmentDuration <= TimeSpan.Zero || slotStep <= TimeSpan.Zero)
         {
             return [];
         }
@@ -262,10 +291,10 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
         while (day <= localEnd.Date)
         {
-            if (includeWeekends || (day.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday))
+            if (effectiveIncludeWeekends || (day.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday))
             {
-                var localSlotStart = day.Add(businessStart);
-                var localBusinessEnd = day.Add(businessEnd);
+                var localSlotStart = day.Add(effectiveBusinessStart);
+                var localBusinessEnd = day.Add(effectiveBusinessEnd);
                 while (localSlotStart.Add(appointmentDuration) <= localBusinessEnd)
                 {
                     var localSlotEnd = localSlotStart.Add(appointmentDuration);
@@ -412,6 +441,42 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
 
         return true;
+    }
+
+    private static bool IsUrgent(string? urgency, string? serviceType)
+    {
+        if (IsExplicitlyNotUrgent(urgency))
+        {
+            return false;
+        }
+
+        return HasUrgentSignal(urgency) || HasUrgentSignal(serviceType);
+    }
+
+    private static bool HasUrgentSignal(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return value.Contains("urgent", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("emergency", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("asap", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("same day", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("today", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("no cooling", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("no heat", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsExplicitlyNotUrgent(string? urgency)
+    {
+        if (string.IsNullOrWhiteSpace(urgency))
+        {
+            return false;
+        }
+
+        return NonUrgentSignals.Any(value => urgency.Contains(value, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesPreferredDay(
@@ -655,10 +720,13 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         string TimeZone,
         TimeSpan BusinessStart,
         TimeSpan BusinessEnd,
+        TimeSpan UrgentBusinessStart,
+        TimeSpan UrgentBusinessEnd,
         TimeSpan AppointmentDuration,
         TimeSpan SlotStep,
         int LookAheadDays,
-        bool IncludeWeekends)
+        bool IncludeWeekends,
+        bool IncludeWeekendsForUrgent)
     {
         public static bool TryParse(
             string secretValue,
@@ -681,6 +749,9 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                     return false;
                 }
 
+                var businessStart = ReadTimeSpan(root, "businessStart", DefaultBusinessStart);
+                var businessEnd = ReadTimeSpan(root, "businessEnd", DefaultBusinessEnd);
+
                 credentials = new GoogleCalendarCredentials(
                     calendarId,
                     ReadString(root, "accessToken"),
@@ -689,12 +760,15 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                     ReadString(root, "clientSecret"),
                     ReadString(root, "tokenUri") ?? "https://oauth2.googleapis.com/token",
                     ReadString(root, "timeZone") ?? tenantTimeZone,
-                    ReadTimeSpan(root, "businessStart", DefaultBusinessStart),
-                    ReadTimeSpan(root, "businessEnd", DefaultBusinessEnd),
+                    businessStart,
+                    businessEnd,
+                    ReadTimeSpan(root, "urgentBusinessStart", businessStart),
+                    ReadTimeSpan(root, "urgentBusinessEnd", businessEnd),
                     ReadMinutes(root, "appointmentMinutes", DefaultAppointmentDuration, maxMinutes: 480),
                     ReadMinutes(root, "slotStepMinutes", DefaultSlotStep, maxMinutes: 240),
                     ReadInt(root, "lookAheadDays", 14, maxValue: 60),
-                    ReadBool(root, "includeWeekends", false));
+                    ReadBool(root, "includeWeekends", false),
+                    ReadBool(root, "includeWeekendsForUrgent", false));
                 return true;
             }
             catch (JsonException)

@@ -8,7 +8,8 @@ public sealed record BookingAvailabilityRequest(
     string CorrelationId,
     string? ServiceType,
     string? PreferredWindow,
-    string TimeZone);
+    string TimeZone,
+    string? Urgency = null);
 
 public sealed record BookingAvailabilityResult(
     bool HasAvailability,

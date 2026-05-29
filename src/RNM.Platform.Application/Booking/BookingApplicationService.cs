@@ -163,7 +163,8 @@ public sealed class BookingApplicationService
             request.CorrelationId,
             request.ServiceType,
             request.PreferredWindow,
-            request.TimeZone);
+            request.TimeZone,
+            GetFieldValue(request.QualificationResult, "urgency"));
     }
 
     private static CreateBookingRequest CreateBookingRequest(
@@ -179,6 +180,15 @@ public sealed class BookingApplicationService
             request.ServiceType,
             request.PreferredWindow,
             request.ProviderContactId);
+    }
+
+    private static string? GetFieldValue(
+        QualificationResult qualificationResult,
+        string fieldName)
+    {
+        return qualificationResult.LeadData.Fields.TryGetValue(fieldName, out var value)
+            ? value
+            : null;
     }
 
     private static AvailableSlot? FindAvailableSlot(
