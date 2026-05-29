@@ -198,6 +198,10 @@ firstAvailableSlot.slotId
 firstAvailableSlot.startsAt
 firstAvailableSlot.endsAt
 firstAvailableSlot.label
+firstAvailableSlot.selectedSlotId
+firstAvailableSlot.selectedSlotStart
+firstAvailableSlot.selectedSlotEnd
+firstAvailableSlot.selectedSlotLabel
 suggestedSlots
 timezone
 messageForAssistant
@@ -290,19 +294,19 @@ Tool parameters:
     },
     "selectedSlotId": {
       "type": "string",
-      "description": "Slot ID copied exactly from firstAvailableSlot.slotId or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Slot ID copied exactly from firstAvailableSlot.selectedSlotId or the accepted suggestedSlots item returned by check_hvac_availability."
     },
     "selectedSlotStart": {
       "type": "string",
-      "description": "Slot start copied exactly from firstAvailableSlot.startsAt or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Slot start copied exactly from firstAvailableSlot.selectedSlotStart or the accepted suggestedSlots item returned by check_hvac_availability."
     },
     "selectedSlotEnd": {
       "type": "string",
-      "description": "Slot end copied exactly from firstAvailableSlot.endsAt or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Slot end copied exactly from firstAvailableSlot.selectedSlotEnd or the accepted suggestedSlots item returned by check_hvac_availability."
     },
     "selectedSlotLabel": {
       "type": "string",
-      "description": "Human-readable slot label copied exactly from firstAvailableSlot.label or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Human-readable slot label copied exactly from firstAvailableSlot.selectedSlotLabel or the accepted suggestedSlots item returned by check_hvac_availability."
     },
     "customerConfirmedSlot": {
       "type": "boolean",

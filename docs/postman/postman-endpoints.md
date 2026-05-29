@@ -101,11 +101,11 @@ Use `check_hvac_availability` to inspect real calendar availability without crea
 
 For a caller-requested window, use `availabilityMode: "preferred_window"` and include `preferredTime`, for example `tomorrow between 4pm and 6pm America/Chicago`.
 
-Expected valid tool response is `200 OK` with Vapi's tool result shape and an inner JSON result containing `availabilityFound`, `requestedWindowAvailable`, `firstAvailableSlot`, `suggestedSlots`, `timezone`, and `messageForAssistant`. This tool does not create a booking or send confirmations.
+Expected valid tool response is `200 OK` with Vapi's tool result shape and an inner JSON result containing `availabilityFound`, `requestedWindowAvailable`, `firstAvailableSlot`, `suggestedSlots`, `timezone`, and `messageForAssistant`. Slot objects include both the raw availability fields (`slotId`, `startsAt`, `endsAt`, `label`) and booking-ready aliases (`selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, `selectedSlotLabel`). This tool does not create a booking or send confirmations.
 
 ### Vapi tool-call body for booking
 
-Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy the accepted slot values from `firstAvailableSlot` or one of the returned `suggestedSlots`. M1 will not auto-book a slot unless `customerConfirmedSlot` is `true` and the selected slot is still available.
+Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy the accepted slot values from `firstAvailableSlot` or one of the returned `suggestedSlots`. Prefer the booking-ready aliases: `selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, and `selectedSlotLabel`. M1 will not auto-book a slot unless `customerConfirmedSlot` is `true` and the selected slot is still available.
 
 ```json
 {
@@ -131,10 +131,10 @@ Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy t
           "zipCode": "75001",
           "urgency": "today",
           "preferredTime": "Friday, May 29 at 4:00 PM",
-          "selectedSlotId": "<copy firstAvailableSlot.slotId>",
-          "selectedSlotStart": "<copy firstAvailableSlot.startsAt>",
-          "selectedSlotEnd": "<copy firstAvailableSlot.endsAt>",
-          "selectedSlotLabel": "<copy firstAvailableSlot.label>",
+          "selectedSlotId": "<copy firstAvailableSlot.selectedSlotId>",
+          "selectedSlotStart": "<copy firstAvailableSlot.selectedSlotStart>",
+          "selectedSlotEnd": "<copy firstAvailableSlot.selectedSlotEnd>",
+          "selectedSlotLabel": "<copy firstAvailableSlot.selectedSlotLabel>",
           "customerConfirmedSlot": true
         }
       }
@@ -160,10 +160,10 @@ Vapi's `apiRequest` Tool UI may send the request body as a flat JSON object inst
   "zipCode": "75001",
   "urgency": "today",
   "preferredTime": "Friday, May 29 at 4:00 PM",
-  "selectedSlotId": "<copy firstAvailableSlot.slotId>",
-  "selectedSlotStart": "<copy firstAvailableSlot.startsAt>",
-  "selectedSlotEnd": "<copy firstAvailableSlot.endsAt>",
-  "selectedSlotLabel": "<copy firstAvailableSlot.label>",
+  "selectedSlotId": "<copy firstAvailableSlot.selectedSlotId>",
+  "selectedSlotStart": "<copy firstAvailableSlot.selectedSlotStart>",
+  "selectedSlotEnd": "<copy firstAvailableSlot.selectedSlotEnd>",
+  "selectedSlotLabel": "<copy firstAvailableSlot.selectedSlotLabel>",
   "customerConfirmedSlot": true
 }
 ```

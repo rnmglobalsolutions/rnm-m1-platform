@@ -142,12 +142,12 @@ Send the tool these fields:
 - `selectedSlotLabel`
 - `customerConfirmedSlot`: `true`
 
-The selected slot fields must come from `firstAvailableSlot` or one of the returned `suggestedSlots`. Do not invent or transform them:
+The selected slot fields must come from `firstAvailableSlot` or one of the returned `suggestedSlots`. Prefer the booking-ready fields returned by M1. Do not invent or transform them:
 
-- `selectedSlotId` = the accepted slot's `slotId`
-- `selectedSlotStart` = the accepted slot's `startsAt`
-- `selectedSlotEnd` = the accepted slot's `endsAt`
-- `selectedSlotLabel` = the accepted slot's `label`
+- `selectedSlotId` = the accepted slot's `selectedSlotId`
+- `selectedSlotStart` = the accepted slot's `selectedSlotStart`
+- `selectedSlotEnd` = the accepted slot's `selectedSlotEnd`
+- `selectedSlotLabel` = the accepted slot's `selectedSlotLabel`
 - `customerConfirmedSlot` = `true` only after the caller says that exact slot works
 
 For `preferredTime`, use the exact accepted slot label when available. Otherwise include the caller's requested date/day and time/time window in one clear phrase, for example:
