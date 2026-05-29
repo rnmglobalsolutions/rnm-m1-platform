@@ -6,6 +6,7 @@ using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Observability;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Api.Voice;
+using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
@@ -18,6 +19,8 @@ namespace RNM.Platform.Api.Functions;
 public sealed class VapiInboundWebhookFunction
 {
     private const string BookHvacAppointmentToolName = "book_hvac_appointment";
+    private const string CheckHvacAvailabilityToolName = "check_hvac_availability";
+    private const int MaxAvailabilitySuggestions = 3;
 
     private readonly TenantResolver tenantResolver;
     private readonly VapiWebhookValidator vapiWebhookValidator;
@@ -249,8 +252,16 @@ public sealed class VapiInboundWebhookFunction
                     correlationId);
             }
 
+            var isAvailabilityToolCall = IsAvailabilityToolCall(inboundCallEvent.ActionRequest);
             var workflowResult = await inboundBookingWorkflow
-                .ProcessAsync(inboundCallEvent, cancellationToken)
+                .ProcessAsync(
+                    isAvailabilityToolCall
+                        ? new InboundBookingWorkflowRequest(
+                            inboundCallEvent,
+                            AutoSelectFirstAvailableSlot: false,
+                            RequirePreferredWindow: RequiresPreferredWindow(inboundCallEvent.ActionRequest))
+                        : new InboundBookingWorkflowRequest(inboundCallEvent),
+                    cancellationToken)
                 .ConfigureAwait(false);
             var apiTelemetryEventName = workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed
                 ? TelemetryEventNames.ApiRequestFailed
@@ -278,6 +289,23 @@ public sealed class VapiInboundWebhookFunction
             {
                 if (IsDirectApiRequestToolCall(parseResult.Envelope))
                 {
+                    if (isAvailabilityToolCall)
+                    {
+                        return WriteDirectAvailabilityToolResult(
+                            request,
+                            workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed
+                                ? HttpStatusCode.InternalServerError
+                                : HttpStatusCode.OK,
+                            correlationId,
+                            tenantContext.TenantId,
+                            tenantContext.TimeZone,
+                            inboundCallEvent.EventType.ToString(),
+                            workflowOutcome,
+                            processed,
+                            workflowResult,
+                            HasPreferredWindow(inboundCallEvent.ActionRequest));
+                    }
+
                     return WriteDirectToolResult(
                         request,
                         workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed
@@ -291,6 +319,22 @@ public sealed class VapiInboundWebhookFunction
                         workflowResult.BookingSucceeded,
                         workflowResult.CrmSucceeded,
                         workflowResult.ConfirmationSucceeded);
+                }
+
+                if (isAvailabilityToolCall)
+                {
+                    return WriteAvailabilityToolResult(
+                        request,
+                        parseResult.Envelope.ToolCall.Name,
+                        parseResult.Envelope.ToolCall.ToolCallId,
+                        correlationId,
+                        tenantContext.TenantId,
+                        tenantContext.TimeZone,
+                        inboundCallEvent.EventType.ToString(),
+                        workflowOutcome,
+                        processed,
+                        workflowResult,
+                        HasPreferredWindow(inboundCallEvent.ActionRequest));
                 }
 
                 return WriteToolResult(
@@ -399,6 +443,33 @@ public sealed class VapiInboundWebhookFunction
             correlationId);
     }
 
+    private HttpResponseData WriteDirectAvailabilityToolResult(
+        HttpRequestData request,
+        HttpStatusCode statusCode,
+        string correlationId,
+        string tenantId,
+        string timeZone,
+        string eventType,
+        string outcome,
+        bool processed,
+        InboundBookingWorkflowResult workflowResult,
+        bool hasPreferredWindow)
+    {
+        return responseWriter.WriteJson(
+            request,
+            statusCode,
+            CreateAvailabilityResponsePayload(
+                correlationId,
+                tenantId,
+                timeZone,
+                eventType,
+                outcome,
+                processed,
+                workflowResult,
+                hasPreferredWindow),
+            correlationId);
+    }
+
     private HttpResponseData WriteToolResult(
         HttpRequestData request,
         string? toolName,
@@ -443,19 +514,184 @@ public sealed class VapiInboundWebhookFunction
             correlationId);
     }
 
+    private HttpResponseData WriteAvailabilityToolResult(
+        HttpRequestData request,
+        string? toolName,
+        string? toolCallId,
+        string correlationId,
+        string tenantId,
+        string timeZone,
+        string eventType,
+        string outcome,
+        bool processed,
+        InboundBookingWorkflowResult workflowResult,
+        bool hasPreferredWindow)
+    {
+        var toolResult = JsonSerializer.Serialize(CreateAvailabilityResponsePayload(
+            correlationId,
+            tenantId,
+            timeZone,
+            eventType,
+            outcome,
+            processed,
+            workflowResult,
+            hasPreferredWindow));
+
+        return responseWriter.WriteJson(
+            request,
+            HttpStatusCode.OK,
+            new
+            {
+                results = new[]
+                {
+                    new
+                    {
+                        name = toolName,
+                        toolCallId,
+                        result = toolResult
+                    }
+                }
+            },
+            correlationId);
+    }
+
+    private static object CreateAvailabilityResponsePayload(
+        string correlationId,
+        string tenantId,
+        string timeZone,
+        string eventType,
+        string outcome,
+        bool processed,
+        InboundBookingWorkflowResult workflowResult,
+        bool hasPreferredWindow)
+    {
+        var suggestedSlots = workflowResult.AvailableSlots
+            .OrderBy(slot => slot.StartsAt)
+            .Take(MaxAvailabilitySuggestions)
+            .Select(slot => ToAvailabilitySlotResponse(slot, timeZone))
+            .ToArray();
+        var availabilityFound = suggestedSlots.Length > 0;
+        var firstAvailableSlot = suggestedSlots.FirstOrDefault();
+
+        return new
+        {
+            accepted = true,
+            processed,
+            correlationId,
+            tenantId,
+            eventType,
+            outcome,
+            availabilityFound,
+            requestedWindowAvailable = hasPreferredWindow ? availabilityFound : (bool?)null,
+            timezone = timeZone,
+            firstAvailableSlot,
+            suggestedSlots,
+            messageForAssistant = CreateAvailabilityMessage(availabilityFound, hasPreferredWindow, firstAvailableSlot?.label)
+        };
+    }
+
+    private static AvailabilitySlotResponse ToAvailabilitySlotResponse(AvailableSlot slot, string timeZone)
+    {
+        var startsAt = ToTenantLocalTime(slot.StartsAt, timeZone);
+        var endsAt = ToTenantLocalTime(slot.EndsAt, timeZone);
+
+        return new AvailabilitySlotResponse(
+            string.IsNullOrWhiteSpace(slot.SlotId) ? startsAt.ToString("O") : slot.SlotId,
+            startsAt.ToString("O"),
+            endsAt.ToString("O"),
+            string.IsNullOrWhiteSpace(slot.Label)
+                ? startsAt.ToString("dddd, MMMM d 'at' h:mm tt")
+                : slot.Label);
+    }
+
+    private static DateTimeOffset ToTenantLocalTime(DateTimeOffset value, string timeZone)
+    {
+        try
+        {
+            return TimeZoneInfo.ConvertTime(value, TimeZoneInfo.FindSystemTimeZoneById(timeZone));
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return value;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return value;
+        }
+    }
+
+    private static string CreateAvailabilityMessage(
+        bool availabilityFound,
+        bool hasPreferredWindow,
+        string? firstSlotLabel)
+    {
+        if (!availabilityFound)
+        {
+            return hasPreferredWindow
+                ? "The requested appointment window does not appear to be available. Ask the caller for another preferred day and time."
+                : "No appointment availability was found. Offer human follow-up.";
+        }
+
+        return hasPreferredWindow
+            ? $"The requested window has availability. Ask the caller to confirm {firstSlotLabel}."
+            : $"The earliest available appointment is {firstSlotLabel}. Ask the caller if that works for them before booking.";
+    }
+
     private static bool IsSupportedToolCall(StructuredActionRequest? actionRequest)
     {
-        return string.Equals(
-            actionRequest?.Name,
-            BookHvacAppointmentToolName,
-            StringComparison.Ordinal);
+        return string.Equals(actionRequest?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal)
+            || string.Equals(actionRequest?.Name, CheckHvacAvailabilityToolName, StringComparison.Ordinal);
+    }
+
+    private static bool IsAvailabilityToolCall(StructuredActionRequest? actionRequest)
+    {
+        return string.Equals(actionRequest?.Name, CheckHvacAvailabilityToolName, StringComparison.Ordinal);
     }
 
     private static bool IsDirectApiRequestToolCall(VapiWebhookEnvelope envelope)
     {
         return string.Equals(envelope.RawEventType, "api-request", StringComparison.Ordinal)
-            && string.Equals(envelope.ToolCall?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal);
+            && (string.Equals(envelope.ToolCall?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal)
+                || string.Equals(envelope.ToolCall?.Name, CheckHvacAvailabilityToolName, StringComparison.Ordinal));
     }
+
+    private static bool RequiresPreferredWindow(StructuredActionRequest? actionRequest)
+    {
+        return !string.Equals(GetActionArgument(actionRequest, "availabilityMode"), "earliest", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasPreferredWindow(StructuredActionRequest? actionRequest)
+    {
+        return !string.IsNullOrWhiteSpace(GetActionArgument(actionRequest, "preferredTime"));
+    }
+
+    private static string? GetActionArgument(StructuredActionRequest? actionRequest, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(actionRequest?.ArgumentsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(actionRequest.ArgumentsJson);
+            return document.RootElement.ValueKind is JsonValueKind.Object
+                && document.RootElement.TryGetProperty(fieldName, out var property)
+                && property.ValueKind is JsonValueKind.String
+                    ? property.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record AvailabilitySlotResponse(
+        string slotId,
+        string startsAt,
+        string endsAt,
+        string label);
 
     private Task LogWebhookAsync(
         string eventName,

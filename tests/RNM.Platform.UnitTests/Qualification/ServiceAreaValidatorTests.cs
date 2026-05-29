@@ -16,6 +16,18 @@ public sealed class ServiceAreaValidatorTests
     }
 
     [Theory]
+    [InlineData("75001")]
+    [InlineData("99999")]
+    public void IsInServiceArea_ReturnsTrue_WhenWildcardZipCodeIsConfigured(string zipCode)
+    {
+        var validator = new ServiceAreaValidator();
+
+        var result = validator.IsInServiceArea(zipCode, ["*"]);
+
+        Assert.True(result);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("99999")]

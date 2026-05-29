@@ -4,9 +4,9 @@
   "businessName": "RNM Global Solutions HVAC Demo",
   "timeZone": "America/Chicago",
   "serviceArea": {
-    "zipCodes": ["75001", "75002"],
-    "cities": ["Addison", "Plano"],
-    "referralMessage": "We do not currently service that area, but we can have the office follow up if a referral is available."
+    "zipCodes": ["*"],
+    "cities": [],
+    "referralMessage": "We can have the office review the service area and follow up if support or referral options are available."
   },
   "providers": {
     "crmProvider": "AzureTable",

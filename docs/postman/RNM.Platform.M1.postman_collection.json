@@ -108,6 +108,82 @@
       }
     },
     {
+      "name": "Vapi Check HVAC Availability Tool Call",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{vapiWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"check_hvac_availability\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"urgent\",\n          \"availabilityMode\": \"earliest\"\n        }\n      }\n    ]\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "vapi",
+            "inbound"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Vapi Check HVAC Availability Direct API Request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{vapiWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jane Customer\",\n  \"phoneNumber\": \"+15551234567\",\n  \"email\": \"jane@example.com\",\n  \"serviceNeed\": \"AC not cooling\",\n  \"propertyType\": \"residential\",\n  \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n  \"zipCode\": \"75001\",\n  \"urgency\": \"urgent\",\n  \"availabilityMode\": \"earliest\"\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "vapi",
+            "inbound"
+          ]
+        }
+      }
+    },
+    {
       "name": "Vapi Book HVAC Appointment Tool Call",
       "request": {
         "method": "POST",

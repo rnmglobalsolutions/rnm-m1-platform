@@ -7,8 +7,9 @@ public sealed class VapiWebhookPayloadParser
 {
     private const string DirectApiRequestRawEventType = "api-request";
     private const string DirectBookingToolName = "book_hvac_appointment";
+    private const string DirectAvailabilityToolName = "check_hvac_availability";
 
-    private static readonly string[] DirectApiRequestRequiredFields =
+    private static readonly string[] DirectBookingApiRequestRequiredFields =
     [
         "name",
         "phoneNumber",
@@ -19,6 +20,19 @@ public sealed class VapiWebhookPayloadParser
         "zipCode",
         "urgency",
         "preferredTime"
+    ];
+
+    private static readonly string[] DirectAvailabilityApiRequestRequiredFields =
+    [
+        "name",
+        "phoneNumber",
+        "email",
+        "serviceNeed",
+        "propertyType",
+        "serviceAddress",
+        "zipCode",
+        "urgency",
+        "availabilityMode"
     ];
 
     private readonly VapiWebhookOptions options;
@@ -145,7 +159,18 @@ public sealed class VapiWebhookPayloadParser
 
     private static VapiToolCallRequest? TryGetDirectApiRequestToolCall(JsonElement root)
     {
-        if (!HasAllRequiredDirectApiRequestFields(root))
+        if (HasAllRequiredDirectApiRequestFields(root, DirectAvailabilityApiRequestRequiredFields))
+        {
+            return new VapiToolCallRequest(
+                FirstNonEmpty(
+                    TryGetSafeScalarString(root, "toolCallId"),
+                    TryGetSafeScalarString(root, "id"),
+                    TryGetSafeScalarString(root, "callId")),
+                DirectAvailabilityToolName,
+                root.GetRawText());
+        }
+
+        if (!HasAllRequiredDirectApiRequestFields(root, DirectBookingApiRequestRequiredFields))
         {
             return null;
         }
@@ -156,19 +181,22 @@ public sealed class VapiWebhookPayloadParser
                 TryGetSafeScalarString(root, "id"),
                 TryGetSafeScalarString(root, "callId")),
             DirectBookingToolName,
-            root.GetRawText());
+                root.GetRawText());
     }
 
-    private static bool HasAllRequiredDirectApiRequestFields(JsonElement root)
+    private static bool HasAllRequiredDirectApiRequestFields(
+        JsonElement root,
+        IEnumerable<string> requiredFields)
     {
         return root.ValueKind is JsonValueKind.Object
-            && DirectApiRequestRequiredFields.All(fieldName =>
+            && requiredFields.All(fieldName =>
                 !string.IsNullOrWhiteSpace(TryGetSafeScalarString(root, fieldName)));
     }
 
     private static bool IsDirectApiRequestToolCall(VapiToolCallRequest? toolCall)
     {
-        return string.Equals(toolCall?.Name, DirectBookingToolName, StringComparison.Ordinal)
+        return (string.Equals(toolCall?.Name, DirectBookingToolName, StringComparison.Ordinal)
+                || string.Equals(toolCall?.Name, DirectAvailabilityToolName, StringComparison.Ordinal))
             && toolCall?.ArgumentsJson is not null;
     }
 

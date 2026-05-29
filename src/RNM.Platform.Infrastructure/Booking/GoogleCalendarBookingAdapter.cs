@@ -273,7 +273,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                     var slotEnd = new DateTimeOffset(localSlotEnd, zone.GetUtcOffset(localSlotEnd)).ToUniversalTime();
                     if (slotStart >= startsAt
                         && slotEnd <= endsAt
-                        && MatchesPreferredWindow(localSlotStart, preferredWindow)
+                        && MatchesPreferredWindow(localSlotStart, localNow.Date, preferredWindow)
                         && !OverlapsAny(slotStart, slotEnd, busyTimes))
                     {
                         slots.Add(new AvailableSlot(
@@ -373,7 +373,10 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         return busyTimes.Any(busy => startsAt < busy.EndsAt && endsAt > busy.StartsAt);
     }
 
-    private static bool MatchesPreferredWindow(DateTime localSlotStart, string? preferredWindow)
+    private static bool MatchesPreferredWindow(
+        DateTime localSlotStart,
+        DateTime localToday,
+        string? preferredWindow)
     {
         if (string.IsNullOrWhiteSpace(preferredWindow))
         {
@@ -381,6 +384,11 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
 
         var normalized = preferredWindow.Trim();
+        if (!MatchesPreferredDay(localSlotStart.Date, localToday, normalized))
+        {
+            return false;
+        }
+
         var explicitWindow = TryParsePreferredTimeWindow(normalized);
         if (explicitWindow is not null)
         {
@@ -404,6 +412,56 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
 
         return true;
+    }
+
+    private static bool MatchesPreferredDay(
+        DateTime localSlotDate,
+        DateTime localToday,
+        string preferredWindow)
+    {
+        if (preferredWindow.Contains("today", StringComparison.OrdinalIgnoreCase))
+        {
+            return localSlotDate == localToday;
+        }
+
+        if (preferredWindow.Contains("tomorrow", StringComparison.OrdinalIgnoreCase))
+        {
+            return localSlotDate == localToday.AddDays(1);
+        }
+
+        if (preferredWindow.Contains("next week", StringComparison.OrdinalIgnoreCase))
+        {
+            var nextWeekStart = localToday.AddDays(7);
+            var nextWeekEnd = nextWeekStart.AddDays(7);
+            return localSlotDate >= nextWeekStart && localSlotDate < nextWeekEnd;
+        }
+
+        var weekday = TryParseWeekday(preferredWindow);
+        if (weekday is not null)
+        {
+            return localSlotDate == NextOccurrence(localToday, weekday.Value);
+        }
+
+        return true;
+    }
+
+    private static DayOfWeek? TryParseWeekday(string value)
+    {
+        foreach (DayOfWeek day in Enum.GetValues<DayOfWeek>())
+        {
+            if (value.Contains(day.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                return day;
+            }
+        }
+
+        return null;
+    }
+
+    private static DateTime NextOccurrence(DateTime localToday, DayOfWeek day)
+    {
+        var daysUntilTarget = ((int)day - (int)localToday.DayOfWeek + 7) % 7;
+        return localToday.AddDays(daysUntilTarget == 0 ? 7 : daysUntilTarget);
     }
 
     private static PreferredTimeWindow? TryParsePreferredTimeWindow(string preferredWindow)

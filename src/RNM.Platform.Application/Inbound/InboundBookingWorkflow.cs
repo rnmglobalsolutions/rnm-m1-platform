@@ -92,7 +92,13 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                 .ConfigureAwait(false);
 
             var qualificationResult = await qualificationService
-                .QualifyAsync(CreateQualificationRequest(inboundCallEvent, tenantConfiguration, verticalConfiguration), cancellationToken)
+                .QualifyAsync(
+                    CreateQualificationRequest(
+                        inboundCallEvent,
+                        tenantConfiguration,
+                        verticalConfiguration,
+                        request.RequirePreferredWindow),
+                    cancellationToken)
                 .ConfigureAwait(false);
             latestQualificationState = qualificationResult.State;
             latestServiceAreaState = qualificationResult.ServiceAreaDecision.State;
@@ -201,7 +207,11 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                     qualificationResult.ServiceAreaDecision.State,
                     bookingResult.State,
                     latestCrmState,
-                    ConfirmationState: null);
+                    ConfirmationState: null)
+                {
+                    AvailableSlots = bookingResult.AvailableSlots,
+                    SelectedSlot = bookingResult.SelectedSlot
+                };
                 await LogCompletedAsync(correlationId, tenantId, verticalId, stopped, cancellationToken).ConfigureAwait(false);
                 return stopped;
             }
@@ -258,7 +268,11 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                 qualificationResult.ServiceAreaDecision.State,
                 bookingResult.State,
                 crmResult.State,
-                confirmationState);
+                confirmationState)
+            {
+                AvailableSlots = bookingResult.AvailableSlots,
+                SelectedSlot = bookingResult.SelectedSlot
+            };
 
             await LogAsync(
                     TelemetryEventNames.WorkflowConfirmationCompleted,
@@ -306,14 +320,21 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
     private static QualificationRequest CreateQualificationRequest(
         InboundCallEvent inboundCallEvent,
         TenantConfiguration tenantConfiguration,
-        VerticalConfiguration verticalConfiguration)
+        VerticalConfiguration verticalConfiguration,
+        bool requirePreferredWindow)
     {
+        var requiredFields = requirePreferredWindow
+            ? verticalConfiguration.QualificationFields
+            : verticalConfiguration.QualificationFields
+                .Where(field => !string.Equals(field, "preferredTime", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
         return new QualificationRequest(
             inboundCallEvent.TenantId,
             inboundCallEvent.VerticalId,
             inboundCallEvent.CorrelationId,
             inboundCallEvent,
-            verticalConfiguration.QualificationFields,
+            requiredFields,
             tenantConfiguration.ServiceArea.ZipCodes,
             StructuredFields: null,
             new ServiceAreaFieldAliases(
@@ -410,7 +431,8 @@ public sealed record InboundBookingWorkflowRequest(
     string? ServiceType = null,
     string? PreferredWindow = null,
     AvailableSlot? SelectedSlot = null,
-    bool AutoSelectFirstAvailableSlot = true);
+    bool AutoSelectFirstAvailableSlot = true,
+    bool RequirePreferredWindow = true);
 
 public sealed record InboundBookingWorkflowResult(
     InboundBookingWorkflowOutcome Outcome,
@@ -427,6 +449,10 @@ public sealed record InboundBookingWorkflowResult(
     public bool CrmSucceeded => CrmState is CrmSyncState.Succeeded;
 
     public bool ConfirmationSucceeded => ConfirmationState is ConfirmationWorkflowState.Completed;
+
+    public IReadOnlyCollection<AvailableSlot> AvailableSlots { get; init; } = [];
+
+    public AvailableSlot? SelectedSlot { get; init; }
 
     public static InboundBookingWorkflowResult Stopped(
         InboundBookingWorkflowOutcome outcome,
