@@ -183,6 +183,57 @@ public sealed class BookingApplicationServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_CreatesBooking_WhenSelectedSlotIdHasCopyArtifactButTimesMatch()
+    {
+        var availableSlot = CreateSlot(slotId: "slot-available");
+        var selectedSlot = CreateSlot(slotId: " slot-copied-with-whitespace ");
+        var adapter = new FakeBookingAdapter
+        {
+            AvailabilityResult = new BookingAvailabilityResult(
+                HasAvailability: true,
+                [availableSlot])
+        };
+        var service = CreateService(adapter);
+        var request = CreateRequest(QualificationResultState.Qualified) with
+        {
+            SelectedSlot = selectedSlot
+        };
+
+        var result = await service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.IsBooked);
+        Assert.Equal(availableSlot, result.SelectedSlot);
+        Assert.Equal(availableSlot, adapter.LastCreateBookingRequest?.Slot);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ChecksExactSelectedSlotWindow_WhenSelectedSlotIsProvided()
+    {
+        var selectedSlot = CreateSlot(
+            slotId: "slot-customer-accepted",
+            startsAt: new DateTimeOffset(2026, 5, 1, 20, 30, 0, TimeSpan.Zero),
+            endsAt: new DateTimeOffset(2026, 5, 1, 21, 0, 0, TimeSpan.Zero));
+        var adapter = new FakeBookingAdapter
+        {
+            AvailabilityResult = new BookingAvailabilityResult(
+                HasAvailability: true,
+                [selectedSlot])
+        };
+        var service = CreateService(adapter);
+        var request = CreateRequest(QualificationResultState.Qualified) with
+        {
+            PreferredWindow = "Fri May 29 8:30 PM",
+            SelectedSlot = selectedSlot
+        };
+
+        var result = await service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.IsBooked);
+        Assert.Null(adapter.LastAvailabilityRequest?.PreferredWindow);
+        Assert.Equal(selectedSlot, adapter.LastAvailabilityRequest?.SelectedSlot);
+    }
+
+    [Fact]
     public async Task ProcessAsync_FailsSafely_WhenSelectedSlotIsNotAvailable()
     {
         var adapter = new FakeBookingAdapter
@@ -195,7 +246,10 @@ public sealed class BookingApplicationServiceTests
         var service = CreateService(adapter, eventLogger);
         var request = CreateRequest(QualificationResultState.Qualified) with
         {
-            SelectedSlot = CreateSlot(slotId: "slot-missing")
+            SelectedSlot = CreateSlot(
+                slotId: "slot-missing",
+                startsAt: new DateTimeOffset(2026, 5, 2, 14, 0, 0, TimeSpan.Zero),
+                endsAt: new DateTimeOffset(2026, 5, 2, 15, 0, 0, TimeSpan.Zero))
         };
 
         var result = await service.ProcessAsync(request, CancellationToken.None);
@@ -218,7 +272,10 @@ public sealed class BookingApplicationServiceTests
         var service = CreateService(adapter);
         var request = CreateRequest(QualificationResultState.Qualified) with
         {
-            SelectedSlot = CreateSlot(slotId: "slot-stale")
+            SelectedSlot = CreateSlot(
+                slotId: "slot-stale",
+                startsAt: new DateTimeOffset(2026, 5, 2, 14, 0, 0, TimeSpan.Zero),
+                endsAt: new DateTimeOffset(2026, 5, 2, 15, 0, 0, TimeSpan.Zero))
         };
 
         var result = await service.ProcessAsync(request, CancellationToken.None);
@@ -490,11 +547,14 @@ public sealed class BookingApplicationServiceTests
 
         public CreateBookingRequest? LastCreateBookingRequest { get; private set; }
 
+        public BookingAvailabilityRequest? LastAvailabilityRequest { get; private set; }
+
         public Task<BookingAvailabilityResult> CheckAvailabilityAsync(
             BookingAvailabilityRequest request,
             CancellationToken cancellationToken)
         {
             CheckAvailabilityCallCount++;
+            LastAvailabilityRequest = request;
             return ThrowOnAvailability
                 ? throw new InvalidOperationException("Availability failed.")
                 : Task.FromResult(AvailabilityResult);

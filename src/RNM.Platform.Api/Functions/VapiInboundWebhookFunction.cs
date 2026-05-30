@@ -701,7 +701,7 @@ public sealed class VapiInboundWebhookFunction
         }
 
         return new AvailableSlot(
-            string.IsNullOrWhiteSpace(slotId) ? null : slotId,
+            string.IsNullOrWhiteSpace(slotId) ? null : slotId.Trim(),
             startsAt.ToUniversalTime(),
             endsAt.ToUniversalTime(),
             label);
