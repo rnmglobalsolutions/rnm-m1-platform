@@ -162,9 +162,10 @@ public sealed class BookingApplicationService
             request.VerticalId,
             request.CorrelationId,
             request.ServiceType,
-            request.PreferredWindow,
+            request.SelectedSlot is null ? request.PreferredWindow : null,
             request.TimeZone,
-            GetFieldValue(request.QualificationResult, "urgency"));
+            GetFieldValue(request.QualificationResult, "urgency"),
+            request.SelectedSlot);
     }
 
     private static CreateBookingRequest CreateBookingRequest(
@@ -195,15 +196,20 @@ public sealed class BookingApplicationService
         AvailableSlot selectedSlot,
         IReadOnlyCollection<AvailableSlot> availableSlots)
     {
-        if (!string.IsNullOrWhiteSpace(selectedSlot.SlotId))
+        var selectedSlotId = selectedSlot.SlotId?.Trim();
+        if (!string.IsNullOrWhiteSpace(selectedSlotId))
         {
-            return availableSlots.FirstOrDefault(slot =>
-                string.Equals(slot.SlotId, selectedSlot.SlotId, StringComparison.Ordinal));
+            var slotById = availableSlots.FirstOrDefault(slot =>
+                string.Equals(slot.SlotId?.Trim(), selectedSlotId, StringComparison.Ordinal));
+            if (slotById is not null)
+            {
+                return slotById;
+            }
         }
 
         return availableSlots.FirstOrDefault(slot =>
-            slot.StartsAt == selectedSlot.StartsAt
-            && slot.EndsAt == selectedSlot.EndsAt);
+            slot.StartsAt.ToUniversalTime() == selectedSlot.StartsAt.ToUniversalTime()
+            && slot.EndsAt.ToUniversalTime() == selectedSlot.EndsAt.ToUniversalTime());
     }
 
     private static BookingFailureReason? GetRefusalReason(QualificationResultState state)
@@ -233,6 +239,7 @@ public sealed class BookingApplicationService
             .AddIf(result is not null, "bookingState", result?.State.ToString())
             .AddIf(result?.FailureReason is not null, "failureReason", result?.FailureReason.ToString())
             .AddIf(result is not null, "availableSlotCount", result?.AvailableSlots.Count.ToString())
+            .AddIf(request.SelectedSlot is not null, "selectedSlotProvided", "true")
             .ToDictionary();
 
         try

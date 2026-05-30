@@ -87,6 +87,45 @@ public sealed class GoogleCalendarBookingAdapterTests
     }
 
     [Fact]
+    public async Task CheckAvailabilityAsync_UsesSelectedSlotWindow_WhenSelectedSlotIsProvided()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        var selectedLocalStart = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow.AddHours(2), zone)
+            .Date
+            .AddDays(1)
+            .AddHours(8);
+        var selectedStart = new DateTimeOffset(selectedLocalStart, zone.GetUtcOffset(selectedLocalStart));
+        var selectedEnd = selectedStart.AddMinutes(30);
+        var selectedSlot = new AvailableSlot(
+            "selected-slot",
+            selectedStart.ToUniversalTime(),
+            selectedEnd.ToUniversalTime(),
+            "Accepted slot");
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: true,
+                urgentBusinessStart: "00:00:00",
+                urgentBusinessEnd: "23:59:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest(
+                preferredWindow: "unparseable caller text should not filter selected slot",
+                urgency: "urgent",
+                selectedSlot: selectedSlot),
+            CancellationToken.None);
+
+        var slot = Assert.Single(result.Slots);
+        Assert.True(result.HasAvailability);
+        Assert.Equal(selectedSlot.StartsAt, slot.StartsAt);
+        Assert.Equal(selectedSlot.EndsAt, slot.EndsAt);
+    }
+
+    [Fact]
     public async Task CheckAvailabilityAsync_ExcludesWeekendSlots_WhenRequestIsNotUrgent()
     {
         var adapter = CreateAdapter(
@@ -347,7 +386,8 @@ public sealed class GoogleCalendarBookingAdapterTests
     private static BookingAvailabilityRequest CreateAvailabilityRequest(
         string preferredWindow = "Afternoon",
         string? urgency = "Soon",
-        string? serviceType = "Repair") =>
+        string? serviceType = "Repair",
+        AvailableSlot? selectedSlot = null) =>
         new(
             "tenant-a",
             "hvac",
@@ -355,7 +395,8 @@ public sealed class GoogleCalendarBookingAdapterTests
             serviceType,
             preferredWindow,
             "America/Chicago",
-            urgency);
+            urgency,
+            selectedSlot);
 
     private static CreateBookingRequest CreateBookingRequest()
     {

@@ -41,8 +41,13 @@ public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
                 return FailedAvailability("GoHighLevel booking credentials are incomplete.");
             }
 
-            var startsAfter = DateTimeOffset.UtcNow;
-            var endsBefore = startsAfter.AddDays(14);
+            var startsAfter = request.SelectedSlot?.StartsAt ?? DateTimeOffset.UtcNow;
+            var endsBefore = request.SelectedSlot?.EndsAt ?? startsAfter.AddDays(14);
+            if (endsBefore <= startsAfter)
+            {
+                return new BookingAvailabilityResult(false, []);
+            }
+
             var path = new StringBuilder();
             path.Append("calendars/");
             path.Append(Uri.EscapeDataString(credentials.CalendarId));

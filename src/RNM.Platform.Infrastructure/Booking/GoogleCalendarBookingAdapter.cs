@@ -67,8 +67,13 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                 return FailedAvailability("Google Calendar access token is unavailable.");
             }
 
-            var startsAt = DateTimeOffset.UtcNow.AddHours(2);
-            var endsAt = startsAt.AddDays(credentials.LookAheadDays);
+            var startsAt = request.SelectedSlot?.StartsAt ?? DateTimeOffset.UtcNow.AddHours(2);
+            var endsAt = request.SelectedSlot?.EndsAt ?? startsAt.AddDays(credentials.LookAheadDays);
+            if (endsAt <= startsAt)
+            {
+                return new BookingAvailabilityResult(false, []);
+            }
+
             var busyTimes = await GetBusyTimesAsync(credentials.CalendarId, accessToken, startsAt, endsAt, cancellationToken)
                 .ConfigureAwait(false);
             if (busyTimes is null)
@@ -82,7 +87,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                 endsAt,
                 request.TimeZone,
                 request.ServiceType,
-                request.PreferredWindow,
+                request.SelectedSlot is null ? request.PreferredWindow : null,
                 credentials.BusinessStart,
                 credentials.BusinessEnd,
                 credentials.UrgentBusinessStart,

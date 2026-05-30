@@ -9,7 +9,8 @@ public sealed record BookingAvailabilityRequest(
     string? ServiceType,
     string? PreferredWindow,
     string TimeZone,
-    string? Urgency = null);
+    string? Urgency = null,
+    AvailableSlot? SelectedSlot = null);
 
 public sealed record BookingAvailabilityResult(
     bool HasAvailability,
