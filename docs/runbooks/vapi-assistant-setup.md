@@ -107,9 +107,10 @@ Booking behavior:
 - After the caller accepts a specific slot returned by M1, call the `book_hvac_appointment` tool.
 - When booking, copy the accepted slot's `slotId`, `startsAt`, `endsAt`, and `label` into `selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, and `selectedSlotLabel`.
 - Set `customerConfirmedSlot` to `true` only after the caller accepts that exact slot.
+- HVAC bookings are onsite service appointments. Do not promise an online meeting link unless M1 explicitly returns one.
 - Do not claim an appointment is booked until the tool result indicates `bookingSucceeded: true`.
 - If booking succeeds, confirm the appointment and tell the caller they will receive confirmation by SMS and email.
-- If booking fails or there is no availability, do not invent availability. Ask the caller for another preferred day and time, then call the tool again.
+- If booking fails or there is no availability, do not invent availability. Ask the caller for another preferred day and time, call `check_hvac_availability` again, and only call `book_hvac_appointment` after the caller accepts a specific slot returned by M1.
 
 Rules:
 - Do not invent prices, discounts, technician names, policies, or availability.
@@ -406,7 +407,7 @@ Before client demos:
 7. Confirm `communication.smsFromPhoneNumber` in `config/tenants/sample-hvac-tenant.json` has been replaced with the dedicated demo Twilio number added to the RNM Global Solutions Messaging Service/campaign.
 8. Make one in-service-area test call and verify:
    - Azure Table contact record created or updated.
-   - Google Calendar appointment created.
+   - Google Calendar appointment created with the service address visible as the event location.
    - Twilio SMS sent when SMS is enabled.
    - SendGrid email sent to the confirmed email address.
    - Application Insights has webhook, workflow, booking, CRM, confirmation, and SMS status telemetry under the correlation ID.
