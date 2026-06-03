@@ -21,6 +21,29 @@ public sealed class VapiInboundWebhookFunction
     private const string BookHvacAppointmentToolName = "book_hvac_appointment";
     private const string CheckHvacAvailabilityToolName = "check_hvac_availability";
     private const int MaxAvailabilitySuggestions = 3;
+    private static readonly string[] UrgentSignals =
+    [
+        "urgent",
+        "emergency",
+        "asap",
+        "same day",
+        "today",
+        "no cooling",
+        "no heat",
+        "safety"
+    ];
+
+    private static readonly string[] NonUrgentSignals =
+    [
+        "not urgent",
+        "non urgent",
+        "non-urgent",
+        "nonurgent",
+        "routine",
+        "maintenance",
+        "quote",
+        "estimate"
+    ];
 
     private readonly TenantResolver tenantResolver;
     private readonly VapiWebhookValidator vapiWebhookValidator;
@@ -223,18 +246,14 @@ public sealed class VapiInboundWebhookFunction
 
                 if (parseResult.Envelope.ToolCall is not null)
                 {
-                    return WriteToolResult(
+                    return WriteUnsupportedToolResult(
                         request,
                         parseResult.Envelope.ToolCall.Name,
                         parseResult.Envelope.ToolCall.ToolCallId,
                         correlationId,
                         tenantContext.TenantId,
                         inboundCallEvent.EventType.ToString(),
-                        unsupportedToolOutcome,
-                        processed: false,
-                        bookingSucceeded: false,
-                        crmSucceeded: false,
-                        confirmationSucceeded: false);
+                        unsupportedToolOutcome);
                 }
 
                 return responseWriter.WriteJson(
@@ -311,9 +330,7 @@ public sealed class VapiInboundWebhookFunction
                         inboundCallEvent.EventType.ToString(),
                         workflowOutcome,
                         processed,
-                        workflowResult.BookingSucceeded,
-                        workflowResult.CrmSucceeded,
-                        workflowResult.ConfirmationSucceeded);
+                        workflowResult);
                 }
 
                 if (isAvailabilityToolCall)
@@ -341,9 +358,7 @@ public sealed class VapiInboundWebhookFunction
                     inboundCallEvent.EventType.ToString(),
                     workflowOutcome,
                     processed,
-                    workflowResult.BookingSucceeded,
-                    workflowResult.CrmSucceeded,
-                    workflowResult.ConfirmationSucceeded);
+                    workflowResult);
             }
 
             return responseWriter.WriteJson(
@@ -416,9 +431,7 @@ public sealed class VapiInboundWebhookFunction
         string eventType,
         string outcome,
         bool processed,
-        bool bookingSucceeded,
-        bool crmSucceeded,
-        bool confirmationSucceeded)
+        InboundBookingWorkflowResult workflowResult)
     {
         return responseWriter.WriteJson(
             request,
@@ -431,9 +444,11 @@ public sealed class VapiInboundWebhookFunction
                 tenantId,
                 eventType,
                 outcome,
-                bookingSucceeded,
-                crmSucceeded,
-                confirmationSucceeded
+                bookingSucceeded = workflowResult.BookingSucceeded,
+                crmSucceeded = workflowResult.CrmSucceeded,
+                confirmationSucceeded = workflowResult.ConfirmationSucceeded,
+                bookingState = workflowResult.BookingState?.ToString(),
+                messageForAssistant = CreateBookingMessage(workflowResult)
             },
             correlationId);
     }
@@ -474,9 +489,7 @@ public sealed class VapiInboundWebhookFunction
         string eventType,
         string outcome,
         bool processed,
-        bool bookingSucceeded,
-        bool crmSucceeded,
-        bool confirmationSucceeded)
+        InboundBookingWorkflowResult workflowResult)
     {
         var toolResult = JsonSerializer.Serialize(new
         {
@@ -486,9 +499,52 @@ public sealed class VapiInboundWebhookFunction
             tenantId,
             eventType,
             outcome,
-            bookingSucceeded,
-            crmSucceeded,
-            confirmationSucceeded
+            bookingSucceeded = workflowResult.BookingSucceeded,
+            crmSucceeded = workflowResult.CrmSucceeded,
+            confirmationSucceeded = workflowResult.ConfirmationSucceeded,
+            bookingState = workflowResult.BookingState?.ToString(),
+            messageForAssistant = CreateBookingMessage(workflowResult)
+        });
+
+        return responseWriter.WriteJson(
+            request,
+            HttpStatusCode.OK,
+            new
+            {
+                results = new[]
+                {
+                    new
+                    {
+                        name = toolName,
+                        toolCallId,
+                        result = toolResult
+                    }
+                }
+            },
+            correlationId);
+    }
+
+    private HttpResponseData WriteUnsupportedToolResult(
+        HttpRequestData request,
+        string? toolName,
+        string? toolCallId,
+        string correlationId,
+        string tenantId,
+        string eventType,
+        string outcome)
+    {
+        var toolResult = JsonSerializer.Serialize(new
+        {
+            accepted = true,
+            processed = false,
+            correlationId,
+            tenantId,
+            eventType,
+            outcome,
+            bookingSucceeded = false,
+            crmSucceeded = false,
+            confirmationSucceeded = false,
+            messageForAssistant = "This tool is not supported. Continue safely without exposing internal tool details."
         });
 
         return responseWriter.WriteJson(
@@ -632,6 +688,25 @@ public sealed class VapiInboundWebhookFunction
             : $"The earliest available appointment is {firstSlotLabel}. Ask the caller if that works for them before booking.";
     }
 
+    private static string CreateBookingMessage(InboundBookingWorkflowResult workflowResult)
+    {
+        if (workflowResult.BookingSucceeded)
+        {
+            return workflowResult.ConfirmationSucceeded
+                ? "The appointment is booked. Tell the caller they will receive confirmation by SMS and email."
+                : "The appointment is booked, but confirmation delivery did not fully succeed. Tell the caller the office may follow up with confirmation details.";
+        }
+
+        return workflowResult.BookingState switch
+        {
+            BookingDecisionState.AvailabilityFound => "A confirmed slot was not provided. Ask the caller to accept one exact slot returned by M1 before booking.",
+            BookingDecisionState.NoAvailability => "No appointment availability was found. Offer human follow-up and do not keep the caller waiting on a transfer.",
+            BookingDecisionState.Failed => "Booking failed safely. Offer human follow-up and do not claim the appointment is booked.",
+            BookingDecisionState.Refused => "The lead is not eligible for booking with the current details. Ask only for missing or corrected information, or offer human follow-up.",
+            _ => "Booking was not completed. Offer human follow-up and do not claim the appointment is booked."
+        };
+    }
+
     private static bool IsSupportedToolCall(StructuredActionRequest? actionRequest)
     {
         return string.Equals(actionRequest?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal)
@@ -652,7 +727,32 @@ public sealed class VapiInboundWebhookFunction
 
     private static bool RequiresPreferredWindow(StructuredActionRequest? actionRequest)
     {
-        return !string.Equals(GetActionArgument(actionRequest, "availabilityMode"), "earliest", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(GetActionArgument(actionRequest, "availabilityMode"), "earliest", StringComparison.OrdinalIgnoreCase)
+            || IsUrgentAction(actionRequest)
+            || string.IsNullOrWhiteSpace(GetActionArgument(actionRequest, "preferredTime")))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsUrgentAction(StructuredActionRequest? actionRequest)
+    {
+        var urgency = GetActionArgument(actionRequest, "urgency");
+        if (ContainsAny(urgency, NonUrgentSignals))
+        {
+            return false;
+        }
+
+        return ContainsAny(urgency, UrgentSignals)
+            || ContainsAny(GetActionArgument(actionRequest, "serviceNeed"), UrgentSignals);
+    }
+
+    private static bool ContainsAny(string? value, IReadOnlyCollection<string> signals)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && signals.Any(signal => value.Contains(signal, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool HasPreferredWindow(StructuredActionRequest? actionRequest)
