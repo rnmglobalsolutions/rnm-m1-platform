@@ -196,6 +196,107 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
+    public async Task VapiWebhook_UrgentAvailabilityToolCallWithoutEarliestMode_DoesNotRequirePreferredWindow()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.AvailabilityFound,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "check_hvac_availability",
+                    "arguments": {
+                      "serviceNeed": "Urgent AC repair with no cooling",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 75001",
+                      "zipCode": "75001",
+                      "urgency": "urgent",
+                      "availabilityMode": "preferred_window",
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var workflowRequest = Assert.Single(workflow.Requests);
+        Assert.False(workflowRequest.RequirePreferredWindow);
+        Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_AvailabilityToolCallWithoutPreferredTime_FallsBackToEarliestLookup()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.AvailabilityFound,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "check_hvac_availability",
+                    "arguments": {
+                      "serviceNeed": "AC repair",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 75001",
+                      "zipCode": "75001",
+                      "urgency": "soon",
+                      "availabilityMode": "preferred_window",
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var workflowRequest = Assert.Single(workflow.Requests);
+        Assert.False(workflowRequest.RequirePreferredWindow);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
     public async Task VapiWebhook_DirectApiRequestBody_ReturnsDirectToolResult()
     {
         var eventLogger = new RecordingEventLogger();
@@ -297,6 +398,63 @@ public sealed class EndpointTelemetryTests
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
         Assert.Null(workflowRequest.SelectedSlot);
         Assert.True(workflowRequest.RequirePreferredWindow);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_BookingToolCallFailure_ReturnsAssistantGuidance()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.NoAvailability,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "book_hvac_appointment",
+                    "arguments": {
+                      "serviceNeed": "AC repair",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 75001",
+                      "zipCode": "75001",
+                      "urgency": "urgent",
+                      "preferredTime": "Friday, May 29 at 4:00 PM",
+                      "selectedSlotId": "slot-1",
+                      "selectedSlotStart": "2026-05-29T21:00:00Z",
+                      "selectedSlotEnd": "2026-05-29T21:30:00Z",
+                      "selectedSlotLabel": "Friday, May 29 at 4:00 PM",
+                      "customerConfirmedSlot": true,
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("NoAvailability", body);
+        Assert.Contains("Offer human follow-up", body);
+        Assert.Contains("do not keep the caller waiting", body);
         AssertValidCorrelationHeader(response);
     }
 

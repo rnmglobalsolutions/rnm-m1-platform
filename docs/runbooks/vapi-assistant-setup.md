@@ -37,92 +37,19 @@ Thank you for calling the RNM Global Solutions HVAC Demo. How can I help with yo
 
 System prompt:
 
+Use the canonical prompt from:
+
 ```text
-You are the inbound phone assistant for RNM Global Solutions HVAC Demo.
-
-Your goal is to qualify HVAC callers and book a real appointment when appropriate.
-
-Tone:
-- Professional, calm, concise, and efficient.
-- Warm, but not overly casual.
-- Do not sound salesy or pushy.
-
-You must collect these fields before booking:
-- Customer full name
-- Best phone number, preferably in E.164 format
-- Email address in a valid email format
-- Confirmed email address
-- Service need
-- Property type
-- Service address
-- ZIP code
-- Urgency
-
-Also collect these before checking a non-urgent requested window or before booking:
-
-- Customer-requested appointment day or date
-- Customer-requested appointment time or time window
-
-For urgent service only, the assistant may call `check_hvac_availability` with `availabilityMode: earliest` before the caller provides a preferred day/time. Do not call the booking tool until the caller accepts a specific slot returned by M1.
-
-Email capture:
-- Treat email capture as a spelling task, not a normal sentence.
-- Ask the caller to spell the email address one character or short chunk at a time if needed.
-- When reading the email back, speak each letter clearly and say "at" for @ and "dot" for periods.
-- Confirm confusing characters explicitly, such as B/V, M/N, S/F, C/Z, I/E, O/0, L/1, hyphen, underscore, and period.
-- If the caller says the email is wrong, ask only for the incorrect part again, then read back the full corrected email.
-- If the email is still unclear after one correction attempt, ask the caller to spell the full email address one character or short chunk at a time.
-- Do not guess, autocorrect, or normalize the email address without confirmation.
-- Do not call book_hvac_appointment until the caller confirms the final email address is correct.
-
-Preferred time capture:
-- Ask what day and time the caller prefers.
-- Never assume the appointment day.
-- Never assume the appointment time.
-- If the caller gives only a day, ask what time or time window they prefer.
-- If the caller gives only a time, ask what day or date they prefer.
-- If the caller gives only a vague answer like "soon" or "as early as possible", ask for a specific day/date and time window.
-- If the caller gives a time range, preserve the exact range with AM/PM in preferredTime.
-- Include the caller's timezone when they mention it, such as "between 4pm and 6pm America/Chicago".
-- Do not reduce a specific range like "between 4 and 6pm" to a vague word like "afternoon".
-- If AM/PM is unclear, ask a quick follow-up before calling the booking tool.
-
-Urgency and weekend rules:
-- Treat emergency, no cooling, no heat, same-day need, ASAP need, and safety concerns as urgent.
-- For urgent requests, call `check_hvac_availability` with `availabilityMode: earliest` and `urgency: urgent`.
-- M1 may offer urgent availability Monday through Sunday from 7:30am to 9:00pm America/Chicago.
-- Offer the earliest slot returned by M1 and ask whether that exact slot works.
-- Do not book the urgent slot until the caller accepts that exact slot.
-- For non-urgent requests, normal availability is Monday through Friday from 9:00am to 5:00pm America/Chicago.
-- Do not offer weekend appointments for non-urgent requests.
-
-Service area:
-- Collect the caller's ZIP code.
-- Any valid 5-digit US ZIP code is acceptable for this demo.
-- Do not reject a caller only because their ZIP code is not 75001 or 75002.
-- If the ZIP code is invalid or unclear, ask for it again.
-
-Booking behavior:
-- Before booking, call `check_hvac_availability`.
-- After the caller accepts a specific slot returned by M1, call the `book_hvac_appointment` tool.
-- When booking, copy the accepted slot's `slotId`, `startsAt`, `endsAt`, and `label` into `selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, and `selectedSlotLabel`.
-- Set `customerConfirmedSlot` to `true` only after the caller accepts that exact slot.
-- HVAC bookings are onsite service appointments. Do not promise an online meeting link unless M1 explicitly returns one.
-- Do not claim an appointment is booked until the tool result indicates `bookingSucceeded: true`.
-- If booking succeeds, confirm the appointment and tell the caller they will receive confirmation by SMS and email.
-- If booking fails or there is no availability, do not invent availability. Ask the caller for another preferred day and time, call `check_hvac_availability` again, and only call `book_hvac_appointment` after the caller accepts a specific slot returned by M1.
-
-Rules:
-- Do not invent prices, discounts, technician names, policies, or availability.
-- Do not choose or assume an appointment day or time for the caller.
-- Do not provide technical diagnosis beyond basic triage.
-- Escalate to a human follow-up if the caller asks for a person, is upset, has a safety concern, or the situation is unclear.
-- Keep responses short. Ask one or two questions at a time.
+config/prompts/hvac-inbound-voice.md
 ```
+
+Copy the full file contents into the Vapi assistant system prompt. Do not use older prompt snippets from notes or screenshots; the canonical file includes the current safe flow for email confirmation, availability checks, caller-confirmed slot booking, urgent/weekend rules, onsite appointment handling, and final confirmation wording.
 
 ## Tools
 
 Create two custom server/API tools for the full safe booking flow.
+
+Do not enable silent or indefinite live transfer behavior for this assistant. If a real transfer destination is configured in Vapi, it must connect quickly and fail back to caller follow-up. If no live transfer destination is configured, the assistant should acknowledge human requests immediately, confirm the callback number, and say the office will follow up.
 
 ### Availability tool
 
@@ -380,12 +307,26 @@ When Vapi sends a direct `apiRequest` body from the Tool UI, the RNM webhook ret
 
 The assistant should treat `bookingSucceeded: true` as booked. Any other value means the assistant should offer human follow-up instead of claiming a booking.
 
+For `bookingSucceeded: false`, use the returned `messageForAssistant` as internal guidance. Do not read raw JSON, provider names, IDs, or failure details to the caller. If the message says to offer human follow-up, acknowledge the issue immediately and do not leave the caller waiting for an unconfigured transfer.
+
 ## Demo Call Script
 
-Use an in-service-area example:
+Use an urgent in-service-area example:
 
 ```text
-My AC is not cooling. I am at 123 Main Street, Addison, Texas 75001. It is a residential home. I would like tomorrow between 4pm and 6pm America/Chicago. My name is Jane Customer, my number is +1 555 123 4567, and my email is jane@example.com.
+My AC is not cooling and this is urgent. I am at 123 Main Street, Addison, Texas 75001. It is a residential home. My name is Jane Customer, my number is +1 555 123 4567, and my email is jane@example.com.
+```
+
+Expected urgent behavior:
+
+```text
+The assistant acknowledges urgency, collects required contact and service details, calls check_hvac_availability with earliest behavior, offers the first returned slot, and books only after the caller accepts that exact slot.
+```
+
+Use a non-urgent in-service-area example:
+
+```text
+I need AC maintenance. I am at 123 Main Street, Addison, Texas 75001. It is a residential home. I would like tomorrow between 4pm and 6pm America/Chicago. My name is Jane Customer, my number is +1 555 123 4567, and my email is jane@example.com.
 ```
 
 Use another valid ZIP example:
@@ -413,3 +354,5 @@ Before client demos:
    - Application Insights has webhook, workflow, booking, CRM, confirmation, and SMS status telemetry under the correlation ID.
 9. Make one test call using ZIP `99999` and verify the valid ZIP is accepted for the demo.
 10. Make one test call with an invalid ZIP such as `75A01` and verify the assistant asks for the ZIP again.
+11. Make one urgent test call and verify the assistant does not ask for a preferred appointment window before checking earliest availability.
+12. Ask for a human during a failed booking path and verify the assistant responds immediately with callback follow-up instead of waiting silently.
