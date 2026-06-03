@@ -91,6 +91,29 @@ Azure Table CRM uses the Function App `AzureWebJobsStorage` connection string by
 5. Deploy the Function App.
 6. Place a test call through Vapi and confirm an event appears on the demo calendar.
 
+## Appointment Mode
+
+The HVAC demo is an onsite service flow. Google Calendar events should show the service address as the event location, and the assistant must not promise an online meeting link.
+
+Future tenants that need virtual appointments should not add Zoom, Google Meet, or Teams logic inside the Google Calendar booking adapter. Use a separate online meeting adapter boundary when the revenue slice requires it:
+
+```text
+Availability -> confirmed slot -> booking -> online meeting -> calendar update -> CRM -> SMS/email -> logs
+```
+
+Future tenant configuration can use fields like:
+
+```json
+{
+  "appointmentMode": "online",
+  "createOnlineMeeting": true,
+  "onlineMeetingProvider": "Zoom",
+  "onlineMeetingCredentials": "tenant-client-zoom-credentials"
+}
+```
+
+Until that capability is implemented, M1 should treat HVAC bookings as onsite appointments only.
+
 ## Switching Providers Later
 
 GHL can be restored per tenant by setting:

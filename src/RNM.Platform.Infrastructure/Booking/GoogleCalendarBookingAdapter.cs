@@ -334,10 +334,22 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         var localEndsAt = TimeZoneInfo.ConvertTime(request.Slot.EndsAt, zone);
         var submittedName = GetFieldValue(request, "name");
         var email = GetFieldValue(request, "email");
+        var serviceAddress = GetFieldValue(request, "serviceAddress");
+        var propertyType = GetFieldValue(request, "propertyType");
         var phone = request.LeadData.CallerPhoneNumber;
         var serviceType = request.ServiceType ?? "Service";
         var description = new StringBuilder();
         description.AppendLine($"Service: {serviceType}");
+        if (!string.IsNullOrWhiteSpace(propertyType))
+        {
+            description.AppendLine($"Property type: {propertyType}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(serviceAddress))
+        {
+            description.AppendLine($"Service address: {serviceAddress}");
+        }
+
         description.AppendLine($"Correlation ID: {request.CorrelationId}");
         if (!string.IsNullOrWhiteSpace(phone))
         {
@@ -357,6 +369,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         {
             summary = $"RNM booking - {serviceType}",
             description = description.ToString(),
+            location = serviceAddress,
             start = new { dateTime = localStartsAt, timeZone },
             end = new { dateTime = localEndsAt, timeZone },
             attendees,

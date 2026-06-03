@@ -337,6 +337,11 @@ public sealed class GoogleCalendarBookingAdapterTests
         Assert.Equal("2026-05-11T10:00:00-05:00", document.RootElement.GetProperty("start").GetProperty("dateTime").GetString());
         Assert.Equal("2026-05-11T11:00:00-05:00", document.RootElement.GetProperty("end").GetProperty("dateTime").GetString());
         Assert.Equal("America/Chicago", document.RootElement.GetProperty("start").GetProperty("timeZone").GetString());
+        Assert.Equal("123 Main Street, Addison, TX 75001", document.RootElement.GetProperty("location").GetString());
+        var description = document.RootElement.GetProperty("description").GetString();
+        Assert.Contains("Property type: residential", description);
+        Assert.Contains("Service address: 123 Main Street, Addison, TX 75001", description);
+        Assert.False(document.RootElement.TryGetProperty("conferenceData", out _));
     }
 
     [Fact]
@@ -404,7 +409,9 @@ public sealed class GoogleCalendarBookingAdapterTests
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["name"] = "Jane Lead",
-                ["email"] = "lead@example.com"
+                ["email"] = "lead@example.com",
+                ["propertyType"] = "residential",
+                ["serviceAddress"] = "123 Main Street, Addison, TX 75001"
             },
             "75001",
             "+15551234567");
