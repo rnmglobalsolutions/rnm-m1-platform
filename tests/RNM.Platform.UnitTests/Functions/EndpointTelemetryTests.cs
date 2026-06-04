@@ -183,7 +183,7 @@ public sealed class EndpointTelemetryTests
         Assert.Contains("\"toolCallId\":\"tool-1\"", body);
         Assert.Contains("availabilityFound", body);
         Assert.Contains("firstAvailableSlot", body);
-        Assert.Contains("Friday, May 29 at 4:00 PM", body);
+        Assert.Contains("Friday, May 29, 2026 at 4:00 PM America/Chicago", body);
         Assert.Contains("selectedSlotLabel", body);
         Assert.Contains("selectedSlotStart", body);
         Assert.Contains("selectedSlotEnd", body);
@@ -243,6 +243,11 @@ public sealed class EndpointTelemetryTests
         var workflowRequest = Assert.Single(workflow.Requests);
         Assert.False(workflowRequest.RequirePreferredWindow);
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["availabilityMode"] == "preferred_window"
+            && recordedEvent.Properties["urgentDetected"] == bool.TrueString
+            && recordedEvent.Properties["requiresPreferredWindow"] == bool.FalseString);
         AssertValidCorrelationHeader(response);
     }
 
@@ -293,6 +298,10 @@ public sealed class EndpointTelemetryTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var workflowRequest = Assert.Single(workflow.Requests);
         Assert.False(workflowRequest.RequirePreferredWindow);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["preferredTimeProvided"] == bool.FalseString
+            && recordedEvent.Properties["requiresPreferredWindow"] == bool.FalseString);
         AssertValidCorrelationHeader(response);
     }
 
