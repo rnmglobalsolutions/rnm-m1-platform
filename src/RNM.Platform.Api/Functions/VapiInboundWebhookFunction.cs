@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -272,6 +273,17 @@ public sealed class VapiInboundWebhookFunction
             }
 
             var isAvailabilityToolCall = IsAvailabilityToolCall(inboundCallEvent.ActionRequest);
+            await LogToolCallReceivedAsync(
+                    correlationId,
+                    tenantContext.TenantId,
+                    parseResult.Envelope.RawEventType,
+                    inboundCallEvent.EventType.ToString(),
+                    inboundCallEvent.ActionRequest,
+                    IsDirectApiRequestToolCall(parseResult.Envelope),
+                    isAvailabilityToolCall,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             var workflowResult = await inboundBookingWorkflow
                 .ProcessAsync(
                     CreateWorkflowRequest(inboundCallEvent, isAvailabilityToolCall),
@@ -645,14 +657,20 @@ public sealed class VapiInboundWebhookFunction
     {
         var startsAt = ToTenantLocalTime(slot.StartsAt, timeZone);
         var endsAt = ToTenantLocalTime(slot.EndsAt, timeZone);
+        var label = CreateSpokenSlotLabel(startsAt, timeZone);
 
         return new AvailabilitySlotResponse(
             string.IsNullOrWhiteSpace(slot.SlotId) ? startsAt.ToString("O") : slot.SlotId,
             startsAt.ToString("O"),
             endsAt.ToString("O"),
-            string.IsNullOrWhiteSpace(slot.Label)
-                ? startsAt.ToString("dddd, MMMM d 'at' h:mm tt")
-                : slot.Label);
+            label);
+    }
+
+    private static string CreateSpokenSlotLabel(DateTimeOffset startsAt, string timeZone)
+    {
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{startsAt:dddd, MMMM d, yyyy 'at' h:mm tt} {timeZone}");
     }
 
     private static DateTimeOffset ToTenantLocalTime(DateTimeOffset value, string timeZone)
@@ -753,6 +771,22 @@ public sealed class VapiInboundWebhookFunction
     {
         return !string.IsNullOrWhiteSpace(value)
             && signals.Any(signal => value.Contains(signal, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeAvailabilityModeForTelemetry(StructuredActionRequest? actionRequest)
+    {
+        var mode = GetActionArgument(actionRequest, "availabilityMode");
+        if (string.Equals(mode, "earliest", StringComparison.OrdinalIgnoreCase))
+        {
+            return "earliest";
+        }
+
+        if (string.Equals(mode, "preferred_window", StringComparison.OrdinalIgnoreCase))
+        {
+            return "preferred_window";
+        }
+
+        return string.IsNullOrWhiteSpace(mode) ? "missing" : "other";
     }
 
     private static bool HasPreferredWindow(StructuredActionRequest? actionRequest)
@@ -903,4 +937,35 @@ public sealed class VapiInboundWebhookFunction
 
         return eventLogger.TryLogEventAsync(eventName, properties, cancellationToken);
     }
+
+    private Task LogToolCallReceivedAsync(
+        string correlationId,
+        string tenantId,
+        string providerEventType,
+        string platformEventType,
+        StructuredActionRequest? actionRequest,
+        bool isDirectApiRequest,
+        bool isAvailabilityToolCall,
+        CancellationToken cancellationToken)
+    {
+        var properties = new SafeTelemetryProperties()
+            .Add("correlationId", correlationId)
+            .Add("endpoint", "webhooks/vapi/inbound")
+            .Add("provider", "vapi")
+            .Add("tenantId", tenantId)
+            .Add("providerEventType", providerEventType)
+            .Add("platformEventType", platformEventType)
+            .Add("toolName", actionRequest?.Name ?? "unknown")
+            .Add("directApiRequest", ToBooleanString(isDirectApiRequest))
+            .Add("isAvailabilityToolCall", ToBooleanString(isAvailabilityToolCall))
+            .Add("availabilityMode", NormalizeAvailabilityModeForTelemetry(actionRequest))
+            .Add("preferredTimeProvided", ToBooleanString(HasPreferredWindow(actionRequest)))
+            .Add("urgentDetected", ToBooleanString(IsUrgentAction(actionRequest)))
+            .Add("requiresPreferredWindow", ToBooleanString(RequiresPreferredWindow(actionRequest)))
+            .ToDictionary();
+
+        return eventLogger.TryLogEventAsync(TelemetryEventNames.VoiceToolCallReceived, properties, cancellationToken);
+    }
+
+    private static string ToBooleanString(bool value) => value ? bool.TrueString : bool.FalseString;
 }

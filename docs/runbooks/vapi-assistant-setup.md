@@ -43,7 +43,7 @@ Use the canonical prompt from:
 config/prompts/hvac-inbound-voice.md
 ```
 
-Copy the full file contents into the Vapi assistant system prompt. Do not use older prompt snippets from notes or screenshots; the canonical file includes the current safe flow for email confirmation, availability checks, caller-confirmed slot booking, urgent/weekend rules, onsite appointment handling, and final confirmation wording.
+Copy the full file contents into the Vapi assistant system prompt. Do not use older prompt snippets from notes or screenshots; the canonical file includes the current safe flow for email confirmation, availability checks, caller-confirmed slot booking, onsite appointment handling, and final confirmation wording. M1 and the tool descriptions carry scheduling rules, service area eligibility, and slot payload details.
 
 ## Tools
 
@@ -59,12 +59,14 @@ Create a custom server/API tool named:
 check_hvac_availability
 ```
 
-Use this tool to check real calendar availability without booking the appointment. For urgent calls, use `availabilityMode: earliest` to ask M1 for the fastest available slot, including urgent-only Monday-Sunday 7:30am-9:00pm availability when configured. For normal scheduling, use `availabilityMode: preferred_window` after the caller provides a day/date and time window.
+Use this tool to check real calendar availability without booking the appointment. M1 is the source of truth for business hours, service availability, scheduling rules, and service area eligibility.
+
+For urgent calls, use `availabilityMode: earliest` to ask M1 for the fastest available slot. For normal scheduling, use `availabilityMode: preferred_window` after the caller provides a day/date and time window.
 
 Description:
 
 ```text
-Use this tool to check real HVAC appointment availability before booking. For urgent service, use it to find the earliest available slot. For non-urgent service, use it after the caller gives a preferred day and time. This tool must not book the appointment.
+Use this tool to check real HVAC appointment availability before booking. This tool does not book the appointment. M1 decides service area eligibility, business hours, scheduling rules, and available slots. For urgent service, send availabilityMode=earliest and urgency=urgent. For non-urgent service, send availabilityMode=preferred_window and include the caller's preferred day/date and time/time window in preferredTime. When availabilityFound is true, offer the caller exactly one returned slot first and speak selectedSlotLabel exactly. Do not recalculate, shorten, reinterpret, or correct the returned weekday, date, time, or timezone. When availabilityFound is false, do not invent availability.
 ```
 
 Method:
@@ -92,16 +94,16 @@ Availability tool parameters:
 {
   "type": "object",
   "properties": {
-    "name": { "type": "string", "description": "Customer full name." },
-    "phoneNumber": { "type": "string", "description": "Customer callback phone number in E.164 format when possible." },
+    "name": { "type": "string", "description": "Customer full name confirmed with the caller." },
+    "phoneNumber": { "type": "string", "description": "Customer callback phone number confirmed with the caller. Use E.164 format when possible." },
     "email": { "type": "string", "description": "Valid customer email address confirmed with the caller." },
     "serviceNeed": { "type": "string", "description": "Short description of the HVAC issue or request." },
     "propertyType": { "type": "string", "description": "Residential, commercial, rental, or other property type." },
-    "serviceAddress": { "type": "string", "description": "Full service address." },
-    "zipCode": { "type": "string", "description": "Five digit service ZIP code." },
-    "urgency": { "type": "string", "description": "How urgent the request is." },
-    "availabilityMode": { "type": "string", "description": "Use earliest for urgent first-available lookup, or preferred_window for a caller-requested window." },
-    "preferredTime": { "type": "string", "description": "Caller preferred appointment window. Required when availabilityMode is preferred_window." }
+    "serviceAddress": { "type": "string", "description": "Full service address confirmed with the caller." },
+    "zipCode": { "type": "string", "description": "Five digit service ZIP code. Validate format only; M1 decides service eligibility." },
+    "urgency": { "type": "string", "description": "How urgent the request is. Use urgent for emergency, no cooling, no heat, same-day, ASAP, safety concern, or unsafe indoor temperature." },
+    "availabilityMode": { "type": "string", "description": "Use earliest for urgent first-available lookup. Use preferred_window only when the caller gives a preferred day/date and time/time window." },
+    "preferredTime": { "type": "string", "description": "Caller preferred appointment window. Required only when availabilityMode is preferred_window. Preserve explicit ranges and AM/PM." }
   },
   "required": [
     "name",
@@ -143,12 +145,12 @@ Create a custom server/API tool named:
 book_hvac_appointment
 ```
 
-M1 acknowledges Vapi call lifecycle events quickly. Booking should run only after the caller has accepted a specific slot.
+M1 acknowledges Vapi call lifecycle events quickly. Booking should run only after the caller has accepted one exact slot returned by `check_hvac_availability`.
 
 Description:
 
 ```text
-Use after the caller has provided the required HVAC booking details. This validates service area, creates or updates the CRM contact, checks availability, books the appointment, and sends confirmations.
+Use only after the caller has accepted one exact slot returned by check_hvac_availability. This validates service area, creates or updates the CRM contact, re-checks slot availability, books the appointment, and sends confirmations. Copy selectedSlotId, selectedSlotStart, selectedSlotEnd, and selectedSlotLabel exactly from the accepted availability result. Do not invent, shorten, translate, reinterpret, or transform slot IDs, datetime values, labels, or timezone values. Set customerConfirmedSlot=true only after the caller clearly accepts the exact selectedSlotLabel. Do not claim the appointment is booked unless bookingSucceeded=true.
 ```
 
 Method:
@@ -218,23 +220,23 @@ Tool parameters:
     },
     "preferredTime": {
       "type": "string",
-      "description": "Accepted appointment slot label or caller preferred appointment window. Preserve explicit ranges and AM/PM."
+      "description": "Accepted appointment slot label from M1 when available. Otherwise use the caller preferred appointment window. Preserve explicit ranges, AM/PM, date wording, and timezone."
     },
     "selectedSlotId": {
       "type": "string",
-      "description": "Slot ID copied exactly from firstAvailableSlot.selectedSlotId or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotId or suggestedSlots item returned by check_hvac_availability. If only slotId is present, copy slotId exactly."
     },
     "selectedSlotStart": {
       "type": "string",
-      "description": "Slot start copied exactly from firstAvailableSlot.selectedSlotStart or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotStart or suggestedSlots item returned by check_hvac_availability. If only startsAt is present, copy startsAt exactly. Do not recalculate timezone."
     },
     "selectedSlotEnd": {
       "type": "string",
-      "description": "Slot end copied exactly from firstAvailableSlot.selectedSlotEnd or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotEnd or suggestedSlots item returned by check_hvac_availability. If only endsAt is present, copy endsAt exactly. Do not recalculate timezone."
     },
     "selectedSlotLabel": {
       "type": "string",
-      "description": "Human-readable slot label copied exactly from firstAvailableSlot.selectedSlotLabel or the accepted suggestedSlots item returned by check_hvac_availability."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotLabel or suggestedSlots item returned by check_hvac_availability. If only label is present, copy label exactly. Do not shorten, translate, correct, or reinterpret the weekday, date, time, or timezone."
     },
     "customerConfirmedSlot": {
       "type": "boolean",
@@ -270,7 +272,7 @@ Availability tool result:
     {
       "name": "check_hvac_availability",
       "toolCallId": "<tool-call-id>",
-      "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29 at 4:00 PM\"},\"messageForAssistant\":\"The earliest available appointment is Friday, May 29 at 4:00 PM. Ask the caller if that works for them before booking.\"}"
+      "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\"},\"messageForAssistant\":\"The earliest available appointment is Friday, May 29, 2026 at 4:00 PM America/Chicago. Ask the caller if that works for them before booking.\"}"
     }
   ]
 }
@@ -308,6 +310,8 @@ When Vapi sends a direct `apiRequest` body from the Tool UI, the RNM webhook ret
 The assistant should treat `bookingSucceeded: true` as booked. Any other value means the assistant should offer human follow-up instead of claiming a booking.
 
 For `bookingSucceeded: false`, use the returned `messageForAssistant` as internal guidance. Do not read raw JSON, provider names, IDs, or failure details to the caller. If the message says to offer human follow-up, acknowledge the issue immediately and do not leave the caller waiting for an unconfigured transfer.
+
+For availability, the assistant must speak the returned `selectedSlotLabel` exactly. Do not recalculate or reinterpret the weekday, date, year, time, or timezone from `startsAt`.
 
 ## Demo Call Script
 
