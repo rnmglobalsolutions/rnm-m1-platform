@@ -128,6 +128,7 @@ availabilityModeUsed
 qualificationState
 serviceAreaState
 bookingState
+bookingFailureReason
 availableSlotCount
 selectedSlotId
 selectedSlotStart
@@ -281,7 +282,7 @@ Availability tool result:
     {
       "name": "check_hvac_availability",
       "toolCallId": "<tool-call-id>",
-      "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"availabilityModeUsed\":\"earliest\",\"qualificationState\":\"Qualified\",\"serviceAreaState\":\"InServiceArea\",\"bookingState\":\"AvailabilityFound\",\"availableSlotCount\":1,\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\"},\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"messageForAssistant\":\"The earliest available appointment is Friday, May 29, 2026 at 4:00 PM America/Chicago. Ask the caller if that works for them before booking.\"}"
+      "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"availabilityModeUsed\":\"earliest\",\"qualificationState\":\"Qualified\",\"serviceAreaState\":\"InServiceArea\",\"bookingState\":\"AvailabilityFound\",\"bookingFailureReason\":null,\"availableSlotCount\":1,\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\"},\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"messageForAssistant\":\"The earliest available appointment is Friday, May 29, 2026 at 4:00 PM America/Chicago. Ask the caller if that works for them before booking.\"}"
     }
   ]
 }
@@ -322,7 +323,7 @@ For `bookingSucceeded: false`, use the returned `messageForAssistant` as interna
 
 For availability, the assistant must speak the returned top-level `selectedSlotLabel` exactly. Do not recalculate or reinterpret the weekday, date, year, time, or timezone from `selectedSlotStart` or `firstAvailableSlot.startsAt`.
 
-For troubleshooting, check `qualificationState`, `bookingState`, and `availableSlotCount`. If `qualificationState` is not `Qualified`, the issue is missing/invalid caller details, not calendar availability. If `qualificationState` is `Qualified` and `availableSlotCount` is `0`, the issue is real calendar/provider availability.
+For troubleshooting, check `qualificationState`, `bookingState`, `bookingFailureReason`, and `availableSlotCount`. If `qualificationState` is not `Qualified`, the issue is missing/invalid caller details, not calendar availability. If `qualificationState` is `Qualified`, `bookingState` is `Failed`, and `bookingFailureReason` is `AdapterFailure`, the issue is the booking availability provider or credentials. If `qualificationState` is `Qualified`, `bookingState` is `NoAvailability`, and `availableSlotCount` is `0`, the issue is real calendar availability.
 
 ## Demo Call Script
 

@@ -260,6 +260,65 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
+    public async Task VapiWebhook_AvailabilityToolCallWithAdapterFailure_ReturnsProviderFailureGuidance()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.Failed,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null)
+        {
+            BookingFailureReason = BookingFailureReason.AdapterFailure
+        });
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "check_hvac_availability",
+                    "arguments": {
+                      "serviceNeed": "AC not cooling",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St, Addison TX 77002",
+                      "zipCode": "77002",
+                      "urgency": "urgent",
+                      "availabilityMode": "earliest",
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("AdapterFailure", body);
+        Assert.Contains("could not reach or use the booking availability provider", body);
+        Assert.DoesNotContain("No appointment availability was found", body);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallResponded
+            && recordedEvent.Properties["bookingState"] == BookingDecisionState.Failed.ToString()
+            && recordedEvent.Properties["bookingFailureReason"] == BookingFailureReason.AdapterFailure.ToString());
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
     public async Task VapiWebhook_UrgentAvailabilityToolCallWithoutEarliestMode_DoesNotRequirePreferredWindow()
     {
         var eventLogger = new RecordingEventLogger();
