@@ -11,6 +11,7 @@ using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Qualification;
 using RNM.Platform.Application.Tenancy;
 using RNM.Platform.Contracts.Voice;
 using RNM.Platform.Infrastructure.Secrets;
@@ -309,6 +310,17 @@ public sealed class VapiInboundWebhookFunction
                 .ConfigureAwait(false);
 
             await LogWebhookAsync(apiTelemetryEventName, correlationId, null, tenantContext.TenantId, "vapi", workflowOutcome, cancellationToken)
+                .ConfigureAwait(false);
+            await LogToolCallRespondedAsync(
+                    correlationId,
+                    tenantContext.TenantId,
+                    parseResult.Envelope.RawEventType,
+                    inboundCallEvent.EventType.ToString(),
+                    inboundCallEvent.ActionRequest,
+                    isAvailabilityToolCall,
+                    workflowResult,
+                    HasPreferredWindow(inboundCallEvent.ActionRequest),
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             if (parseResult.Envelope.ToolCall is not null)
@@ -647,6 +659,10 @@ public sealed class VapiInboundWebhookFunction
             availabilityFound,
             requestedWindowAvailable = hasPreferredWindow ? availabilityFound : (bool?)null,
             availabilityModeUsed = hasPreferredWindow ? "preferred_window" : "earliest",
+            qualificationState = workflowResult.QualificationState?.ToString(),
+            serviceAreaState = workflowResult.ServiceAreaState?.ToString(),
+            bookingState = workflowResult.BookingState?.ToString(),
+            availableSlotCount = suggestedSlots.Length,
             timezone = timeZone,
             firstAvailableSlot,
             selectedSlotId = firstAvailableSlot?.selectedSlotId,
@@ -654,7 +670,7 @@ public sealed class VapiInboundWebhookFunction
             selectedSlotEnd = firstAvailableSlot?.selectedSlotEnd,
             selectedSlotLabel = firstAvailableSlot?.selectedSlotLabel,
             suggestedSlots,
-            messageForAssistant = CreateAvailabilityMessage(availabilityFound, hasPreferredWindow, firstAvailableSlot?.label)
+            messageForAssistant = CreateAvailabilityMessage(workflowResult, availabilityFound, hasPreferredWindow, firstAvailableSlot?.label)
         };
     }
 
@@ -695,10 +711,36 @@ public sealed class VapiInboundWebhookFunction
     }
 
     private static string CreateAvailabilityMessage(
+        InboundBookingWorkflowResult workflowResult,
         bool availabilityFound,
         bool hasPreferredWindow,
         string? firstSlotLabel)
     {
+        if (workflowResult.QualificationState is QualificationResultState.MissingRequiredFields)
+        {
+            return "Required details are missing. Ask only for the missing required detail, then check availability again.";
+        }
+
+        if (workflowResult.QualificationState is QualificationResultState.InvalidInput)
+        {
+            return "One or more required details are invalid. Ask the caller to correct the unclear detail, then check availability again.";
+        }
+
+        if (workflowResult.QualificationState is QualificationResultState.OutOfServiceArea)
+        {
+            return "M1 determined the service address is outside the configured service area. Offer human follow-up.";
+        }
+
+        if (workflowResult.QualificationState is QualificationResultState.NeedsEscalation)
+        {
+            return "M1 determined this caller should be escalated. Offer human follow-up.";
+        }
+
+        if (workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed)
+        {
+            return "M1 could not complete the availability check. Offer human follow-up and do not invent availability.";
+        }
+
         if (!availabilityFound)
         {
             return hasPreferredWindow
@@ -970,6 +1012,40 @@ public sealed class VapiInboundWebhookFunction
             .ToDictionary();
 
         return eventLogger.TryLogEventAsync(TelemetryEventNames.VoiceToolCallReceived, properties, cancellationToken);
+    }
+
+    private Task LogToolCallRespondedAsync(
+        string correlationId,
+        string tenantId,
+        string providerEventType,
+        string platformEventType,
+        StructuredActionRequest? actionRequest,
+        bool isAvailabilityToolCall,
+        InboundBookingWorkflowResult workflowResult,
+        bool hasPreferredWindow,
+        CancellationToken cancellationToken)
+    {
+        var properties = new SafeTelemetryProperties()
+            .Add("correlationId", correlationId)
+            .Add("endpoint", "webhooks/vapi/inbound")
+            .Add("provider", "vapi")
+            .Add("tenantId", tenantId)
+            .Add("providerEventType", providerEventType)
+            .Add("platformEventType", platformEventType)
+            .Add("toolName", actionRequest?.Name ?? "unknown")
+            .Add("isAvailabilityToolCall", ToBooleanString(isAvailabilityToolCall))
+            .Add("availabilityModeUsed", hasPreferredWindow ? "preferred_window" : "earliest")
+            .Add("outcome", workflowResult.Outcome.ToString())
+            .AddIf(workflowResult.QualificationState is not null, "qualificationState", workflowResult.QualificationState?.ToString())
+            .AddIf(workflowResult.ServiceAreaState is not null, "serviceAreaState", workflowResult.ServiceAreaState?.ToString())
+            .AddIf(workflowResult.BookingState is not null, "bookingState", workflowResult.BookingState?.ToString())
+            .AddIf(workflowResult.CrmState is not null, "crmState", workflowResult.CrmState?.ToString())
+            .AddIf(workflowResult.ConfirmationState is not null, "confirmationState", workflowResult.ConfirmationState?.ToString())
+            .Add("availableSlotCount", workflowResult.AvailableSlots.Count.ToString(CultureInfo.InvariantCulture))
+            .Add("selectedSlotReturned", ToBooleanString(workflowResult.AvailableSlots.Count > 0))
+            .ToDictionary();
+
+        return eventLogger.TryLogEventAsync(TelemetryEventNames.VoiceToolCallResponded, properties, cancellationToken);
     }
 
     private static string ToBooleanString(bool value) => value ? bool.TrueString : bool.FalseString;
