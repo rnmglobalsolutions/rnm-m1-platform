@@ -72,7 +72,8 @@ public sealed record BookingDecisionResult(
     BookingFailureReason? FailureReason,
     IReadOnlyCollection<AvailableSlot> AvailableSlots,
     AvailableSlot? SelectedSlot,
-    string? ProviderBookingId)
+    string? ProviderBookingId,
+    string? FailureMessage = null)
 {
     public bool IsBooked => State is BookingDecisionState.Booked;
 }

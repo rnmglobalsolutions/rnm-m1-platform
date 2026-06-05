@@ -345,6 +345,28 @@ public sealed class GoogleCalendarBookingAdapterTests
     }
 
     [Fact]
+    public async Task CreateBookingAsync_AddsZipCodeToCalendarAddress_WhenAddressDoesNotIncludeZip()
+    {
+        var handler = new QueueHttpMessageHandler([
+            JsonResponse("""{"calendars":{"primary":{"busy":[]}}}"""),
+            JsonResponse("""{"id":"event-123"}""")
+        ]);
+        var adapter = CreateAdapter(CreateCredentialsJson(), handler);
+
+        var result = await adapter.CreateBookingAsync(
+            CreateBookingRequest(serviceAddress: "7451 Houston, Texas", zipCode: "77002"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var eventPayload = handler.RequestBodies[1];
+        using var document = JsonDocument.Parse(eventPayload);
+        Assert.Equal("7451 Houston, Texas 77002", document.RootElement.GetProperty("location").GetString());
+        Assert.Contains(
+            "Service address: 7451 Houston, Texas 77002",
+            document.RootElement.GetProperty("description").GetString());
+    }
+
+    [Fact]
     public async Task CreateBookingAsync_ReturnsSafeFailure_WhenProviderFails()
     {
         var adapter = CreateAdapter(
@@ -403,7 +425,9 @@ public sealed class GoogleCalendarBookingAdapterTests
             urgency,
             selectedSlot);
 
-    private static CreateBookingRequest CreateBookingRequest()
+    private static CreateBookingRequest CreateBookingRequest(
+        string serviceAddress = "123 Main Street, Addison, TX 75001",
+        string zipCode = "75001")
     {
         var leadData = new QualifiedLeadData(
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -411,9 +435,9 @@ public sealed class GoogleCalendarBookingAdapterTests
                 ["name"] = "Jane Lead",
                 ["email"] = "lead@example.com",
                 ["propertyType"] = "residential",
-                ["serviceAddress"] = "123 Main Street, Addison, TX 75001"
+                ["serviceAddress"] = serviceAddress
             },
-            "75001",
+            zipCode,
             "+15551234567");
 
         return new CreateBookingRequest(

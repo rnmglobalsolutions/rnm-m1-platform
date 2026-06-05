@@ -334,7 +334,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         var localEndsAt = TimeZoneInfo.ConvertTime(request.Slot.EndsAt, zone);
         var submittedName = GetFieldValue(request, "name");
         var email = GetFieldValue(request, "email");
-        var serviceAddress = GetFieldValue(request, "serviceAddress");
+        var serviceAddress = BuildServiceAddress(GetFieldValue(request, "serviceAddress"), request.LeadData.ZipCode);
         var propertyType = GetFieldValue(request, "propertyType");
         var phone = request.LeadData.CallerPhoneNumber;
         var serviceType = request.ServiceType ?? "Service";
@@ -648,6 +648,24 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         return request.LeadData.Fields.TryGetValue(fieldName, out var value)
             ? value
             : null;
+    }
+
+    private static string? BuildServiceAddress(string? serviceAddress, string? zipCode)
+    {
+        if (string.IsNullOrWhiteSpace(serviceAddress))
+        {
+            return null;
+        }
+
+        var normalizedAddress = serviceAddress.Trim();
+        var normalizedZipCode = zipCode?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedZipCode)
+            || normalizedAddress.Contains(normalizedZipCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return normalizedAddress;
+        }
+
+        return $"{normalizedAddress} {normalizedZipCode}";
     }
 
     private static string? TryReadString(string json, string propertyName)
