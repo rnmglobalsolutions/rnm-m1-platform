@@ -662,6 +662,7 @@ public sealed class VapiInboundWebhookFunction
             qualificationState = workflowResult.QualificationState?.ToString(),
             serviceAreaState = workflowResult.ServiceAreaState?.ToString(),
             bookingState = workflowResult.BookingState?.ToString(),
+            bookingFailureReason = workflowResult.BookingFailureReason?.ToString(),
             availableSlotCount = suggestedSlots.Length,
             timezone = timeZone,
             firstAvailableSlot,
@@ -739,6 +740,13 @@ public sealed class VapiInboundWebhookFunction
         if (workflowResult.Outcome is InboundBookingWorkflowOutcome.Failed)
         {
             return "M1 could not complete the availability check. Offer human follow-up and do not invent availability.";
+        }
+
+        if (workflowResult.BookingState is BookingDecisionState.Failed)
+        {
+            return workflowResult.BookingFailureReason is BookingFailureReason.AdapterFailure
+                ? "M1 could not reach or use the booking availability provider. Offer human follow-up and do not describe this as no availability."
+                : "M1 could not complete the availability check. Offer human follow-up and do not invent availability.";
         }
 
         if (!availabilityFound)
@@ -1039,6 +1047,7 @@ public sealed class VapiInboundWebhookFunction
             .AddIf(workflowResult.QualificationState is not null, "qualificationState", workflowResult.QualificationState?.ToString())
             .AddIf(workflowResult.ServiceAreaState is not null, "serviceAreaState", workflowResult.ServiceAreaState?.ToString())
             .AddIf(workflowResult.BookingState is not null, "bookingState", workflowResult.BookingState?.ToString())
+            .AddIf(workflowResult.BookingFailureReason is not null, "bookingFailureReason", workflowResult.BookingFailureReason?.ToString())
             .AddIf(workflowResult.CrmState is not null, "crmState", workflowResult.CrmState?.ToString())
             .AddIf(workflowResult.ConfirmationState is not null, "confirmationState", workflowResult.ConfirmationState?.ToString())
             .Add("availableSlotCount", workflowResult.AvailableSlots.Count.ToString(CultureInfo.InvariantCulture))

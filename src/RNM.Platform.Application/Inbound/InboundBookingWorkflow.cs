@@ -210,7 +210,8 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                     ConfirmationState: null)
                 {
                     AvailableSlots = bookingResult.AvailableSlots,
-                    SelectedSlot = bookingResult.SelectedSlot
+                    SelectedSlot = bookingResult.SelectedSlot,
+                    BookingFailureReason = bookingResult.FailureReason
                 };
                 await LogCompletedAsync(correlationId, tenantId, verticalId, stopped, cancellationToken).ConfigureAwait(false);
                 return stopped;
@@ -453,6 +454,8 @@ public sealed record InboundBookingWorkflowResult(
     public IReadOnlyCollection<AvailableSlot> AvailableSlots { get; init; } = [];
 
     public AvailableSlot? SelectedSlot { get; init; }
+
+    public BookingFailureReason? BookingFailureReason { get; init; }
 
     public static InboundBookingWorkflowResult Stopped(
         InboundBookingWorkflowOutcome outcome,
