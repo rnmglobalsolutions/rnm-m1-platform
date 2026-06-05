@@ -195,7 +195,67 @@ public sealed class EndpointTelemetryTests
         var workflowRequest = Assert.Single(workflow.Requests);
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
         Assert.False(workflowRequest.RequirePreferredWindow);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallResponded
+            && recordedEvent.Properties["availabilityModeUsed"] == "earliest"
+            && recordedEvent.Properties["availableSlotCount"] == "1"
+            && recordedEvent.Properties["selectedSlotReturned"] == bool.TrueString);
         Assert.Equal("check_hvac_availability", workflowRequest.InboundCallEvent.ActionRequest?.Name);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_AvailabilityToolCallWithMissingDetails_ReturnsMissingDetailsGuidance()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.QualificationStopped,
+            QualificationResultState.MissingRequiredFields,
+            ServiceAreaDecisionState.MissingZipCode,
+            BookingState: null,
+            CrmState: null,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": { "id": "call-123" },
+                "toolCallList": [
+                  {
+                    "id": "tool-1",
+                    "name": "check_hvac_availability",
+                    "arguments": {
+                      "serviceNeed": "Urgent AC repair",
+                      "propertyType": "residential",
+                      "serviceAddress": "123 Main St",
+                      "urgency": "urgent",
+                      "availabilityMode": "earliest",
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("MissingRequiredFields", body);
+        Assert.Contains("Required details are missing", body);
+        Assert.DoesNotContain("No appointment availability was found", body);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallResponded
+            && recordedEvent.Properties["qualificationState"] == QualificationResultState.MissingRequiredFields.ToString()
+            && recordedEvent.Properties["selectedSlotReturned"] == bool.FalseString);
         AssertValidCorrelationHeader(response);
     }
 

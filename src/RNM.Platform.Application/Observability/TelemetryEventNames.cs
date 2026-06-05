@@ -13,6 +13,7 @@ public static class TelemetryEventNames
     public const string VoiceEventProcessed = "voice.event_processed";
     public const string VoiceEventUnsupported = "voice.event_unsupported";
     public const string VoiceToolCallReceived = "voice.tool_call_received";
+    public const string VoiceToolCallResponded = "voice.tool_call_responded";
     public const string QualificationCompleted = "qualification.completed";
     public const string ServiceAreaValidated = "service_area.validated";
     public const string QualificationMissingFields = "qualification.missing_fields";
