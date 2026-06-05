@@ -14,12 +14,23 @@ public sealed record BookingConfirmationRequest(
     string? CustomerEmail,
     string? ServiceType,
     string TimeZone,
-    ConfirmationTemplateSet Templates);
+    ConfirmationTemplateSet Templates,
+    string? CustomerName = null,
+    string? PropertyType = null,
+    string? ServiceAddress = null,
+    string? ZipCode = null,
+    string? Urgency = null,
+    string? BusinessNotificationEmail = null,
+    string? BusinessNotificationPhoneNumber = null,
+    bool NotifyBusinessBySms = false);
 
 public sealed record ConfirmationTemplateSet(
     string SmsBodyTemplate,
     string? EmailSubjectTemplate = null,
-    string? EmailBodyTemplate = null)
+    string? EmailBodyTemplate = null,
+    string? BusinessSmsBodyTemplate = null,
+    string? BusinessEmailSubjectTemplate = null,
+    string? BusinessEmailBodyTemplate = null)
 {
     public static ConfirmationTemplateSet FromConfiguration(
         ConfirmationTemplateConfiguration configuration)
@@ -27,17 +38,26 @@ public sealed record ConfirmationTemplateSet(
         return new ConfirmationTemplateSet(
             configuration.SmsBodyTemplate,
             configuration.EmailSubjectTemplate,
-            configuration.EmailBodyTemplate);
+            configuration.EmailBodyTemplate,
+            configuration.BusinessSmsBodyTemplate,
+            configuration.BusinessEmailSubjectTemplate,
+            configuration.BusinessEmailBodyTemplate);
     }
 }
 
 public sealed record BookingConfirmationResult(
     ConfirmationChannelResult Sms,
-    ConfirmationChannelResult Email)
+    ConfirmationChannelResult Email,
+    ConfirmationChannelResult? BusinessSms = null,
+    ConfirmationChannelResult? BusinessEmail = null)
 {
     public bool SmsSent => Sms.Status is ConfirmationChannelStatus.Sent;
 
     public bool EmailSent => Email.Status is ConfirmationChannelStatus.Sent;
+
+    public bool BusinessSmsSent => BusinessSms?.Status is ConfirmationChannelStatus.Sent;
+
+    public bool BusinessEmailSent => BusinessEmail?.Status is ConfirmationChannelStatus.Sent;
 }
 
 public sealed record ConfirmationChannelResult(
@@ -69,7 +89,11 @@ public enum ConfirmationFailureReason
     MissingEmail = 5,
     MissingEmailTemplate = 6,
     EmailSendFailed = 7,
-    EmailSenderException = 8
+    EmailSenderException = 8,
+    MissingBusinessPhoneNumber = 9,
+    MissingBusinessEmail = 10,
+    MissingBusinessSmsTemplate = 11,
+    MissingBusinessEmailTemplate = 12
 }
 
 public sealed record SmsMessageRequest(

@@ -12,7 +12,17 @@ public sealed class ConfigurationValidator : IConfigurationValidator
     {
         "tenantId",
         "verticalId",
+        "correlationId",
+        "customerName",
+        "customerPhoneNumber",
+        "customerEmail",
         "serviceType",
+        "propertyType",
+        "serviceAddress",
+        "zipCode",
+        "urgency",
+        "providerBookingId",
+        "bookingLabel",
         "bookingStart",
         "bookingEnd",
         "bookingDate",
@@ -84,6 +94,38 @@ public sealed class ConfigurationValidator : IConfigurationValidator
                 errors,
                 emailBodyTemplate,
                 "communication.confirmationTemplates.emailBodyTemplate",
+                MaxEmailBodyTemplateLength);
+        }
+
+        var businessSmsTemplate = tenantConfiguration.Communication.ConfirmationTemplates.BusinessSmsBodyTemplate;
+        if (!string.IsNullOrWhiteSpace(tenantConfiguration.Communication.BusinessNotificationPhoneNumber))
+        {
+            AddRequired(errors, businessSmsTemplate, "communication.confirmationTemplates.businessSmsBodyTemplate");
+        }
+
+        ValidateConfirmationTemplate(
+            errors,
+            businessSmsTemplate,
+            "communication.confirmationTemplates.businessSmsBodyTemplate",
+            MaxSmsTemplateLength);
+
+        var businessEmailSubjectTemplate = tenantConfiguration.Communication.ConfirmationTemplates.BusinessEmailSubjectTemplate;
+        var businessEmailBodyTemplate = tenantConfiguration.Communication.ConfirmationTemplates.BusinessEmailBodyTemplate;
+        if (!string.IsNullOrWhiteSpace(tenantConfiguration.Communication.BusinessNotificationEmail)
+            || !string.IsNullOrWhiteSpace(businessEmailSubjectTemplate)
+            || !string.IsNullOrWhiteSpace(businessEmailBodyTemplate))
+        {
+            AddRequired(errors, businessEmailSubjectTemplate, "communication.confirmationTemplates.businessEmailSubjectTemplate");
+            AddRequired(errors, businessEmailBodyTemplate, "communication.confirmationTemplates.businessEmailBodyTemplate");
+            ValidateConfirmationTemplate(
+                errors,
+                businessEmailSubjectTemplate,
+                "communication.confirmationTemplates.businessEmailSubjectTemplate",
+                MaxEmailSubjectTemplateLength);
+            ValidateConfirmationTemplate(
+                errors,
+                businessEmailBodyTemplate,
+                "communication.confirmationTemplates.businessEmailBodyTemplate",
                 MaxEmailBodyTemplateLength);
         }
 

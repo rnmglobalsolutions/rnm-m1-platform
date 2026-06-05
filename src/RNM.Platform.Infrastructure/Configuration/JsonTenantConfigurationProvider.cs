@@ -92,7 +92,13 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                     new ConfirmationTemplateConfiguration(
                         Communication?.ConfirmationTemplates?.SmsBodyTemplate ?? string.Empty,
                         Communication?.ConfirmationTemplates?.EmailSubjectTemplate,
-                        Communication?.ConfirmationTemplates?.EmailBodyTemplate)));
+                        Communication?.ConfirmationTemplates?.EmailBodyTemplate,
+                        Communication?.ConfirmationTemplates?.BusinessSmsBodyTemplate,
+                        Communication?.ConfirmationTemplates?.BusinessEmailSubjectTemplate,
+                        Communication?.ConfirmationTemplates?.BusinessEmailBodyTemplate),
+                    Communication?.BusinessNotificationEmail,
+                    Communication?.BusinessNotificationPhoneNumber,
+                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? true));
         }
     }
 
@@ -121,10 +127,16 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,
         string? EmailFromAddress,
-        ConfirmationTemplateConfigurationDto? ConfirmationTemplates);
+        ConfirmationTemplateConfigurationDto? ConfirmationTemplates,
+        string? BusinessNotificationEmail,
+        string? BusinessNotificationPhoneNumber,
+        bool? NotifyBusinessBySmsForUrgentOnly);
 
     private sealed record ConfirmationTemplateConfigurationDto(
         string? SmsBodyTemplate,
         string? EmailSubjectTemplate,
-        string? EmailBodyTemplate);
+        string? EmailBodyTemplate,
+        string? BusinessSmsBodyTemplate,
+        string? BusinessEmailSubjectTemplate,
+        string? BusinessEmailBodyTemplate);
 }

@@ -338,9 +338,16 @@ public sealed class GoogleCalendarBookingAdapterTests
         Assert.Equal("2026-05-11T11:00:00-05:00", document.RootElement.GetProperty("end").GetProperty("dateTime").GetString());
         Assert.Equal("America/Chicago", document.RootElement.GetProperty("start").GetProperty("timeZone").GetString());
         Assert.Equal("123 Main Street, Addison, TX 75001", document.RootElement.GetProperty("location").GetString());
+        Assert.Equal("RNM booking - Jane Lead - Repair", document.RootElement.GetProperty("summary").GetString());
         var description = document.RootElement.GetProperty("description").GetString();
+        Assert.Contains("Customer: Jane Lead", description);
         Assert.Contains("Property type: residential", description);
         Assert.Contains("Service address: 123 Main Street, Addison, TX 75001", description);
+        Assert.Contains("ZIP code: 75001", description);
+        Assert.Contains("Urgency: non_urgent", description);
+        Assert.Contains("Preferred time: Afternoon", description);
+        Assert.Contains("Phone: +15551234567", description);
+        Assert.Contains("Email: lead@example.com", description);
         Assert.False(document.RootElement.TryGetProperty("conferenceData", out _));
     }
 
@@ -435,7 +442,8 @@ public sealed class GoogleCalendarBookingAdapterTests
                 ["name"] = "Jane Lead",
                 ["email"] = "lead@example.com",
                 ["propertyType"] = "residential",
-                ["serviceAddress"] = serviceAddress
+                ["serviceAddress"] = serviceAddress,
+                ["urgency"] = "non_urgent"
             },
             zipCode,
             "+15551234567");

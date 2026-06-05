@@ -44,7 +44,7 @@ public sealed class ConfigurationValidatorTests
             {
                 ConfirmationTemplates = CreateValidTenantConfiguration().Communication.ConfirmationTemplates with
                 {
-                    SmsBodyTemplate = "Booked for {{customerPhoneNumber}}"
+                    SmsBodyTemplate = "Booked for {{unsupportedToken}}"
                 }
             }
         };
@@ -96,6 +96,25 @@ public sealed class ConfigurationValidatorTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Contains("emailBodyTemplate", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenBusinessEmailRecipientConfiguredWithoutBusinessTemplates()
+    {
+        var validator = new ConfigurationValidator();
+        var configuration = CreateValidTenantConfiguration() with
+        {
+            Communication = CreateValidTenantConfiguration().Communication with
+            {
+                BusinessNotificationEmail = "office@example.com"
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("businessEmailSubjectTemplate", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("businessEmailBodyTemplate", StringComparison.Ordinal));
     }
 
     [Fact]

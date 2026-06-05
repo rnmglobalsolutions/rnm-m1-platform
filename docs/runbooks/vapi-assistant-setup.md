@@ -45,6 +45,50 @@ config/prompts/hvac-inbound-voice.md
 
 Copy the full file contents into the Vapi assistant system prompt. Do not use older prompt snippets from notes or screenshots; the canonical file includes the current safe flow for email confirmation, availability checks, caller-confirmed slot booking, onsite appointment handling, and final confirmation wording. M1 and the tool descriptions carry scheduling rules, service area eligibility, and slot payload details.
 
+## Voice Pipeline
+
+Configure interruption handling so callers can cut in naturally. If the assistant keeps talking over the caller or repeats the same question after a correction, review Vapi's start/stop speaking settings before changing M1.
+
+Recommended baseline for English HVAC calls:
+
+```json
+{
+  "startSpeakingPlan": {
+    "smartEndpointingPlan": {
+      "provider": "livekit"
+    },
+    "waitSeconds": 0.4
+  },
+  "stopSpeakingPlan": {
+    "numWords": 0,
+    "voiceSeconds": 0.2,
+    "backoffSeconds": 1.0
+  }
+}
+```
+
+For Spanish or mixed-language tests, use transcription endpointing instead of English-only smart endpointing:
+
+```json
+{
+  "startSpeakingPlan": {
+    "transcriptionEndpointingPlan": {
+      "onPunctuationSeconds": 0.1,
+      "onNoPunctuationSeconds": 1.5,
+      "onNumberSeconds": 0.5
+    },
+    "waitSeconds": 0.4
+  },
+  "stopSpeakingPlan": {
+    "numWords": 0,
+    "voiceSeconds": 0.2,
+    "backoffSeconds": 1.0
+  }
+}
+```
+
+If interruptions still fail, check the Vapi call transcript and events for `assistant.speech.interrupted`. If that event is absent during a caller interruption, troubleshoot microphone audio, background noise, echo, transcriber language, and Vapi voice pipeline settings. If the event is present but the assistant repeats itself, tighten the system prompt and reduce response length.
+
 ## Tools
 
 Create two custom server/API tools for the full safe booking flow.
@@ -61,12 +105,12 @@ check_hvac_availability
 
 Use this tool to check real calendar availability without booking the appointment. M1 is the source of truth for business hours, service availability, scheduling rules, and service area eligibility.
 
-For urgent calls, use `availabilityMode: earliest` to ask M1 for the fastest available slot. For normal scheduling, use `availabilityMode: preferred_window` after the caller provides a day/date and time window.
+For calls the customer confirms are urgent, use `availabilityMode: earliest` to ask M1 for the fastest available slot. For normal scheduling, or unclear urgency, use `availabilityMode: preferred_window` after the caller provides a day/date and time window.
 
 Description:
 
 ```text
-Use this tool to check real HVAC appointment availability before booking. This tool does not book the appointment. M1 decides service area eligibility, business hours, scheduling rules, and available slots. For urgent service, send availabilityMode=earliest and urgency=urgent. For non-urgent service, send availabilityMode=preferred_window and include the caller's preferred day/date and time/time window in preferredTime. When availabilityFound is true, offer the caller exactly one returned slot first and speak selectedSlotLabel exactly. Do not recalculate, shorten, reinterpret, or correct the returned weekday, date, time, or timezone. When availabilityFound is false, do not invent availability.
+Use this tool to check real HVAC appointment availability before booking. This tool does not book the appointment. M1 decides service area eligibility, business hours, scheduling rules, and available slots. Ask if the request is urgent; never infer urgency from the issue alone. If urgent is confirmed, send urgency=urgent and availabilityMode=earliest. If unclear or not urgent, send urgency=non_urgent, availabilityMode=preferred_window, and preferredTime. When availabilityFound=true, offer one returned slot and speak selectedSlotLabel exactly. When false, do not invent availability.
 ```
 
 Method:
@@ -96,13 +140,13 @@ Availability tool parameters:
   "properties": {
     "name": { "type": "string", "description": "Customer full name confirmed with the caller." },
     "phoneNumber": { "type": "string", "description": "Customer callback phone number confirmed with the caller. Use E.164 format when possible." },
-    "email": { "type": "string", "description": "Valid customer email address confirmed with the caller." },
+    "email": { "type": "string", "description": "Valid customer email address read back and confirmed with the caller. Ask the caller to spell it only after the first attempt is unclear or incorrect." },
     "serviceNeed": { "type": "string", "description": "Short description of the HVAC issue or request." },
     "propertyType": { "type": "string", "description": "Residential, commercial, rental, or other property type." },
     "serviceAddress": { "type": "string", "description": "Full service address confirmed with the caller." },
     "zipCode": { "type": "string", "description": "Five digit service ZIP code. Validate format only; M1 decides service eligibility." },
-    "urgency": { "type": "string", "description": "How urgent the request is. Use urgent for emergency, no cooling, no heat, same-day, ASAP, safety concern, or unsafe indoor temperature." },
-    "availabilityMode": { "type": "string", "description": "Use earliest for urgent first-available lookup. Use preferred_window only when the caller gives a preferred day/date and time/time window." },
+    "urgency": { "type": "string", "description": "Use urgent only when the caller clearly confirms urgency. Use non_urgent when the caller says it is not urgent or does not answer clearly." },
+    "availabilityMode": { "type": "string", "description": "Use earliest only for caller-confirmed urgent requests. Use preferred_window for non-urgent or unclear urgency after collecting preferredTime." },
     "preferredTime": { "type": "string", "description": "Caller preferred appointment window. Required only when availabilityMode is preferred_window. Preserve explicit ranges and AM/PM." }
   },
   "required": [
@@ -157,6 +201,8 @@ book_hvac_appointment
 
 M1 acknowledges Vapi call lifecycle events quickly. Booking should run only after the caller has accepted one exact slot returned by `check_hvac_availability`.
 
+After the caller accepts the exact slot, the assistant should call the booking tool immediately. If it speaks before the tool call starts, use only this short status phrase: "One moment while I confirm that appointment." Do not ask a question after that phrase. The assistant must not say the appointment is booked until M1 returns `bookingSucceeded=true`, and it must not report a problem or offer a retry unless M1 returns `bookingSucceeded=false`.
+
 Description:
 
 ```text
@@ -206,7 +252,7 @@ Tool parameters:
     },
     "email": {
       "type": "string",
-      "description": "Valid customer email address confirmed with the caller."
+      "description": "Valid customer email address read back and confirmed with the caller. Ask the caller to spell it only after the first attempt is unclear or incorrect."
     },
     "serviceNeed": {
       "type": "string",
@@ -226,7 +272,7 @@ Tool parameters:
     },
     "urgency": {
       "type": "string",
-      "description": "How urgent the request is, such as emergency, today, this week, maintenance, or quote."
+      "description": "Use urgent only when the caller clearly confirms urgency. Use non_urgent when the caller says it is not urgent or does not answer clearly."
     },
     "preferredTime": {
       "type": "string",
@@ -342,7 +388,13 @@ The assistant acknowledges urgency, collects required contact and service detail
 Use a non-urgent in-service-area example:
 
 ```text
-I need AC maintenance. I am at 123 Main Street, Addison, Texas 75001. It is a residential home. I would like tomorrow between 4pm and 6pm America/Chicago. My name is Jane Customer, my number is +1 555 123 4567, and my email is jane@example.com.
+I need AC maintenance. This is not urgent. I am at 123 Main Street, Addison, Texas 75001. It is a residential home. I would like tomorrow between 4pm and 6pm America/Chicago. My name is Jane Customer, my number is +1 555 123 4567, and my email is jane@example.com.
+```
+
+Expected non-urgent behavior:
+
+```text
+The assistant asks or confirms urgency, treats unclear urgency as non-urgent, collects a preferred day/time window, calls check_hvac_availability with urgency=non_urgent and availabilityMode=preferred_window, and includes preferredTime.
 ```
 
 Use another valid ZIP example:
@@ -370,5 +422,6 @@ Before client demos:
    - Application Insights has webhook, workflow, booking, CRM, confirmation, and SMS status telemetry under the correlation ID.
 9. Make one test call using ZIP `99999` and verify the valid ZIP is accepted for the demo.
 10. Make one test call with an invalid ZIP such as `75A01` and verify the assistant asks for the ZIP again.
-11. Make one urgent test call and verify the assistant does not ask for a preferred appointment window before checking earliest availability.
-12. Ask for a human during a failed booking path and verify the assistant responds immediately with callback follow-up instead of waiting silently.
+11. Make one call where the issue sounds serious but the caller does not confirm urgency; verify the assistant uses `urgency=non_urgent` and asks for a preferred window.
+12. Make one urgent test call and verify the assistant does not ask for a preferred appointment window before checking earliest availability.
+13. Ask for a human during a failed booking path and verify the assistant responds immediately with callback follow-up instead of waiting silently.
