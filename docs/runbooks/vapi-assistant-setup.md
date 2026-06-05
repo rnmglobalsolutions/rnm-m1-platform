@@ -124,6 +124,11 @@ Expected availability response fields include:
 ```text
 availabilityFound
 requestedWindowAvailable
+availabilityModeUsed
+selectedSlotId
+selectedSlotStart
+selectedSlotEnd
+selectedSlotLabel
 firstAvailableSlot.slotId
 firstAvailableSlot.startsAt
 firstAvailableSlot.endsAt
@@ -272,7 +277,7 @@ Availability tool result:
     {
       "name": "check_hvac_availability",
       "toolCallId": "<tool-call-id>",
-      "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\"},\"messageForAssistant\":\"The earliest available appointment is Friday, May 29, 2026 at 4:00 PM America/Chicago. Ask the caller if that works for them before booking.\"}"
+      "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"availabilityModeUsed\":\"earliest\",\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\"},\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"messageForAssistant\":\"The earliest available appointment is Friday, May 29, 2026 at 4:00 PM America/Chicago. Ask the caller if that works for them before booking.\"}"
     }
   ]
 }
@@ -311,7 +316,7 @@ The assistant should treat `bookingSucceeded: true` as booked. Any other value m
 
 For `bookingSucceeded: false`, use the returned `messageForAssistant` as internal guidance. Do not read raw JSON, provider names, IDs, or failure details to the caller. If the message says to offer human follow-up, acknowledge the issue immediately and do not leave the caller waiting for an unconfigured transfer.
 
-For availability, the assistant must speak the returned `selectedSlotLabel` exactly. Do not recalculate or reinterpret the weekday, date, year, time, or timezone from `startsAt`.
+For availability, the assistant must speak the returned top-level `selectedSlotLabel` exactly. Do not recalculate or reinterpret the weekday, date, year, time, or timezone from `selectedSlotStart` or `firstAvailableSlot.startsAt`.
 
 ## Demo Call Script
 

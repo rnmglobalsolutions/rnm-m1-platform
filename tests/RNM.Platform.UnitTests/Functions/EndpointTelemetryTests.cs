@@ -184,6 +184,10 @@ public sealed class EndpointTelemetryTests
         Assert.Contains("availabilityFound", body);
         Assert.Contains("firstAvailableSlot", body);
         Assert.Contains("Friday, May 29, 2026 at 4:00 PM America/Chicago", body);
+        Assert.Contains("availabilityModeUsed", body);
+        Assert.Contains("earliest", body);
+        Assert.Contains("selectedSlotId", body);
+        Assert.Contains("slot-1", body);
         Assert.Contains("selectedSlotLabel", body);
         Assert.Contains("selectedSlotStart", body);
         Assert.Contains("selectedSlotEnd", body);
