@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Infrastructure.Configuration;
@@ -12,7 +13,10 @@ namespace RNM.Platform.Infrastructure.Booking;
 
 public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
     private readonly ISecretProvider secretProvider;
     private readonly HttpClient httpClient;
@@ -96,12 +100,7 @@ public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
                 return FailedBooking("GoHighLevel booking credentials or contact id are incomplete.");
             }
 
-            var payload = new GoHighLevelCreateAppointmentRequestDto(
-                credentials.CalendarId,
-                providerContactId,
-                request.Slot.StartsAt,
-                request.Slot.EndsAt,
-                $"Inbound {request.ServiceType ?? "service"} booking");
+            var payload = CreateAppointmentPayload(request, credentials, providerContactId);
 
             using var content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
             using var message = CreateRequest(HttpMethod.Post, "calendars/events/appointments", credentials);
@@ -237,6 +236,83 @@ public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
             : null;
     }
 
+    private static GoHighLevelCreateAppointmentRequestDto CreateAppointmentPayload(
+        CreateBookingRequest request,
+        GoHighLevelCredentials credentials,
+        string providerContactId)
+    {
+        var submittedName = GetFieldValue(request, "name");
+        var serviceType = request.ServiceType ?? "Service";
+        var serviceAddress = BuildServiceAddress(GetFieldValue(request, "serviceAddress"), request.LeadData.ZipCode);
+
+        return new GoHighLevelCreateAppointmentRequestDto(
+            credentials.CalendarId!,
+            credentials.LocationId,
+            providerContactId,
+            request.Slot.StartsAt,
+            request.Slot.EndsAt,
+            BuildTitle(serviceType, submittedName),
+            serviceAddress,
+            BuildAppointmentNotes(request, submittedName, serviceType, serviceAddress));
+    }
+
+    private static string BuildAppointmentNotes(
+        CreateBookingRequest request,
+        string? submittedName,
+        string serviceType,
+        string? serviceAddress)
+    {
+        var notes = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(submittedName))
+        {
+            notes.AppendLine($"Customer: {submittedName}");
+        }
+
+        notes.AppendLine($"Service: {serviceType}");
+        AppendField(notes, "Property type", GetFieldValue(request, "propertyType"));
+        AppendField(notes, "Service address", serviceAddress);
+        AppendField(notes, "ZIP code", request.LeadData.ZipCode);
+        AppendField(notes, "Urgency", GetFieldValue(request, "urgency"));
+        AppendField(notes, "Preferred time", request.PreferredWindow);
+        notes.AppendLine($"Correlation ID: {request.CorrelationId}");
+        AppendField(notes, "Phone", request.LeadData.CallerPhoneNumber);
+        AppendField(notes, "Email", GetFieldValue(request, "email"));
+        return notes.ToString();
+    }
+
+    private static void AppendField(StringBuilder builder, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            builder.AppendLine($"{label}: {value}");
+        }
+    }
+
+    private static string? BuildServiceAddress(string? serviceAddress, string? zipCode)
+    {
+        if (string.IsNullOrWhiteSpace(serviceAddress))
+        {
+            return null;
+        }
+
+        var normalizedAddress = serviceAddress.Trim();
+        var normalizedZipCode = zipCode?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedZipCode)
+            || normalizedAddress.Contains(normalizedZipCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return normalizedAddress;
+        }
+
+        return $"{normalizedAddress} {normalizedZipCode}";
+    }
+
+    private static string BuildTitle(string serviceType, string? submittedName)
+    {
+        return string.IsNullOrWhiteSpace(submittedName)
+            ? $"RNM booking - {serviceType}"
+            : $"RNM booking - {submittedName.Trim()} - {serviceType}";
+    }
+
     private static string? TryReadString(string responseJson, string propertyName)
     {
         try
@@ -294,7 +370,10 @@ internal sealed record GoHighLevelAvailabilityRequestDto(
 
 internal sealed record GoHighLevelCreateAppointmentRequestDto(
     string CalendarId,
+    string? LocationId,
     string ContactId,
     DateTimeOffset StartTime,
     DateTimeOffset EndTime,
-    string Title);
+    string Title,
+    string? Address,
+    string Notes);

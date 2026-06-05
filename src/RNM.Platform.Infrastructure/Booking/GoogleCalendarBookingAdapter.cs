@@ -336,9 +336,15 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         var email = GetFieldValue(request, "email");
         var serviceAddress = BuildServiceAddress(GetFieldValue(request, "serviceAddress"), request.LeadData.ZipCode);
         var propertyType = GetFieldValue(request, "propertyType");
+        var urgency = GetFieldValue(request, "urgency");
         var phone = request.LeadData.CallerPhoneNumber;
         var serviceType = request.ServiceType ?? "Service";
         var description = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(submittedName))
+        {
+            description.AppendLine($"Customer: {submittedName}");
+        }
+
         description.AppendLine($"Service: {serviceType}");
         if (!string.IsNullOrWhiteSpace(propertyType))
         {
@@ -348,6 +354,21 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         if (!string.IsNullOrWhiteSpace(serviceAddress))
         {
             description.AppendLine($"Service address: {serviceAddress}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.LeadData.ZipCode))
+        {
+            description.AppendLine($"ZIP code: {request.LeadData.ZipCode}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(urgency))
+        {
+            description.AppendLine($"Urgency: {urgency}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.PreferredWindow))
+        {
+            description.AppendLine($"Preferred time: {request.PreferredWindow}");
         }
 
         description.AppendLine($"Correlation ID: {request.CorrelationId}");
@@ -367,7 +388,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
         return new
         {
-            summary = $"RNM booking - {serviceType}",
+            summary = BuildSummary(serviceType, submittedName),
             description = description.ToString(),
             location = serviceAddress,
             start = new { dateTime = localStartsAt, timeZone },
@@ -666,6 +687,13 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
 
         return $"{normalizedAddress} {normalizedZipCode}";
+    }
+
+    private static string BuildSummary(string serviceType, string? submittedName)
+    {
+        return string.IsNullOrWhiteSpace(submittedName)
+            ? $"RNM booking - {serviceType}"
+            : $"RNM booking - {submittedName.Trim()} - {serviceType}";
     }
 
     private static string? TryReadString(string json, string propertyName)
