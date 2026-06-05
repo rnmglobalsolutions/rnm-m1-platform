@@ -143,7 +143,7 @@ Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy t
 }
 ```
 
-Expected valid tool response is `200 OK` with Vapi's tool result shape. Treat `bookingSucceeded: true` as the only booking confirmation signal
+Expected valid tool response is `200 OK` with Vapi's tool result shape. Treat `bookingSucceeded: true` as the only booking confirmation signal.
 
 ### Vapi direct API request body for booking
 

@@ -31,10 +31,10 @@
     "businessNotificationPhoneNumber": "+13052445176",
     "notifyBusinessBySmsForUrgentOnly": true,
     "confirmationTemplates": {
-      "smsBodyTemplate": "RNM Global Solutions\nAppointment confirmed\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nAddress: {{serviceAddress}}\nRef: {{correlationId}}\nReply STOP to opt out.",
+      "smsBodyTemplate": "RNM appt confirmed\n{{bookingDate}} {{bookingTime}}\nService: {{serviceType}}\nAddress: {{serviceAddress}}\nRef: {{correlationId}}\nReply STOP to opt out.",
       "emailSubjectTemplate": "RNM HVAC appointment confirmed for {{bookingDate}}",
       "emailBodyTemplate": "RNM Global Solutions\nAppointment confirmed\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nProperty type: {{propertyType}}\nService address: {{serviceAddress}}\nZIP code: {{zipCode}}\nReference: {{correlationId}}\n\nThank you for choosing RNM Global Solutions.",
-      "businessSmsBodyTemplate": "New HVAC booking\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nCustomer: {{customerName}}\nPhone: {{customerPhoneNumber}}\nAddress: {{serviceAddress}}\nRef: {{correlationId}}",
+      "businessSmsBodyTemplate": "New HVAC booking\n{{bookingDate}} {{bookingTime}}\n{{customerName}}\n{{customerPhoneNumber}}\n{{serviceType}}\n{{serviceAddress}}\nRef: {{correlationId}}",
       "businessEmailSubjectTemplate": "New HVAC booking: {{serviceType}} - {{bookingDate}} {{bookingTime}}",
       "businessEmailBodyTemplate": "New HVAC appointment booked\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nProperty type: {{propertyType}}\nUrgency: {{urgency}}\nService address: {{serviceAddress}}\nZIP code: {{zipCode}}\n\nTracking\nBooking ID: {{providerBookingId}}\nCorrelation ID: {{correlationId}}"
     }

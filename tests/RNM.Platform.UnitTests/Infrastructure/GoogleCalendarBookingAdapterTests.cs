@@ -206,7 +206,7 @@ public sealed class GoogleCalendarBookingAdapterTests
     }
 
     [Fact]
-    public async Task CheckAvailabilityAsync_TreatsNoCoolingServiceNeedAsUrgent()
+    public async Task CheckAvailabilityAsync_DoesNotInferUrgencyFromServiceNeed()
     {
         var adapter = CreateAdapter(
             secretValue: CreateCredentialsJson(
@@ -228,15 +228,8 @@ public sealed class GoogleCalendarBookingAdapterTests
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.True(result.HasAvailability);
-        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
-        Assert.All(result.Slots, slot =>
-        {
-            var localStart = TimeZoneInfo.ConvertTime(slot.StartsAt, zone);
-            Assert.Equal(DayOfWeek.Saturday, localStart.DayOfWeek);
-            Assert.True(localStart.TimeOfDay >= TimeSpan.FromHours(20), $"Expected slot at or after 8pm, got {localStart.TimeOfDay}.");
-            Assert.True(localStart.TimeOfDay < TimeSpan.FromHours(21), $"Expected slot before 9pm, got {localStart.TimeOfDay}.");
-        });
+        Assert.False(result.HasAvailability);
+        Assert.Empty(result.Slots);
     }
 
     [Fact]
@@ -258,6 +251,32 @@ public sealed class GoogleCalendarBookingAdapterTests
             CreateAvailabilityRequest(
                 preferredWindow: "Saturday between 8pm and 9pm",
                 urgency: "not urgent"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.HasAvailability);
+        Assert.Empty(result.Slots);
+    }
+
+    [Fact]
+    public async Task CheckAvailabilityAsync_DoesNotTreatNonUrgentTokenAsUrgent()
+    {
+        var adapter = CreateAdapter(
+            secretValue: CreateCredentialsJson(
+                appointmentMinutes: 30,
+                slotStepMinutes: 30,
+                includeWeekends: false,
+                includeWeekendsForUrgent: true,
+                urgentBusinessStart: "07:30:00",
+                urgentBusinessEnd: "21:00:00"),
+            handler: new QueueHttpMessageHandler([
+                JsonResponse("""{"calendars":{"primary":{"busy":[]}}}""")
+            ]));
+
+        var result = await adapter.CheckAvailabilityAsync(
+            CreateAvailabilityRequest(
+                preferredWindow: "Saturday between 8pm and 9pm",
+                urgency: "non_urgent"),
             CancellationToken.None);
 
         Assert.True(result.Succeeded);

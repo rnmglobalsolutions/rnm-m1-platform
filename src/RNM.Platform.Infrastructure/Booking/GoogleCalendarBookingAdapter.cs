@@ -20,8 +20,10 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
     private static readonly string[] NonUrgentSignals =
     [
         "not urgent",
+        "not_urgent",
         "non urgent",
         "non-urgent",
+        "non_urgent",
         "nonurgent",
         "routine",
         "maintenance",
@@ -86,7 +88,6 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                 startsAt,
                 endsAt,
                 request.TimeZone,
-                request.ServiceType,
                 request.SelectedSlot is null ? request.PreferredWindow : null,
                 credentials.BusinessStart,
                 credentials.BusinessEnd,
@@ -264,7 +265,6 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         DateTimeOffset startsAt,
         DateTimeOffset endsAt,
         string timeZone,
-        string? serviceType,
         string? preferredWindow,
         TimeSpan businessStart,
         TimeSpan businessEnd,
@@ -276,7 +276,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         bool includeWeekendsForUrgent,
         string? urgency)
     {
-        var isUrgent = IsUrgent(urgency, serviceType);
+        var isUrgent = IsUrgent(urgency);
         var effectiveBusinessStart = isUrgent ? urgentBusinessStart : businessStart;
         var effectiveBusinessEnd = isUrgent ? urgentBusinessEnd : businessEnd;
         var effectiveIncludeWeekends = isUrgent
@@ -482,14 +482,14 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         return true;
     }
 
-    private static bool IsUrgent(string? urgency, string? serviceType)
+    private static bool IsUrgent(string? urgency)
     {
         if (IsExplicitlyNotUrgent(urgency))
         {
             return false;
         }
 
-        return HasUrgentSignal(urgency) || HasUrgentSignal(serviceType);
+        return HasUrgentSignal(urgency);
     }
 
     private static bool HasUrgentSignal(string? value)
@@ -503,9 +503,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
             || value.Contains("emergency", StringComparison.OrdinalIgnoreCase)
             || value.Contains("asap", StringComparison.OrdinalIgnoreCase)
             || value.Contains("same day", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("today", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("no cooling", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("no heat", StringComparison.OrdinalIgnoreCase);
+            || value.Contains("same-day", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsExplicitlyNotUrgent(string? urgency)
