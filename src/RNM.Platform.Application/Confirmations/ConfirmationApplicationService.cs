@@ -37,7 +37,9 @@ public sealed class ConfirmationApplicationService
 
         var smsResult = await SendSmsAsync(request, cancellationToken).ConfigureAwait(false);
         var emailResult = await SendEmailAsync(request, cancellationToken).ConfigureAwait(false);
-        return new BookingConfirmationResult(smsResult, emailResult);
+        var businessEmailResult = await SendBusinessEmailAsync(request, cancellationToken).ConfigureAwait(false);
+        var businessSmsResult = await SendBusinessSmsAsync(request, cancellationToken).ConfigureAwait(false);
+        return new BookingConfirmationResult(smsResult, emailResult, businessSmsResult, businessEmailResult);
     }
 
     private async Task<ConfirmationChannelResult> SendSmsAsync(
@@ -150,6 +152,118 @@ public sealed class ConfirmationApplicationService
         }
     }
 
+    private async Task<ConfirmationChannelResult?> SendBusinessEmailAsync(
+        BookingConfirmationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.BusinessNotificationEmail))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Templates.BusinessEmailSubjectTemplate)
+            || string.IsNullOrWhiteSpace(request.Templates.BusinessEmailBodyTemplate))
+        {
+            var skipped = Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingBusinessEmailTemplate);
+            await LogAsync(TelemetryEventNames.BusinessEmailNotificationSkipped, request, skipped, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return skipped;
+        }
+
+        try
+        {
+            var sendResult = await emailSender
+                .SendEmailAsync(
+                    new EmailMessageRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.BusinessNotificationEmail,
+                        RenderTemplate(request.Templates.BusinessEmailSubjectTemplate, request),
+                        RenderTemplate(request.Templates.BusinessEmailBodyTemplate, request)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!sendResult.Succeeded)
+            {
+                var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSendFailed);
+                await LogAsync(TelemetryEventNames.BusinessEmailNotificationFailed, request, failed, cancellationToken, "business")
+                    .ConfigureAwait(false);
+                return failed;
+            }
+
+            var sent = Sent(ConfirmationChannel.Email, sendResult.ProviderMessageId);
+            await LogAsync(TelemetryEventNames.BusinessEmailNotificationSent, request, sent, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return sent;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSenderException);
+            await LogAsync(TelemetryEventNames.BusinessEmailNotificationFailed, request, failed, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return failed;
+        }
+    }
+
+    private async Task<ConfirmationChannelResult?> SendBusinessSmsAsync(
+        BookingConfirmationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.NotifyBusinessBySms)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.BusinessNotificationPhoneNumber))
+        {
+            var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingBusinessPhoneNumber);
+            await LogAsync(TelemetryEventNames.BusinessSmsNotificationSkipped, request, skipped, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return skipped;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Templates.BusinessSmsBodyTemplate))
+        {
+            var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingBusinessSmsTemplate);
+            await LogAsync(TelemetryEventNames.BusinessSmsNotificationSkipped, request, skipped, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return skipped;
+        }
+
+        try
+        {
+            var sendResult = await smsSender
+                .SendSmsAsync(
+                    new SmsMessageRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.BusinessNotificationPhoneNumber,
+                        RenderTemplate(request.Templates.BusinessSmsBodyTemplate, request)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!sendResult.Succeeded)
+            {
+                var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
+                await LogAsync(TelemetryEventNames.BusinessSmsNotificationFailed, request, failed, cancellationToken, "business")
+                    .ConfigureAwait(false);
+                return failed;
+            }
+
+            var sent = Sent(ConfirmationChannel.Sms, sendResult.ProviderMessageId);
+            await LogAsync(TelemetryEventNames.BusinessSmsNotificationSent, request, sent, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return sent;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);
+            await LogAsync(TelemetryEventNames.BusinessSmsNotificationFailed, request, failed, cancellationToken, "business")
+                .ConfigureAwait(false);
+            return failed;
+        }
+    }
+
     private static string RenderTemplate(
         string template,
         BookingConfirmationRequest request)
@@ -161,7 +275,17 @@ public sealed class ConfirmationApplicationService
         return template
             .Replace("{{tenantId}}", request.TenantId, StringComparison.OrdinalIgnoreCase)
             .Replace("{{verticalId}}", request.VerticalId, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{correlationId}}", request.CorrelationId, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{customerName}}", request.CustomerName ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{customerPhoneNumber}}", request.CustomerPhoneNumber ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{customerEmail}}", request.CustomerEmail ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace("{{serviceType}}", request.ServiceType ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{propertyType}}", request.PropertyType ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{serviceAddress}}", request.ServiceAddress ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{zipCode}}", request.ZipCode ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{urgency}}", request.Urgency ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{providerBookingId}}", request.BookingDecision.ProviderBookingId ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{{bookingLabel}}", request.BookingDecision.SelectedSlot?.Label ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace("{{bookingStart}}", startsAt?.ToString("O") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace("{{bookingEnd}}", endsAt?.ToString("O") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace("{{bookingDate}}", startsAt?.ToString("yyyy-MM-dd") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
@@ -208,7 +332,8 @@ public sealed class ConfirmationApplicationService
         string eventName,
         BookingConfirmationRequest request,
         ConfirmationChannelResult? result,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string target = "customer")
     {
         var properties = new SafeTelemetryProperties()
             .Add("correlationId", request.CorrelationId)
@@ -216,6 +341,7 @@ public sealed class ConfirmationApplicationService
             .Add("verticalId", request.VerticalId)
             .Add("bookingState", request.BookingDecision.State.ToString())
             .Add("crmState", request.CrmSyncResult.State.ToString())
+            .Add("target", target)
             .AddIf(result is not null, "channel", result?.Channel.ToString())
             .AddIf(result is not null, "confirmationStatus", result?.Status.ToString())
             .AddIf(result?.FailureReason is not null, "failureReason", result?.FailureReason.ToString())

@@ -31,9 +31,15 @@ public sealed record SecretNameConfiguration(
 public sealed record CommunicationConfiguration(
     string SmsFromPhoneNumber,
     string? EmailFromAddress,
-    ConfirmationTemplateConfiguration ConfirmationTemplates);
+    ConfirmationTemplateConfiguration ConfirmationTemplates,
+    string? BusinessNotificationEmail = null,
+    string? BusinessNotificationPhoneNumber = null,
+    bool NotifyBusinessBySmsForUrgentOnly = true);
 
 public sealed record ConfirmationTemplateConfiguration(
     string SmsBodyTemplate,
     string? EmailSubjectTemplate = null,
-    string? EmailBodyTemplate = null);
+    string? EmailBodyTemplate = null,
+    string? BusinessSmsBodyTemplate = null,
+    string? BusinessEmailSubjectTemplate = null,
+    string? BusinessEmailBodyTemplate = null);

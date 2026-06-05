@@ -162,9 +162,9 @@ public sealed class ConfirmationApplicationServiceTests
         var emailSender = new FakeEmailSender();
         var service = CreateService(smsSender, emailSender);
         var configuredTemplates = new ConfirmationTemplateConfiguration(
-            "configured sms {{bookingDate}} {{bookingTime}} {{serviceType}}",
-            "configured email {{bookingDate}}",
-            "configured body {{bookingStart}}");
+            "configured sms {{bookingDate}} {{bookingTime}} {{serviceType}} {{customerName}} {{serviceAddress}} {{zipCode}}",
+            "configured email {{bookingDate}} {{customerEmail}}",
+            "configured body {{bookingStart}} {{customerPhoneNumber}} {{propertyType}} {{correlationId}}");
 
         var result = await service.SendBookingConfirmationAsync(
             CreateRequest(
@@ -173,9 +173,94 @@ public sealed class ConfirmationApplicationServiceTests
             CancellationToken.None);
 
         Assert.True(result.SmsSent);
-        Assert.Equal("configured sms 2026-05-01 09:00 maintenance", smsSender.LastRequest?.Body);
-        Assert.Equal("configured email 2026-05-01", emailSender.LastRequest?.Subject);
-        Assert.Equal("configured body 2026-05-01T09:00:00.0000000-05:00", emailSender.LastRequest?.Body);
+        Assert.Equal("configured sms 2026-05-01 09:00 maintenance Jane Lead 123 Main Street, Addison, TX 75001 75001", smsSender.LastRequest?.Body);
+        Assert.Equal("configured email 2026-05-01 lead@example.com", emailSender.LastRequest?.Subject);
+        Assert.Equal("configured body 2026-05-01T09:00:00.0000000-05:00 +15551234567 residential corr-123", emailSender.LastRequest?.Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_RendersStructuredSmsAndEmailDetails()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var service = CreateService(smsSender, emailSender);
+        var templates = new ConfirmationTemplateSet(
+            "RNM Global Solutions\nAppointment confirmed\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nAddress: {{serviceAddress}}\nRef: {{correlationId}}\nReply STOP to opt out.",
+            "RNM HVAC appointment confirmed for {{bookingDate}}",
+            "RNM Global Solutions\nAppointment confirmed\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nProperty type: {{propertyType}}\nService address: {{serviceAddress}}\nZIP code: {{zipCode}}\nReference: {{correlationId}}\n\nThank you for choosing RNM Global Solutions.");
+
+        var result = await service.SendBookingConfirmationAsync(
+            CreateRequest(templates: templates, serviceType: "AC not cooling"),
+            CancellationToken.None);
+
+        Assert.True(result.SmsSent);
+        Assert.True(result.EmailSent);
+        Assert.Equal(
+            "RNM Global Solutions\nAppointment confirmed\nDate: 2026-05-01\nTime: 09:00\nService: AC not cooling\nAddress: 123 Main Street, Addison, TX 75001\nRef: corr-123\nReply STOP to opt out.",
+            smsSender.LastRequest?.Body);
+        Assert.True(smsSender.LastRequest?.Body.Length <= 320);
+        Assert.Equal("RNM HVAC appointment confirmed for 2026-05-01", emailSender.LastRequest?.Subject);
+        Assert.Equal(
+            "RNM Global Solutions\nAppointment confirmed\n\nCustomer\nName: Jane Lead\nPhone: +15551234567\nEmail: lead@example.com\n\nAppointment\nDate: 2026-05-01\nTime: 09:00\nService: AC not cooling\nProperty type: residential\nService address: 123 Main Street, Addison, TX 75001\nZIP code: 75001\nReference: corr-123\n\nThank you for choosing RNM Global Solutions.",
+            emailSender.LastRequest?.Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_SendsBusinessEmail_WhenConfigured()
+    {
+        var emailSender = new FakeEmailSender();
+        var eventLogger = new RecordingConfirmationEventLogger();
+        var service = CreateService(emailSender: emailSender, eventLogger: eventLogger);
+        var templates = new ConfirmationTemplateSet(
+            "customer sms",
+            "customer subject",
+            "customer body",
+            BusinessEmailSubjectTemplate: "New HVAC booking: {{serviceType}} - {{bookingDate}} {{bookingTime}}",
+            BusinessEmailBodyTemplate: "Customer: {{customerName}}\nPhone: {{customerPhoneNumber}}\nUrgency: {{urgency}}\nBooking ID: {{providerBookingId}}\nRef: {{correlationId}}");
+
+        var result = await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: templates,
+                serviceType: "AC not cooling",
+                businessNotificationEmail: "office@example.com",
+                urgency: "urgent"),
+            CancellationToken.None);
+
+        Assert.True(result.BusinessEmailSent);
+        Assert.Equal(2, emailSender.SendCallCount);
+        var businessEmail = emailSender.Requests.Last();
+        Assert.Equal("office@example.com", businessEmail.ToEmail);
+        Assert.Equal("New HVAC booking: AC not cooling - 2026-05-01 09:00", businessEmail.Subject);
+        Assert.Equal("Customer: Jane Lead\nPhone: +15551234567\nUrgency: urgent\nBooking ID: booking-123\nRef: corr-123", businessEmail.Body);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.BusinessEmailNotificationSent));
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_SendsBusinessSms_WhenConfigured()
+    {
+        var smsSender = new FakeSmsSender();
+        var eventLogger = new RecordingConfirmationEventLogger();
+        var service = CreateService(smsSender: smsSender, eventLogger: eventLogger);
+        var templates = new ConfirmationTemplateSet(
+            "customer sms",
+            "customer subject",
+            "customer body",
+            BusinessSmsBodyTemplate: "New HVAC booking\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nCustomer: {{customerName}}\nPhone: {{customerPhoneNumber}}\nRef: {{correlationId}}");
+
+        var result = await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: templates,
+                businessNotificationPhoneNumber: "+15557654321",
+                notifyBusinessBySms: true),
+            CancellationToken.None);
+
+        Assert.True(result.BusinessSmsSent);
+        Assert.Equal(2, smsSender.SendCallCount);
+        var businessSms = smsSender.Requests.Last();
+        Assert.Equal("+15557654321", businessSms.ToPhoneNumber);
+        Assert.Equal("New HVAC booking\nDate: 2026-05-01\nTime: 09:00\nCustomer: Jane Lead\nPhone: +15551234567\nRef: corr-123", businessSms.Body);
+        Assert.True(businessSms.Body.Length <= 320);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.BusinessSmsNotificationSent));
     }
 
     [Fact]
@@ -221,7 +306,11 @@ public sealed class ConfirmationApplicationServiceTests
         string? customerPhoneNumber = "+15551234567",
         string? customerEmail = "lead@example.com",
         string? serviceType = "Repair",
-        ConfirmationTemplateSet? templates = null)
+        ConfirmationTemplateSet? templates = null,
+        string? urgency = "non_urgent",
+        string? businessNotificationEmail = null,
+        string? businessNotificationPhoneNumber = null,
+        bool notifyBusinessBySms = false)
     {
         return new BookingConfirmationRequest(
             "tenant-a",
@@ -236,7 +325,15 @@ public sealed class ConfirmationApplicationServiceTests
             templates ?? new ConfirmationTemplateSet(
                 "SMS template for {{bookingDate}} {{bookingTime}}",
                 "Email subject {{bookingDate}}",
-                "Email body {{bookingTime}}"));
+                "Email body {{bookingTime}}"),
+            "Jane Lead",
+            "residential",
+            "123 Main Street, Addison, TX 75001",
+            "75001",
+            urgency,
+            businessNotificationEmail,
+            businessNotificationPhoneNumber,
+            notifyBusinessBySms);
     }
 
     private static BookingDecisionResult CreateBookedDecision()
@@ -298,12 +395,15 @@ public sealed class ConfirmationApplicationServiceTests
 
         public SmsMessageRequest? LastRequest { get; private set; }
 
+        public List<SmsMessageRequest> Requests { get; } = [];
+
         public Task<SmsSendResult> SendSmsAsync(
             SmsMessageRequest request,
             CancellationToken cancellationToken)
         {
             SendCallCount++;
             LastRequest = request;
+            Requests.Add(request);
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;
@@ -324,12 +424,15 @@ public sealed class ConfirmationApplicationServiceTests
 
         public EmailMessageRequest? LastRequest { get; private set; }
 
+        public List<EmailMessageRequest> Requests { get; } = [];
+
         public Task<EmailSendResult> SendEmailAsync(
             EmailMessageRequest request,
             CancellationToken cancellationToken)
         {
             SendCallCount++;
             LastRequest = request;
+            Requests.Add(request);
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;

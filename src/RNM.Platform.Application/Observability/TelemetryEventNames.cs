@@ -41,6 +41,12 @@ public static class TelemetryEventNames
     public const string EmailConfirmationSent = "email.confirmation.sent";
     public const string EmailConfirmationFailed = "email.confirmation.failed";
     public const string EmailConfirmationSkipped = "email.confirmation.skipped";
+    public const string BusinessSmsNotificationSent = "business.sms.notification.sent";
+    public const string BusinessSmsNotificationFailed = "business.sms.notification.failed";
+    public const string BusinessSmsNotificationSkipped = "business.sms.notification.skipped";
+    public const string BusinessEmailNotificationSent = "business.email.notification.sent";
+    public const string BusinessEmailNotificationFailed = "business.email.notification.failed";
+    public const string BusinessEmailNotificationSkipped = "business.email.notification.skipped";
     public const string WorkflowStarted = "workflow.started";
     public const string WorkflowQualificationCompleted = "workflow.qualification_completed";
     public const string WorkflowBookingCompleted = "workflow.booking_completed";

@@ -129,6 +129,7 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
 
             var serviceType = request.ServiceType ?? GetFieldValue(qualificationResult, "serviceNeed");
             var preferredWindow = request.PreferredWindow ?? GetFieldValue(qualificationResult, "preferredTime");
+            var urgency = GetFieldValue(qualificationResult, "urgency");
 
             var contactResult = await crmApplicationService
                 .EnsureContactAsync(
@@ -257,7 +258,15 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                         GetFieldValue(qualificationResult, "email"),
                         serviceType,
                         tenantConfiguration.TimeZone,
-                        ConfirmationTemplateSet.FromConfiguration(tenantConfiguration.Communication.ConfirmationTemplates)),
+                        ConfirmationTemplateSet.FromConfiguration(tenantConfiguration.Communication.ConfirmationTemplates),
+                        GetFieldValue(qualificationResult, "name"),
+                        GetFieldValue(qualificationResult, "propertyType"),
+                        GetFieldValue(qualificationResult, "serviceAddress"),
+                        qualificationResult.LeadData.ZipCode,
+                        urgency,
+                        tenantConfiguration.Communication.BusinessNotificationEmail,
+                        tenantConfiguration.Communication.BusinessNotificationPhoneNumber,
+                        ShouldNotifyBusinessBySms(tenantConfiguration.Communication, urgency)),
                     cancellationToken)
                 .ConfigureAwait(false);
             var confirmationState = GetConfirmationState(confirmationResult);
@@ -350,6 +359,38 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
         return qualificationResult.LeadData.Fields.TryGetValue(fieldName, out var value)
             ? value
             : null;
+    }
+
+    private static bool ShouldNotifyBusinessBySms(
+        CommunicationConfiguration communication,
+        string? urgency)
+    {
+        if (string.IsNullOrWhiteSpace(communication.BusinessNotificationPhoneNumber))
+        {
+            return false;
+        }
+
+        return !communication.NotifyBusinessBySmsForUrgentOnly || IsUrgent(urgency);
+    }
+
+    private static bool IsUrgent(string? urgency)
+    {
+        if (string.IsNullOrWhiteSpace(urgency))
+        {
+            return false;
+        }
+
+        var normalized = urgency.Trim();
+        if (normalized.Equals("non_urgent", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("not urgent", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return normalized.Equals("urgent", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("emergency", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("asap", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("same-day", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ConfirmationWorkflowState GetConfirmationState(
