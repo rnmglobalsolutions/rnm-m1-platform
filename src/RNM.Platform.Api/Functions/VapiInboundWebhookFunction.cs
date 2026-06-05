@@ -646,8 +646,13 @@ public sealed class VapiInboundWebhookFunction
             outcome,
             availabilityFound,
             requestedWindowAvailable = hasPreferredWindow ? availabilityFound : (bool?)null,
+            availabilityModeUsed = hasPreferredWindow ? "preferred_window" : "earliest",
             timezone = timeZone,
             firstAvailableSlot,
+            selectedSlotId = firstAvailableSlot?.selectedSlotId,
+            selectedSlotStart = firstAvailableSlot?.selectedSlotStart,
+            selectedSlotEnd = firstAvailableSlot?.selectedSlotEnd,
+            selectedSlotLabel = firstAvailableSlot?.selectedSlotLabel,
             suggestedSlots,
             messageForAssistant = CreateAvailabilityMessage(availabilityFound, hasPreferredWindow, firstAvailableSlot?.label)
         };
