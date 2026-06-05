@@ -48,7 +48,7 @@ public sealed class BookingApplicationService
         }
         catch
         {
-            var failed = Failed(BookingFailureReason.AdapterFailure);
+            var failed = Failed(BookingFailureReason.AdapterFailure, "Booking availability adapter threw an exception.");
             await LogAsync(TelemetryEventNames.BookingFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
             return failed;
@@ -56,7 +56,9 @@ public sealed class BookingApplicationService
 
         if (!availabilityResult.Succeeded)
         {
-            var failed = Failed(availabilityResult.FailureReason ?? BookingFailureReason.AdapterFailure);
+            var failed = Failed(
+                availabilityResult.FailureReason ?? BookingFailureReason.AdapterFailure,
+                availabilityResult.Message);
             await LogAsync(TelemetryEventNames.BookingFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
             return failed;
@@ -69,7 +71,8 @@ public sealed class BookingApplicationService
                 BookingFailureReason.NoAvailability,
                 availabilityResult.Slots,
                 SelectedSlot: null,
-                ProviderBookingId: null);
+                ProviderBookingId: null,
+                availabilityResult.Message);
 
             await LogAsync(TelemetryEventNames.BookingNoAvailability, request, noAvailability, cancellationToken)
                 .ConfigureAwait(false);
@@ -100,7 +103,8 @@ public sealed class BookingApplicationService
                 BookingFailureReason.SlotUnavailable,
                 availabilityResult.Slots,
                 SelectedSlot: null,
-                ProviderBookingId: null);
+                ProviderBookingId: null,
+                "Selected slot was not returned by the availability provider.");
 
             await LogAsync(TelemetryEventNames.BookingFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
@@ -121,7 +125,7 @@ public sealed class BookingApplicationService
         }
         catch
         {
-            var failed = Failed(BookingFailureReason.AdapterFailure);
+            var failed = Failed(BookingFailureReason.AdapterFailure, "Booking create adapter threw an exception.");
             await LogAsync(TelemetryEventNames.BookingFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
             return failed;
@@ -129,7 +133,9 @@ public sealed class BookingApplicationService
 
         if (!bookingResult.Succeeded)
         {
-            var failed = Failed(bookingResult.FailureReason ?? BookingFailureReason.AdapterFailure);
+            var failed = Failed(
+                bookingResult.FailureReason ?? BookingFailureReason.AdapterFailure,
+                bookingResult.Message);
             await LogAsync(TelemetryEventNames.BookingFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
             return failed;
@@ -146,13 +152,14 @@ public sealed class BookingApplicationService
             .ConfigureAwait(false);
         return booked;
 
-        static BookingDecisionResult Failed(BookingFailureReason reason) =>
+        static BookingDecisionResult Failed(BookingFailureReason reason, string? message = null) =>
             new(
                 BookingDecisionState.Failed,
                 reason,
                 [],
                 SelectedSlot: null,
-                ProviderBookingId: null);
+                ProviderBookingId: null,
+                message);
     }
 
     private static BookingAvailabilityRequest CreateAvailabilityRequest(BookingRequest request)
@@ -238,6 +245,7 @@ public sealed class BookingApplicationService
             .Add("qualificationState", request.QualificationResult.State.ToString())
             .AddIf(result is not null, "bookingState", result?.State.ToString())
             .AddIf(result?.FailureReason is not null, "failureReason", result?.FailureReason.ToString())
+            .AddIf(!string.IsNullOrWhiteSpace(result?.FailureMessage), "failureMessage", result?.FailureMessage)
             .AddIf(result is not null, "availableSlotCount", result?.AvailableSlots.Count.ToString())
             .AddIf(request.SelectedSlot is not null, "selectedSlotProvided", "true")
             .ToDictionary();
