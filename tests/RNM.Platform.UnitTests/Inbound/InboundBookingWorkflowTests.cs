@@ -307,7 +307,11 @@ public sealed class InboundBookingWorkflowTests
             new QualificationService(new ServiceAreaValidator(), eventLogger),
             new BookingApplicationService(finalBookingAdapter, eventLogger),
             new CrmApplicationService(finalCrmAdapter, eventLogger),
-            new ConfirmationApplicationService(finalSmsSender, finalEmailSender, eventLogger),
+            new ConfirmationApplicationService(
+                finalSmsSender,
+                finalEmailSender,
+                new FakeConfirmationRetryScheduler(),
+                eventLogger),
             eventLogger);
 
         return new WorkflowHarness(
@@ -527,6 +531,14 @@ public sealed class InboundBookingWorkflowTests
             LastRequest = request;
             return Task.FromResult(SendResult);
         }
+    }
+
+    private sealed class FakeConfirmationRetryScheduler : IConfirmationRetryScheduler
+    {
+        public Task<bool> ScheduleAsync(
+            ConfirmationRetryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class FakeEmailSender : IEmailSender

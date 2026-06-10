@@ -10,15 +10,18 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string configRoot;
     private readonly IConfigurationValidator configurationValidator;
+    private readonly bool allowWildcardServiceArea;
 
     public JsonTenantConfigurationProvider(
         string configRoot,
-        IConfigurationValidator configurationValidator)
+        IConfigurationValidator configurationValidator,
+        bool allowWildcardServiceArea = true)
     {
         this.configRoot = string.IsNullOrWhiteSpace(configRoot)
             ? throw new ArgumentException("Config root is required.", nameof(configRoot))
             : configRoot;
         this.configurationValidator = configurationValidator;
+        this.allowWildcardServiceArea = allowWildcardServiceArea;
     }
 
     public async Task<TenantConfiguration> GetTenantConfigurationAsync(
@@ -41,11 +44,25 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
             ?? throw new ConfigurationException($"Tenant configuration '{tenantId}' is empty or invalid JSON.");
 
         var configuration = dto.ToDomain();
+        if (!string.Equals(configuration.TenantId.Value, tenantId, StringComparison.Ordinal))
+        {
+            throw new ConfigurationException(
+                $"Tenant configuration '{tenantId}' has a mismatched tenantId.");
+        }
+
         var validation = configurationValidator.ValidateTenant(configuration);
         if (!validation.IsValid)
         {
             throw new ConfigurationException(
                 $"Tenant configuration '{tenantId}' is invalid: {string.Join(" ", validation.Errors)}");
+        }
+
+        if (!allowWildcardServiceArea
+            && configuration.ServiceArea.ZipCodes.Any(
+                zipCode => string.Equals(zipCode?.Trim(), "*", StringComparison.Ordinal)))
+        {
+            throw new ConfigurationException(
+                $"Tenant configuration '{tenantId}' cannot use wildcard service area ZIP codes in production.");
         }
 
         return configuration;

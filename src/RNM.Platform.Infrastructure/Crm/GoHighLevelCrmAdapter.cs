@@ -119,25 +119,95 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
         }
     }
 
-    public Task<CrmOperationResult> AddInteractionNoteAsync(
+    public async Task<CrmOperationResult> AddInteractionNoteAsync(
         CrmInteractionNoteRequest request,
         CancellationToken cancellationToken)
     {
-        return Task.FromResult(new CrmOperationResult(true, Message: "GoHighLevel note sync is not required for M1."));
+        try
+        {
+            var credentials = await GetCredentialsAsync(request.TenantId, cancellationToken).ConfigureAwait(false);
+            if (credentials is null)
+            {
+                return FailedOperation(CrmFailureReason.NoteFailed, "GoHighLevel CRM credentials are incomplete.");
+            }
+
+            var payload = new GoHighLevelCreateNoteRequestDto(request.Note);
+            return await PostContactOperationAsync(
+                    $"contacts/{Uri.EscapeDataString(request.ProviderContactId)}/notes",
+                    payload,
+                    credentials,
+                    CrmFailureReason.NoteFailed,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation(CrmFailureReason.NoteFailed, "GoHighLevel note sync failed.");
+        }
     }
 
-    public Task<CrmOperationResult> ApplyTagsAsync(
+    public async Task<CrmOperationResult> ApplyTagsAsync(
         CrmTagRequest request,
         CancellationToken cancellationToken)
     {
-        return Task.FromResult(new CrmOperationResult(true, Message: "GoHighLevel tag sync is not required for M1."));
+        try
+        {
+            var credentials = await GetCredentialsAsync(request.TenantId, cancellationToken).ConfigureAwait(false);
+            if (credentials is null)
+            {
+                return FailedOperation(CrmFailureReason.TagsFailed, "GoHighLevel CRM credentials are incomplete.");
+            }
+
+            var payload = new GoHighLevelAddTagsRequestDto(request.Tags);
+            return await PostContactOperationAsync(
+                    $"contacts/{Uri.EscapeDataString(request.ProviderContactId)}/tags",
+                    payload,
+                    credentials,
+                    CrmFailureReason.TagsFailed,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation(CrmFailureReason.TagsFailed, "GoHighLevel tag sync failed.");
+        }
     }
 
     public Task<CrmOperationResult> LinkBookingToContactAsync(
         CrmBookingLinkRequest request,
         CancellationToken cancellationToken)
     {
-        return Task.FromResult(new CrmOperationResult(true, Message: "GoHighLevel booking link sync is not required for M1."));
+        return Task.FromResult(new CrmOperationResult(
+            true,
+            Message: "The GoHighLevel appointment is linked during creation through contactId."));
+    }
+
+    private async Task<CrmOperationResult> PostContactOperationAsync<TPayload>(
+        string path,
+        TPayload payload,
+        GoHighLevelCredentials credentials,
+        CrmFailureReason failureReason,
+        CancellationToken cancellationToken)
+    {
+        using var content = new StringContent(
+            JsonSerializer.Serialize(payload, JsonOptions),
+            Encoding.UTF8,
+            "application/json");
+        using var message = CreateRequest(HttpMethod.Post, path, credentials);
+        message.Content = content;
+
+        using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode
+            ? new CrmOperationResult(true)
+            : FailedOperation(failureReason, "GoHighLevel contact operation failed.");
     }
 
     private async Task<GoHighLevelCredentials?> GetCredentialsAsync(
@@ -228,6 +298,11 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
             providerContactId,
             CrmFailureReason.ContactUpsertFailed,
             message);
+
+    private static CrmOperationResult FailedOperation(
+        CrmFailureReason reason,
+        string message) =>
+        new(false, reason, message);
 }
 
 internal sealed record GoHighLevelContactSearchRequestDto(
@@ -243,6 +318,6 @@ internal sealed record GoHighLevelContactUpsertRequestDto(
     string? Name,
     string? PostalCode);
 
-internal sealed record GoHighLevelAppointmentLinkRequestDto(
-    string ContactId,
-    string AppointmentId);
+internal sealed record GoHighLevelCreateNoteRequestDto(string Body);
+
+internal sealed record GoHighLevelAddTagsRequestDto(IReadOnlyCollection<string> Tags);

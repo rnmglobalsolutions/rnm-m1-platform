@@ -29,7 +29,7 @@ public sealed class ConfirmationApplicationServiceTests
         var smsSender = new FakeSmsSender();
         var emailSender = new FakeEmailSender();
         var eventLogger = new RecordingConfirmationEventLogger();
-        var service = CreateService(smsSender, emailSender, eventLogger);
+        var service = CreateService(smsSender, emailSender, eventLogger: eventLogger);
 
         var result = await service.SendBookingConfirmationAsync(
             CreateRequest(bookingDecision: CreateFailedBookingDecision()),
@@ -58,6 +58,24 @@ public sealed class ConfirmationApplicationServiceTests
         Assert.Equal(ConfirmationFailureReason.SmsSendFailed, result.Sms.FailureReason);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.SmsConfirmationFailed));
         AssertNoSensitiveTelemetry(eventLogger);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_SchedulesSmsRetry_WhenProviderFails()
+    {
+        var smsSender = new FakeSmsSender
+        {
+            SendResult = new SmsSendResult(Succeeded: false)
+        };
+        var retryScheduler = new FakeConfirmationRetryScheduler();
+        var service = CreateService(smsSender: smsSender, retryScheduler: retryScheduler);
+
+        await service.SendBookingConfirmationAsync(CreateRequest(), CancellationToken.None);
+
+        var retry = Assert.Single(retryScheduler.Requests);
+        Assert.Equal(ConfirmationRetryKind.CustomerSms, retry.Kind);
+        Assert.Equal("+15551234567", retry.Destination);
+        Assert.Equal("SMS template for 2026-05-01 09:00", retry.Body);
     }
 
     [Fact]
@@ -103,6 +121,21 @@ public sealed class ConfirmationApplicationServiceTests
         Assert.True(result.SmsSent);
         Assert.NotEqual(ConfirmationChannelStatus.Failed, result.Email.Status);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.EmailConfirmationSkipped));
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_DoesNotScheduleEmailRetry_WhenEmailIsMissing()
+    {
+        var retryScheduler = new FakeConfirmationRetryScheduler();
+        var service = CreateService(retryScheduler: retryScheduler);
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(customerEmail: null),
+            CancellationToken.None);
+
+        Assert.DoesNotContain(
+            retryScheduler.Requests,
+            request => request.Kind is ConfirmationRetryKind.CustomerEmail);
     }
 
     [Fact]
@@ -292,11 +325,13 @@ public sealed class ConfirmationApplicationServiceTests
     private static ConfirmationApplicationService CreateService(
         FakeSmsSender? smsSender = null,
         FakeEmailSender? emailSender = null,
+        FakeConfirmationRetryScheduler? retryScheduler = null,
         RecordingConfirmationEventLogger? eventLogger = null)
     {
         return new ConfirmationApplicationService(
             smsSender ?? new FakeSmsSender(),
             emailSender ?? new FakeEmailSender(),
+            retryScheduler ?? new FakeConfirmationRetryScheduler(),
             eventLogger ?? new RecordingConfirmationEventLogger());
     }
 
@@ -439,6 +474,21 @@ public sealed class ConfirmationApplicationServiceTests
             }
 
             return Task.FromResult(SendResult);
+        }
+    }
+
+    private sealed class FakeConfirmationRetryScheduler : IConfirmationRetryScheduler
+    {
+        public bool ScheduleResult { get; init; } = true;
+
+        public List<ConfirmationRetryRequest> Requests { get; } = [];
+
+        public Task<bool> ScheduleAsync(
+            ConfirmationRetryRequest request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            return Task.FromResult(ScheduleResult);
         }
     }
 

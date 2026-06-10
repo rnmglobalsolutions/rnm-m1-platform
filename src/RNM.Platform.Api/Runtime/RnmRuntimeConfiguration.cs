@@ -3,7 +3,7 @@ using RNM.Platform.Infrastructure.Secrets;
 
 namespace RNM.Platform.Api.Runtime;
 
-internal sealed record RnmRuntimeConfiguration(
+public sealed record RnmRuntimeConfiguration(
     string EnvironmentName,
     string ConfigRoot,
     string InternalApiKey,
@@ -18,6 +18,10 @@ internal sealed record RnmRuntimeConfiguration(
         || string.Equals(EnvironmentName, "Local", StringComparison.OrdinalIgnoreCase);
 
     public bool UseKeyVaultSecrets => !IsLocal;
+
+    public bool IsProduction =>
+        string.Equals(EnvironmentName, "prod", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(EnvironmentName, "production", StringComparison.OrdinalIgnoreCase);
 
     public static RnmRuntimeConfiguration FromEnvironment()
     {

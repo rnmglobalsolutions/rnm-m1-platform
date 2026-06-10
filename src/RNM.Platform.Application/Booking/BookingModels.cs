@@ -35,7 +35,8 @@ public sealed record CreateBookingRequest(
     AvailableSlot Slot,
     string? ServiceType,
     string? PreferredWindow,
-    string? ProviderContactId = null);
+    string? ProviderContactId = null,
+    string? BusinessName = null);
 
 public sealed record CreateBookingResult(
     bool Succeeded,
@@ -65,7 +66,8 @@ public sealed record BookingRequest(
     string? PreferredWindow = null,
     AvailableSlot? SelectedSlot = null,
     bool AutoSelectFirstAvailableAfterConfirmation = false,
-    string? ProviderContactId = null);
+    string? ProviderContactId = null,
+    string? BusinessName = null);
 
 public sealed record BookingDecisionResult(
     BookingDecisionState State,

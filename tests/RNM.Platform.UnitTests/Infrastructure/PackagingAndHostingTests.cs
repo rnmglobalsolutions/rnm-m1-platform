@@ -84,15 +84,35 @@ public sealed class PackagingAndHostingTests
         Assert.Contains("'https://www.rnmglobalsolutions.com'", bicep);
         Assert.Contains("'https://rnmglobalsolutions.com'", bicep);
         Assert.Contains("'AzureWebJobs.ContactSystemReviewFunction.Disabled': 'true'", bicep);
+        Assert.Contains("RNM_ALLOW_WILDCARD_SERVICE_AREA: 'false'", bicep);
         Assert.Contains("'AzureWebJobs.VapiInboundWebhook.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.ConfirmationRetry.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.Readiness.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.TestEmailSend.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.Health.Disabled': 'true'", bicep);
+        Assert.Contains("RNM_ALLOW_WILDCARD_SERVICE_AREA: 'true'", bicep);
         Assert.Contains("RNM_CONTACT_ALLOWED_ORIGINS: join(contactFunctionAllowedCorsOrigins, ',')", bicep);
         Assert.Contains("RNM_REQUIRE_INTERNAL_API_KEY: 'true'", bicep);
         Assert.Contains("RNM_REQUIRE_INTERNAL_API_KEY: 'false'", bicep);
         Assert.Contains("includeInternalApiKeySecretReference: true", bicep);
         Assert.Contains("includeInternalApiKeySecretReference: false", bicep);
+    }
+
+    [Fact]
+    public void MainBicep_DeploysOperationalAlerts_WhenEmailIsConfigured()
+    {
+        var mainBicepPath = Path.Combine(RepositoryRoot, "infra", "main.bicep");
+        var alertsBicepPath = Path.Combine(RepositoryRoot, "infra", "modules", "operationalAlerts.bicep");
+        var mainBicep = File.ReadAllText(mainBicepPath);
+        var alertsBicep = File.ReadAllText(alertsBicepPath);
+
+        Assert.Contains("param operationsAlertEmail string = ''", mainBicep);
+        Assert.Contains("modules/operationalAlerts.bicep", mainBicep);
+        Assert.Contains("Microsoft.Insights/actionGroups", alertsBicep);
+        Assert.Contains("booking.failed", alertsBicep);
+        Assert.Contains("confirmation.retry.failed", alertsBicep);
+        Assert.Contains("security.auth_failed", alertsBicep);
     }
 
     private static string FindRepositoryRoot()

@@ -251,7 +251,7 @@ public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
             providerContactId,
             request.Slot.StartsAt,
             request.Slot.EndsAt,
-            BuildTitle(serviceType, submittedName),
+            BuildTitle(request.BusinessName, serviceType, submittedName),
             serviceAddress,
             BuildAppointmentNotes(request, submittedName, serviceType, serviceAddress));
     }
@@ -306,11 +306,17 @@ public sealed class GoHighLevelBookingAdapter : IBookingProviderAdapter
         return $"{normalizedAddress} {normalizedZipCode}";
     }
 
-    private static string BuildTitle(string serviceType, string? submittedName)
+    private static string BuildTitle(
+        string? businessName,
+        string serviceType,
+        string? submittedName)
     {
+        var prefix = string.IsNullOrWhiteSpace(businessName)
+            ? "Service booking"
+            : businessName.Trim();
         return string.IsNullOrWhiteSpace(submittedName)
-            ? $"RNM booking - {serviceType}"
-            : $"RNM booking - {submittedName.Trim()} - {serviceType}";
+            ? $"{prefix} - {serviceType}"
+            : $"{prefix} - {submittedName.Trim()} - {serviceType}";
     }
 
     private static string? TryReadString(string responseJson, string propertyName)

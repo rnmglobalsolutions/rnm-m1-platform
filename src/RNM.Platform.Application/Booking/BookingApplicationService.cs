@@ -187,7 +187,8 @@ public sealed class BookingApplicationService
             selectedSlot,
             request.ServiceType,
             request.PreferredWindow,
-            request.ProviderContactId);
+            request.ProviderContactId,
+            request.BusinessName);
     }
 
     private static string? GetFieldValue(

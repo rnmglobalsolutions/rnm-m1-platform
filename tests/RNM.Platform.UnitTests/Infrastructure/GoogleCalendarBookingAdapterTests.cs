@@ -357,7 +357,7 @@ public sealed class GoogleCalendarBookingAdapterTests
         Assert.Equal("2026-05-11T11:00:00-05:00", document.RootElement.GetProperty("end").GetProperty("dateTime").GetString());
         Assert.Equal("America/Chicago", document.RootElement.GetProperty("start").GetProperty("timeZone").GetString());
         Assert.Equal("123 Main Street, Addison, TX 75001", document.RootElement.GetProperty("location").GetString());
-        Assert.Equal("RNM booking - Jane Lead - Repair", document.RootElement.GetProperty("summary").GetString());
+        Assert.Equal("Tenant A HVAC - Jane Lead - Repair", document.RootElement.GetProperty("summary").GetString());
         var description = document.RootElement.GetProperty("description").GetString();
         Assert.Contains("Customer: Jane Lead", description);
         Assert.Contains("Property type: residential", description);
@@ -477,7 +477,8 @@ public sealed class GoogleCalendarBookingAdapterTests
                 new DateTimeOffset(2026, 5, 11, 15, 0, 0, TimeSpan.Zero),
                 new DateTimeOffset(2026, 5, 11, 16, 0, 0, TimeSpan.Zero)),
             "Repair",
-            "Afternoon");
+            "Afternoon",
+            BusinessName: "Tenant A HVAC");
     }
 
     private static string CreateCredentialsJson(

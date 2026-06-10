@@ -12,6 +12,7 @@ env:
   AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
   AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+  RNM_OPERATIONS_ALERT_EMAIL: ${{ vars.RNM_OPERATIONS_ALERT_EMAIL }}
   EXPECTED_ENVIRONMENT_NAME: prod
   EXPECTED_BICEP_PARAMETERS_FILE: infra/prod.bicepparam
   PACKAGE_PATH: functionapp.zip
@@ -48,6 +49,7 @@ jobs:
           test -n "$AZURE_SUBSCRIPTION_ID"
           test -n "$AZURE_RESOURCE_GROUP"
           test -n "$AZURE_LOCATION"
+          test -n "$RNM_OPERATIONS_ALERT_EMAIL"
           test -n "$ENVIRONMENT_NAME"
           test -n "$BICEP_PARAMETERS_FILE"
           test "$ENVIRONMENT_NAME" = "$EXPECTED_ENVIRONMENT_NAME"

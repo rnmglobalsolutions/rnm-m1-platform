@@ -95,6 +95,33 @@ public sealed class JsonConfigurationProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task GetTenantConfigurationAsync_RejectsMismatchedTenantId()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            CreateTenantJson("tenant-b", "[\"75001\"]"));
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_RejectsWildcardServiceArea_WhenDisabled()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            CreateTenantJson("tenant-a", "[\"*\"]"));
+        var provider = new JsonTenantConfigurationProvider(
+            configRoot,
+            new ConfigurationValidator(),
+            allowWildcardServiceArea: false);
+
+        await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None));
+    }
+
+    [Fact]
     public async Task GetVerticalConfigurationAsync_LoadsAndValidatesVerticalConfiguration()
     {
         await File.WriteAllTextAsync(
@@ -123,5 +150,44 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         {
             Directory.Delete(configRoot, recursive: true);
         }
+    }
+
+    private static string CreateTenantJson(string tenantId, string zipCodes)
+    {
+        const string bookingDateToken = "{{bookingDate}}";
+
+        return $$"""
+        {
+          "tenantId": "{{tenantId}}",
+          "verticalId": "vertical-a",
+          "businessName": "Tenant A",
+          "timeZone": "America/Chicago",
+          "serviceArea": {
+            "zipCodes": {{zipCodes}},
+            "cities": []
+          },
+          "providers": {
+            "crmProvider": "GoHighLevel",
+            "bookingProvider": "GoHighLevelCalendar",
+            "smsProvider": "Twilio",
+            "emailProvider": "SendGrid"
+          },
+          "secretNames": {
+            "crmApiKey": "crm",
+            "bookingApiKey": "booking",
+            "voiceWebhookSecret": "vapi",
+            "twilioAccountSid": "sid",
+            "twilioAuthToken": "token",
+            "emailConnectionString": "email"
+          },
+          "communication": {
+            "smsFromPhoneNumber": "+15550001000",
+            "emailFromAddress": "booking@example.com",
+            "confirmationTemplates": {
+              "smsBodyTemplate": "Booked {{bookingDateToken}}"
+            }
+          }
+        }
+        """;
     }
 }
