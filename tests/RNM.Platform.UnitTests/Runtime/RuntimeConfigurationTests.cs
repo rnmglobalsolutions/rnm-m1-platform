@@ -71,6 +71,18 @@ public sealed class RuntimeConfigurationTests
         configuration.Validate();
     }
 
+    [Theory]
+    [InlineData("prod")]
+    [InlineData("production")]
+    public void IsProduction_ReturnsTrue_ForProductionEnvironmentNames(string environmentName)
+    {
+        var configuration = CreateConfiguration(
+            environmentName,
+            "https://example-vault.vault.azure.net/");
+
+        Assert.True(configuration.IsProduction);
+    }
+
     private static RnmRuntimeConfiguration CreateConfiguration(
         string environmentName,
         string? keyVaultUri,

@@ -118,3 +118,19 @@ public sealed record EmailSendResult(
     bool Succeeded,
     string? ProviderMessageId = null,
     string? Message = null);
+
+public sealed record ConfirmationRetryRequest(
+    string TenantId,
+    string CorrelationId,
+    ConfirmationRetryKind Kind,
+    string Destination,
+    string Body,
+    string? Subject = null);
+
+public enum ConfirmationRetryKind
+{
+    CustomerSms = 0,
+    CustomerEmail = 1,
+    BusinessSms = 2,
+    BusinessEmail = 3
+}

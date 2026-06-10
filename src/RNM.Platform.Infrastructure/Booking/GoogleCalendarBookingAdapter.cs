@@ -388,7 +388,7 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
         return new
         {
-            summary = BuildSummary(serviceType, submittedName),
+            summary = BuildSummary(request.BusinessName, serviceType, submittedName),
             description = description.ToString(),
             location = serviceAddress,
             start = new { dateTime = localStartsAt, timeZone },
@@ -687,11 +687,17 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         return $"{normalizedAddress} {normalizedZipCode}";
     }
 
-    private static string BuildSummary(string serviceType, string? submittedName)
+    private static string BuildSummary(
+        string? businessName,
+        string serviceType,
+        string? submittedName)
     {
+        var prefix = string.IsNullOrWhiteSpace(businessName)
+            ? "Service booking"
+            : businessName.Trim();
         return string.IsNullOrWhiteSpace(submittedName)
-            ? $"RNM booking - {serviceType}"
-            : $"RNM booking - {submittedName.Trim()} - {serviceType}";
+            ? $"{prefix} - {serviceType}"
+            : $"{prefix} - {submittedName.Trim()} - {serviceType}";
     }
 
     private static string? TryReadString(string json, string propertyName)

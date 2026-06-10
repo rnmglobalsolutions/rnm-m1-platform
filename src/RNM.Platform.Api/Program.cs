@@ -33,13 +33,22 @@ var host = new HostBuilder()
     {
         services.AddApplicationInsightsTelemetryWorkerService();
         services.ConfigureFunctionsApplicationInsights();
+        services.AddSingleton(runtimeConfiguration);
 
         services.AddSingleton<IConfigurationValidator, ConfigurationValidator>();
         services.AddSingleton<ITenantConfigurationProvider>(serviceProvider =>
         {
+            var allowWildcardServiceArea =
+                !runtimeConfiguration.IsProduction
+                || string.Equals(
+                    Environment.GetEnvironmentVariable("RNM_ALLOW_WILDCARD_SERVICE_AREA"),
+                    "true",
+                    StringComparison.OrdinalIgnoreCase);
+
             return new JsonTenantConfigurationProvider(
                 runtimeConfiguration.ConfigRoot,
-                serviceProvider.GetRequiredService<IConfigurationValidator>());
+                serviceProvider.GetRequiredService<IConfigurationValidator>(),
+                allowWildcardServiceArea);
         });
         services.AddSingleton<IVerticalConfigurationProvider>(serviceProvider =>
         {
@@ -68,6 +77,7 @@ var host = new HostBuilder()
         services.AddSingleton<BookingApplicationService>();
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
+        services.AddSingleton<IConfirmationRetryScheduler, AzureQueueConfirmationRetryScheduler>();
         services.AddSingleton<AzureTableCrmAdapter>();
         services.AddSingleton<ICrmProviderAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());

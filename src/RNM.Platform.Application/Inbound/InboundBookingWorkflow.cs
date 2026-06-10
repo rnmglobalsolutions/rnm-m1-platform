@@ -181,7 +181,8 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                         preferredWindow,
                         request.SelectedSlot,
                         request.AutoSelectFirstAvailableSlot,
-                        contactResult.ProviderContactId),
+                        contactResult.ProviderContactId,
+                        tenantConfiguration.BusinessName),
                     cancellationToken)
                 .ConfigureAwait(false);
             latestBookingState = bookingResult.State;

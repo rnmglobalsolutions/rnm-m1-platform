@@ -7,15 +7,18 @@ public sealed class ConfirmationApplicationService
 {
     private readonly ISmsSender smsSender;
     private readonly IEmailSender emailSender;
+    private readonly IConfirmationRetryScheduler retryScheduler;
     private readonly IEventLogger eventLogger;
 
     public ConfirmationApplicationService(
         ISmsSender smsSender,
         IEmailSender emailSender,
+        IConfirmationRetryScheduler retryScheduler,
         IEventLogger eventLogger)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
+        this.retryScheduler = retryScheduler;
         this.eventLogger = eventLogger;
     }
 
@@ -62,6 +65,7 @@ public sealed class ConfirmationApplicationService
             return failed;
         }
 
+        var body = RenderTemplate(request.Templates.SmsBodyTemplate, request);
         try
         {
             var sendResult = await smsSender
@@ -70,12 +74,22 @@ public sealed class ConfirmationApplicationService
                         request.TenantId,
                         request.CorrelationId,
                         request.CustomerPhoneNumber,
-                        RenderTemplate(request.Templates.SmsBodyTemplate, request)),
+                        body),
                     cancellationToken)
                 .ConfigureAwait(false);
 
             if (!sendResult.Succeeded)
             {
+                await ScheduleRetryAsync(
+                        request,
+                        new ConfirmationRetryRequest(
+                            request.TenantId,
+                            request.CorrelationId,
+                            ConfirmationRetryKind.CustomerSms,
+                            request.CustomerPhoneNumber,
+                            body),
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
                 await LogAsync(TelemetryEventNames.SmsConfirmationFailed, request, failed, cancellationToken)
                     .ConfigureAwait(false);
@@ -89,6 +103,16 @@ public sealed class ConfirmationApplicationService
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            await ScheduleRetryAsync(
+                    request,
+                    new ConfirmationRetryRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        ConfirmationRetryKind.CustomerSms,
+                        request.CustomerPhoneNumber,
+                        body),
+                    cancellationToken)
+                .ConfigureAwait(false);
             var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);
             await LogAsync(TelemetryEventNames.SmsConfirmationFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
@@ -117,6 +141,8 @@ public sealed class ConfirmationApplicationService
             return skipped;
         }
 
+        var subject = RenderTemplate(request.Templates.EmailSubjectTemplate, request);
+        var body = RenderTemplate(request.Templates.EmailBodyTemplate, request);
         try
         {
             var sendResult = await emailSender
@@ -125,13 +151,24 @@ public sealed class ConfirmationApplicationService
                         request.TenantId,
                         request.CorrelationId,
                         request.CustomerEmail,
-                        RenderTemplate(request.Templates.EmailSubjectTemplate, request),
-                        RenderTemplate(request.Templates.EmailBodyTemplate, request)),
+                        subject,
+                        body),
                     cancellationToken)
                 .ConfigureAwait(false);
 
             if (!sendResult.Succeeded)
             {
+                await ScheduleRetryAsync(
+                        request,
+                        new ConfirmationRetryRequest(
+                            request.TenantId,
+                            request.CorrelationId,
+                            ConfirmationRetryKind.CustomerEmail,
+                            request.CustomerEmail,
+                            body,
+                            subject),
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSendFailed);
                 await LogAsync(TelemetryEventNames.EmailConfirmationFailed, request, failed, cancellationToken)
                     .ConfigureAwait(false);
@@ -145,6 +182,17 @@ public sealed class ConfirmationApplicationService
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            await ScheduleRetryAsync(
+                    request,
+                    new ConfirmationRetryRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        ConfirmationRetryKind.CustomerEmail,
+                        request.CustomerEmail,
+                        body,
+                        subject),
+                    cancellationToken)
+                .ConfigureAwait(false);
             var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSenderException);
             await LogAsync(TelemetryEventNames.EmailConfirmationFailed, request, failed, cancellationToken)
                 .ConfigureAwait(false);
@@ -170,6 +218,8 @@ public sealed class ConfirmationApplicationService
             return skipped;
         }
 
+        var subject = RenderTemplate(request.Templates.BusinessEmailSubjectTemplate, request);
+        var body = RenderTemplate(request.Templates.BusinessEmailBodyTemplate, request);
         try
         {
             var sendResult = await emailSender
@@ -178,13 +228,24 @@ public sealed class ConfirmationApplicationService
                         request.TenantId,
                         request.CorrelationId,
                         request.BusinessNotificationEmail,
-                        RenderTemplate(request.Templates.BusinessEmailSubjectTemplate, request),
-                        RenderTemplate(request.Templates.BusinessEmailBodyTemplate, request)),
+                        subject,
+                        body),
                     cancellationToken)
                 .ConfigureAwait(false);
 
             if (!sendResult.Succeeded)
             {
+                await ScheduleRetryAsync(
+                        request,
+                        new ConfirmationRetryRequest(
+                            request.TenantId,
+                            request.CorrelationId,
+                            ConfirmationRetryKind.BusinessEmail,
+                            request.BusinessNotificationEmail,
+                            body,
+                            subject),
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSendFailed);
                 await LogAsync(TelemetryEventNames.BusinessEmailNotificationFailed, request, failed, cancellationToken, "business")
                     .ConfigureAwait(false);
@@ -198,6 +259,17 @@ public sealed class ConfirmationApplicationService
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            await ScheduleRetryAsync(
+                    request,
+                    new ConfirmationRetryRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        ConfirmationRetryKind.BusinessEmail,
+                        request.BusinessNotificationEmail,
+                        body,
+                        subject),
+                    cancellationToken)
+                .ConfigureAwait(false);
             var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSenderException);
             await LogAsync(TelemetryEventNames.BusinessEmailNotificationFailed, request, failed, cancellationToken, "business")
                 .ConfigureAwait(false);
@@ -230,6 +302,7 @@ public sealed class ConfirmationApplicationService
             return skipped;
         }
 
+        var body = RenderTemplate(request.Templates.BusinessSmsBodyTemplate, request);
         try
         {
             var sendResult = await smsSender
@@ -238,12 +311,22 @@ public sealed class ConfirmationApplicationService
                         request.TenantId,
                         request.CorrelationId,
                         request.BusinessNotificationPhoneNumber,
-                        RenderTemplate(request.Templates.BusinessSmsBodyTemplate, request)),
+                        body),
                     cancellationToken)
                 .ConfigureAwait(false);
 
             if (!sendResult.Succeeded)
             {
+                await ScheduleRetryAsync(
+                        request,
+                        new ConfirmationRetryRequest(
+                            request.TenantId,
+                            request.CorrelationId,
+                            ConfirmationRetryKind.BusinessSms,
+                            request.BusinessNotificationPhoneNumber,
+                            body),
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
                 await LogAsync(TelemetryEventNames.BusinessSmsNotificationFailed, request, failed, cancellationToken, "business")
                     .ConfigureAwait(false);
@@ -257,6 +340,16 @@ public sealed class ConfirmationApplicationService
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            await ScheduleRetryAsync(
+                    request,
+                    new ConfirmationRetryRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        ConfirmationRetryKind.BusinessSms,
+                        request.BusinessNotificationPhoneNumber,
+                        body),
+                    cancellationToken)
+                .ConfigureAwait(false);
             var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);
             await LogAsync(TelemetryEventNames.BusinessSmsNotificationFailed, request, failed, cancellationToken, "business")
                 .ConfigureAwait(false);
@@ -327,6 +420,46 @@ public sealed class ConfirmationApplicationService
         ConfirmationChannel channel,
         ConfirmationFailureReason reason) =>
         new(channel, ConfirmationChannelStatus.Skipped, reason);
+
+    private async Task ScheduleRetryAsync(
+        BookingConfirmationRequest request,
+        ConfirmationRetryRequest retryRequest,
+        CancellationToken cancellationToken)
+    {
+        var scheduled = false;
+        try
+        {
+            scheduled = await retryScheduler.ScheduleAsync(retryRequest, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            scheduled = false;
+        }
+
+        var properties = new SafeTelemetryProperties()
+            .Add("correlationId", request.CorrelationId)
+            .Add("tenantId", request.TenantId)
+            .Add("verticalId", request.VerticalId)
+            .Add("retryKind", retryRequest.Kind.ToString())
+            .Add("outcome", scheduled ? "scheduled" : "schedule_failed")
+            .ToDictionary();
+
+        try
+        {
+            await eventLogger.LogEventAsync(
+                    scheduled
+                        ? TelemetryEventNames.ConfirmationRetryScheduled
+                        : TelemetryEventNames.ConfirmationRetryScheduleFailed,
+                    properties,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Retry telemetry is best-effort.
+        }
+    }
 
     private async Task LogAsync(
         string eventName,

@@ -35,6 +35,9 @@ param contactFunctionAllowedCorsOrigins array = [
 @description('Additional Function App settings. Values must be non-sensitive.')
 param additionalFunctionAppSettings object = {}
 
+@description('Operations email that receives M1 production alerts. Leave empty to skip alert deployment.')
+param operationsAlertEmail string = ''
+
 var normalizedPrefix = toLower(replace(resourcePrefix, '_', '-'))
 var suffix = uniqueString(resourceGroup().id, environmentName)
 var resourceBaseName = '${normalizedPrefix}-${environmentName}-${suffix}'
@@ -55,13 +58,17 @@ var functionAppName = '${resourceBaseName}-func'
 var contactFunctionAppName = '${resourceBaseName}-contact-func'
 var mainFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.ContactSystemReviewFunction.Disabled': 'true'
+  RNM_ALLOW_WILDCARD_SERVICE_AREA: 'false'
   RNM_REQUIRE_INTERNAL_API_KEY: 'true'
 })
 var contactFunctionAppSettings = union(additionalFunctionAppSettings, {
+  'AzureWebJobs.ConfirmationRetry.Disabled': 'true'
   'AzureWebJobs.Health.Disabled': 'true'
+  'AzureWebJobs.Readiness.Disabled': 'true'
   'AzureWebJobs.TestEmailSend.Disabled': 'true'
   'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'
   'AzureWebJobs.VapiInboundWebhook.Disabled': 'true'
+  RNM_ALLOW_WILDCARD_SERVICE_AREA: 'true'
   RNM_CONTACT_ALLOWED_ORIGINS: join(contactFunctionAllowedCorsOrigins, ',')
   RNM_REQUIRE_INTERNAL_API_KEY: 'false'
 })
@@ -82,6 +89,17 @@ module appInsights 'modules/appInsights.bicep' = {
     name: appInsightsName
     workspaceName: logAnalyticsWorkspaceName
     location: location
+    tags: tags
+  }
+}
+
+module operationalAlerts 'modules/operationalAlerts.bicep' = if (!empty(operationsAlertEmail)) {
+  name: 'operational-alerts-${environmentName}'
+  params: {
+    namePrefix: resourceBaseName
+    location: location
+    applicationInsightsId: appInsights.outputs.appInsightsId
+    operationsEmail: operationsAlertEmail
     tags: tags
   }
 }

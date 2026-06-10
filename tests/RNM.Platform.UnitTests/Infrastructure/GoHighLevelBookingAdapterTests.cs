@@ -36,7 +36,7 @@ public sealed class GoHighLevelBookingAdapterTests
         Assert.Equal("contact-123", root.GetProperty("contactId").GetString());
         Assert.Equal("2026-05-11T15:00:00+00:00", root.GetProperty("startTime").GetString());
         Assert.Equal("2026-05-11T16:00:00+00:00", root.GetProperty("endTime").GetString());
-        Assert.Equal("RNM booking - Jane Lead - Repair", root.GetProperty("title").GetString());
+        Assert.Equal("Tenant A HVAC - Jane Lead - Repair", root.GetProperty("title").GetString());
         Assert.Equal("123 Main Street, Addison, TX 75001", root.GetProperty("address").GetString());
 
         var notes = root.GetProperty("notes").GetString();
@@ -142,7 +142,8 @@ public sealed class GoHighLevelBookingAdapterTests
                 new DateTimeOffset(2026, 5, 11, 16, 0, 0, TimeSpan.Zero)),
             "Repair",
             "Afternoon",
-            "contact-123");
+            "contact-123",
+            "Tenant A HVAC");
     }
 
     private static string CreateCredentialsJson() =>
