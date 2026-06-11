@@ -61,12 +61,63 @@ public sealed class CrmApplicationServiceTests
         var eventLogger = new RecordingCrmEventLogger();
         var service = CreateService(adapter, eventLogger);
 
-        var result = await service.SyncBookedLeadAsync(CreateRequest(), CancellationToken.None);
+        var request = CreateRequest() with
+        {
+            PreferredWindow = "Wednesday afternoon",
+            TimeZone = "America/Chicago",
+            BookingProvider = "GoogleCalendar"
+        };
+        var result = await service.SyncBookedLeadAsync(request, CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(1, adapter.LinkBookingCallCount);
-        Assert.Equal("booking-123", adapter.LastBookingLinkRequest?.ProviderBookingId);
+        var booking = Assert.IsType<CrmBookingLinkRequest>(adapter.LastBookingLinkRequest);
+        Assert.Equal("booking-123", booking.ProviderBookingId);
+        Assert.Equal("contact-123", booking.ProviderContactId);
+        Assert.Equal("vertical-a", booking.VerticalId);
+        Assert.Equal("GoogleCalendar", booking.BookingProvider);
+        Assert.Equal("InboundVoice", booking.Source);
+        Assert.Equal("Jane Lead", booking.CustomerName);
+        Assert.Equal("+15551234567", booking.PhoneNumber);
+        Assert.Equal("lead@example.com", booking.Email);
+        Assert.Equal("service", booking.ServiceType);
+        Assert.Equal("residential", booking.PropertyType);
+        Assert.Equal("123 Secret St, Addison, TX 75001", booking.ServiceAddress);
+        Assert.Equal("75001", booking.ZipCode);
+        Assert.Equal("non_urgent", booking.Urgency);
+        Assert.Equal("Wednesday afternoon", booking.PreferredWindow);
+        Assert.Equal("Afternoon", booking.BookingLabel);
+        Assert.Equal(new DateTimeOffset(2026, 5, 1, 14, 0, 0, TimeSpan.Zero), booking.StartsAt);
+        Assert.Equal(new DateTimeOffset(2026, 5, 1, 15, 0, 0, TimeSpan.Zero), booking.EndsAt);
+        Assert.Equal("America/Chicago", booking.TimeZone);
+        Assert.Equal("Booked", booking.BookingState);
+        Assert.Equal("Qualified", booking.QualificationState);
+        Assert.Equal("InServiceArea", booking.ServiceAreaState);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmBookingLinked));
+    }
+
+    [Fact]
+    public async Task EnsureContactAsync_SavesOperationalAttributes_WithoutTranscript()
+    {
+        var adapter = new FakeCrmAdapter();
+        var service = CreateService(adapter);
+        var request = new CrmContactEnsureRequest(
+            "tenant-a",
+            "vertical-a",
+            "corr-123",
+            CreateQualificationResult("+15551234567", "lead@example.com"));
+
+        var result = await service.EnsureContactAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var attributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+            adapter.LastUpsertRequest?.Attributes);
+        Assert.Equal("Repair", attributes["serviceNeed"]);
+        Assert.Equal("residential", attributes["propertyType"]);
+        Assert.Equal("123 Secret St, Addison, TX 75001", attributes["serviceAddress"]);
+        Assert.Equal("non_urgent", attributes["urgency"]);
+        Assert.Equal("Wednesday afternoon", attributes["preferredTime"]);
+        Assert.DoesNotContain("transcript", attributes.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -383,7 +434,10 @@ public sealed class CrmApplicationServiceTests
         {
             ["name"] = "Jane Lead",
             ["serviceNeed"] = "Repair",
+            ["propertyType"] = "residential",
             ["serviceAddress"] = "123 Secret St, Addison, TX 75001",
+            ["urgency"] = "non_urgent",
+            ["preferredTime"] = "Wednesday afternoon",
             ["transcript"] = "raw transcript should never be logged"
         };
 

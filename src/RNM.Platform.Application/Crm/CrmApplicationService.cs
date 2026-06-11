@@ -1,5 +1,6 @@
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Crm;
+using RNM.Platform.Application.Qualification;
 
 namespace RNM.Platform.Application.Crm;
 
@@ -7,8 +8,15 @@ public sealed class CrmApplicationService
 {
     private const int MaxDynamicTagValueLength = 48;
 
-    private static readonly IReadOnlyDictionary<string, string> EmptyAttributes =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> ContactAttributeFields =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "serviceNeed",
+            "propertyType",
+            "serviceAddress",
+            "urgency",
+            "preferredTime"
+        };
 
     private readonly ICrmAdapter crmAdapter;
     private readonly IEventLogger eventLogger;
@@ -62,7 +70,13 @@ public sealed class CrmApplicationService
                     request.QualificationResult,
                     request.BookingDecision,
                     ensureResult.ProviderContactId,
-                    request.ServiceType),
+                    request.ServiceType)
+                {
+                    PreferredWindow = request.PreferredWindow,
+                    TimeZone = request.TimeZone,
+                    BookingProvider = request.BookingProvider,
+                    Source = request.Source
+                },
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -226,7 +240,7 @@ public sealed class CrmApplicationService
             email,
             GetFieldValue(request, "name"),
             request.QualificationResult.LeadData.ZipCode,
-            EmptyAttributes);
+            CreateContactAttributes(request));
     }
 
     private static CrmInteractionNoteRequest CreateNoteRequest(
@@ -270,18 +284,63 @@ public sealed class CrmApplicationService
         string providerContactId,
         string providerBookingId)
     {
+        var leadData = request.QualificationResult.LeadData;
+        var selectedSlot = request.BookingDecision.SelectedSlot;
         return new CrmBookingLinkRequest(
             request.TenantId,
             request.CorrelationId,
             providerContactId,
-            providerBookingId);
+            providerBookingId)
+        {
+            VerticalId = request.VerticalId,
+            BookingProvider = request.BookingProvider,
+            Source = request.Source,
+            CustomerName = GetFieldValue(request, "name"),
+            PhoneNumber = leadData.CallerPhoneNumber,
+            Email = GetFieldValue(request, "email"),
+            ServiceType = request.ServiceType ?? GetFieldValue(request, "serviceNeed"),
+            PropertyType = GetFieldValue(request, "propertyType"),
+            ServiceAddress = GetFieldValue(request, "serviceAddress"),
+            ZipCode = leadData.ZipCode,
+            Urgency = GetFieldValue(request, "urgency"),
+            PreferredWindow = request.PreferredWindow ?? GetFieldValue(request, "preferredTime"),
+            BookingLabel = selectedSlot?.Label,
+            StartsAt = selectedSlot?.StartsAt,
+            EndsAt = selectedSlot?.EndsAt,
+            TimeZone = request.TimeZone,
+            BookingState = request.BookingDecision.State.ToString(),
+            QualificationState = request.QualificationResult.State.ToString(),
+            ServiceAreaState = request.QualificationResult.ServiceAreaDecision.State.ToString()
+        };
     }
 
     private static string? GetFieldValue(CrmContactEnsureRequest request, string fieldName)
     {
-        return request.QualificationResult.LeadData.Fields.TryGetValue(fieldName, out var value)
+        return GetFieldValue(request.QualificationResult, fieldName);
+    }
+
+    private static string? GetFieldValue(CrmPostBookingSyncRequest request, string fieldName)
+    {
+        return GetFieldValue(request.QualificationResult, fieldName);
+    }
+
+    private static string? GetFieldValue(QualificationResult qualificationResult, string fieldName)
+    {
+        return qualificationResult.LeadData.Fields.TryGetValue(fieldName, out var value)
             ? value
             : null;
+    }
+
+    private static IReadOnlyDictionary<string, string> CreateContactAttributes(CrmContactEnsureRequest request)
+    {
+        return request.QualificationResult.LeadData.Fields
+            .Where(field =>
+                ContactAttributeFields.Contains(field.Key)
+                && !string.IsNullOrWhiteSpace(field.Value))
+            .ToDictionary(
+                field => field.Key,
+                field => field.Value.Trim(),
+                StringComparer.OrdinalIgnoreCase);
     }
 
     private static string? SanitizeTagValue(string? value)

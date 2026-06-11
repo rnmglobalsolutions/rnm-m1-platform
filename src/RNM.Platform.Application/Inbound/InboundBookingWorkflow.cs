@@ -228,7 +228,12 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                         qualificationResult,
                         bookingResult,
                         contactResult.ProviderContactId,
-                        serviceType),
+                        serviceType)
+                    {
+                        PreferredWindow = preferredWindow,
+                        TimeZone = tenantConfiguration.TimeZone,
+                        BookingProvider = tenantConfiguration.Providers.BookingProvider
+                    },
                     cancellationToken)
                 .ConfigureAwait(false);
             latestCrmState = crmResult.State;

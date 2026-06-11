@@ -11,19 +11,21 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
 {
     private const string DefaultContactsTableName = "RnmContacts";
     private const string DefaultNotesTableName = "RnmContactNotes";
-    private const string DefaultBookingLinksTableName = "RnmBookingLinks";
+    private const string DefaultBookingsTableName = "RnmBookings";
 
     private readonly string? connectionString;
     private readonly string contactsTableName;
     private readonly string notesTableName;
-    private readonly string bookingLinksTableName;
+    private readonly string bookingsTableName;
 
     public AzureTableCrmAdapter()
     {
         connectionString = GetConnectionString();
         contactsTableName = GetSetting("RNM_CRM_CONTACTS_TABLE_NAME", DefaultContactsTableName);
         notesTableName = GetSetting("RNM_CRM_CONTACT_NOTES_TABLE_NAME", DefaultNotesTableName);
-        bookingLinksTableName = GetSetting("RNM_CRM_BOOKING_LINKS_TABLE_NAME", DefaultBookingLinksTableName);
+        bookingsTableName = GetSetting(
+            "RNM_CRM_BOOKINGS_TABLE_NAME",
+            GetSetting("RNM_CRM_BOOKING_LINKS_TABLE_NAME", DefaultBookingsTableName));
     }
 
     public string ProviderName => ProviderNames.AzureTable;
@@ -201,23 +203,61 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
 
         try
         {
-            var linksTable = await GetTableClientAsync(bookingLinksTableName, cancellationToken).ConfigureAwait(false);
-            var link = new TableEntity(request.TenantId, CreateTimestampRowKey())
+            var bookingsTable = await GetTableClientAsync(bookingsTableName, cancellationToken).ConfigureAwait(false);
+            var bookingRowKey = CreateBookingRowKey(request);
+            var bookingExists = await EntityExistsAsync(
+                    bookingsTable,
+                    request.TenantId,
+                    bookingRowKey,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var booking = new TableEntity(request.TenantId, bookingRowKey)
             {
                 ["ProviderContactId"] = request.ProviderContactId,
                 ["ProviderBookingId"] = request.ProviderBookingId,
-                ["CreatedAt"] = DateTimeOffset.UtcNow,
-                ["CorrelationId"] = request.CorrelationId
+                ["VerticalId"] = SafeValue(request.VerticalId),
+                ["BookingProvider"] = SafeValue(request.BookingProvider),
+                ["Source"] = SafeValue(request.Source),
+                ["CustomerName"] = SafeValue(request.CustomerName),
+                ["Phone"] = SafeValue(request.PhoneNumber),
+                ["Email"] = SafeValue(request.Email),
+                ["ServiceType"] = SafeValue(request.ServiceType),
+                ["PropertyType"] = SafeValue(request.PropertyType),
+                ["ServiceAddress"] = SafeValue(request.ServiceAddress),
+                ["ZipCode"] = SafeValue(request.ZipCode),
+                ["Urgency"] = SafeValue(request.Urgency),
+                ["PreferredWindow"] = SafeValue(request.PreferredWindow),
+                ["BookingLabel"] = SafeValue(request.BookingLabel),
+                ["TimeZone"] = SafeValue(request.TimeZone),
+                ["BookingState"] = SafeValue(request.BookingState),
+                ["QualificationState"] = SafeValue(request.QualificationState),
+                ["ServiceAreaState"] = SafeValue(request.ServiceAreaState),
+                ["CorrelationId"] = request.CorrelationId,
+                ["UpdatedAt"] = DateTimeOffset.UtcNow
             };
-            await linksTable.AddEntityAsync(link, cancellationToken).ConfigureAwait(false);
+            AddIfPresent(booking, "StartsAt", request.StartsAt);
+            AddIfPresent(booking, "EndsAt", request.EndsAt);
+            if (!bookingExists)
+            {
+                booking["CreatedAt"] = DateTimeOffset.UtcNow;
+            }
+
+            await bookingsTable.UpsertEntityAsync(booking, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
 
             var contactsTable = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
             var contact = new TableEntity(request.TenantId, request.ProviderContactId)
             {
                 ["LastProviderBookingId"] = request.ProviderBookingId,
+                ["LastBookingState"] = SafeValue(request.BookingState),
+                ["LastServiceType"] = SafeValue(request.ServiceType),
+                ["LastUrgency"] = SafeValue(request.Urgency),
+                ["LastServiceAddress"] = SafeValue(request.ServiceAddress),
+                ["LastZipCode"] = SafeValue(request.ZipCode),
                 ["UpdatedAt"] = DateTimeOffset.UtcNow,
                 ["CorrelationId"] = request.CorrelationId
             };
+            AddIfPresent(contact, "LastBookingStartsAt", request.StartsAt);
+            AddIfPresent(contact, "LastBookingEndsAt", request.EndsAt);
             await contactsTable.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
             return new CrmOperationResult(true);
         }
@@ -284,6 +324,20 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
 
     private static string CreateTimestampRowKey() =>
         $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfffffff}-{Guid.NewGuid():N}";
+
+    private static string CreateBookingRowKey(CrmBookingLinkRequest request)
+    {
+        var identifier = $"{request.BookingProvider}:{request.ProviderBookingId}";
+        return $"booking-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identifier))).ToLowerInvariant()}";
+    }
+
+    private static void AddIfPresent(TableEntity entity, string propertyName, DateTimeOffset? value)
+    {
+        if (value.HasValue)
+        {
+            entity[propertyName] = value.Value;
+        }
+    }
 
     private static string? Normalize(string? value)
     {

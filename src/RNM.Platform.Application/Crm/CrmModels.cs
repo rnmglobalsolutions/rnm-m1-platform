@@ -47,7 +47,46 @@ public sealed record CrmBookingLinkRequest(
     string TenantId,
     string CorrelationId,
     string ProviderContactId,
-    string ProviderBookingId);
+    string ProviderBookingId)
+{
+    public string? VerticalId { get; init; }
+
+    public string? BookingProvider { get; init; }
+
+    public string Source { get; init; } = "InboundVoice";
+
+    public string? CustomerName { get; init; }
+
+    public string? PhoneNumber { get; init; }
+
+    public string? Email { get; init; }
+
+    public string? ServiceType { get; init; }
+
+    public string? PropertyType { get; init; }
+
+    public string? ServiceAddress { get; init; }
+
+    public string? ZipCode { get; init; }
+
+    public string? Urgency { get; init; }
+
+    public string? PreferredWindow { get; init; }
+
+    public string? BookingLabel { get; init; }
+
+    public DateTimeOffset? StartsAt { get; init; }
+
+    public DateTimeOffset? EndsAt { get; init; }
+
+    public string? TimeZone { get; init; }
+
+    public string? BookingState { get; init; }
+
+    public string? QualificationState { get; init; }
+
+    public string? ServiceAreaState { get; init; }
+}
 
 public sealed record CrmOperationResult(
     bool Succeeded,
@@ -67,7 +106,16 @@ public sealed record CrmPostBookingSyncRequest(
     QualificationResult QualificationResult,
     BookingDecisionResult BookingDecision,
     string ProviderContactId,
-    string? ServiceType = null);
+    string? ServiceType = null)
+{
+    public string? PreferredWindow { get; init; }
+
+    public string? TimeZone { get; init; }
+
+    public string? BookingProvider { get; init; }
+
+    public string Source { get; init; } = "InboundVoice";
+}
 
 public sealed record CrmSyncRequest(
     string TenantId,
@@ -75,7 +123,16 @@ public sealed record CrmSyncRequest(
     string CorrelationId,
     QualificationResult QualificationResult,
     BookingDecisionResult BookingDecision,
-    string? ServiceType = null);
+    string? ServiceType = null)
+{
+    public string? PreferredWindow { get; init; }
+
+    public string? TimeZone { get; init; }
+
+    public string? BookingProvider { get; init; }
+
+    public string Source { get; init; } = "InboundVoice";
+}
 
 public sealed record CrmSyncResult(
     CrmSyncState State,
