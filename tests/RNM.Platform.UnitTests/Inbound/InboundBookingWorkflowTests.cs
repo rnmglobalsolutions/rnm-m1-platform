@@ -37,6 +37,9 @@ public sealed class InboundBookingWorkflowTests
         Assert.Equal(1, harness.CrmAdapter.UpsertCallCount);
         Assert.Equal(1, harness.CrmAdapter.LinkBookingCallCount);
         Assert.Equal("contact-123", harness.BookingAdapter.LastCreateBookingRequest?.ProviderContactId);
+        Assert.Equal("Booking", harness.CrmAdapter.LastBookingLinkRequest?.BookingProvider);
+        Assert.Equal("America/Chicago", harness.CrmAdapter.LastBookingLinkRequest?.TimeZone);
+        Assert.Equal("Afternoon", harness.CrmAdapter.LastBookingLinkRequest?.PreferredWindow);
         Assert.Equal(1, harness.SmsSender.SendCallCount);
         Assert.Equal(1, harness.EmailSender.SendCallCount);
         Assert.Contains(harness.EventLogger.Events, EventNamed(TelemetryEventNames.WorkflowCompleted));
@@ -479,6 +482,8 @@ public sealed class InboundBookingWorkflowTests
 
         public int LinkBookingCallCount { get; private set; }
 
+        public CrmBookingLinkRequest? LastBookingLinkRequest { get; private set; }
+
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
             CancellationToken cancellationToken) =>
@@ -504,8 +509,11 @@ public sealed class InboundBookingWorkflowTests
 
         public Task<CrmOperationResult> LinkBookingToContactAsync(
             CrmBookingLinkRequest request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(RecordBookingLink());
+            CancellationToken cancellationToken)
+        {
+            LastBookingLinkRequest = request;
+            return Task.FromResult(RecordBookingLink());
+        }
 
         private CrmOperationResult RecordBookingLink()
         {
