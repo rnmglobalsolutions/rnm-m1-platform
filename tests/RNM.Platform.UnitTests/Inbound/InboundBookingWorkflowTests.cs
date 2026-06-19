@@ -117,6 +117,8 @@ public sealed class InboundBookingWorkflowTests
         Assert.Equal(CrmSyncState.Succeeded, result.CrmState);
         Assert.Null(result.ConfirmationState);
         Assert.Equal(1, harness.CrmAdapter.UpsertCallCount);
+        Assert.Equal(1, harness.CrmAdapter.FollowUpCallCount);
+        Assert.Equal("Booking stopped: NoAvailability", harness.CrmAdapter.LastFollowUpRequest?.Reason);
         Assert.Equal(0, harness.SmsSender.SendCallCount);
     }
 
@@ -139,6 +141,8 @@ public sealed class InboundBookingWorkflowTests
         Assert.Equal(BookingDecisionState.AvailabilityFound, result.BookingState);
         Assert.NotEmpty(result.AvailableSlots);
         Assert.Equal(1, harness.BookingAdapter.AvailabilityCallCount);
+        Assert.Equal(1, harness.CrmAdapter.FollowUpCallCount);
+        Assert.Equal("Booking stopped: AvailabilityFound", harness.CrmAdapter.LastFollowUpRequest?.Reason);
         Assert.Equal(0, harness.BookingAdapter.CreateBookingCallCount);
         Assert.Equal(0, harness.SmsSender.SendCallCount);
         Assert.Equal(0, harness.EmailSender.SendCallCount);
@@ -482,7 +486,11 @@ public sealed class InboundBookingWorkflowTests
 
         public int LinkBookingCallCount { get; private set; }
 
+        public int FollowUpCallCount { get; private set; }
+
         public CrmBookingLinkRequest? LastBookingLinkRequest { get; private set; }
+
+        public CrmFollowUpRequest? LastFollowUpRequest { get; private set; }
 
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
@@ -513,6 +521,20 @@ public sealed class InboundBookingWorkflowTests
         {
             LastBookingLinkRequest = request;
             return Task.FromResult(RecordBookingLink());
+        }
+
+        public Task<CrmOperationResult> AddTimelineEventAsync(
+            CrmTimelineEventRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+            CrmFollowUpRequest request,
+            CancellationToken cancellationToken)
+        {
+            FollowUpCallCount++;
+            LastFollowUpRequest = request;
+            return Task.FromResult(new CrmOperationResult(true));
         }
 
         private CrmOperationResult RecordBookingLink()

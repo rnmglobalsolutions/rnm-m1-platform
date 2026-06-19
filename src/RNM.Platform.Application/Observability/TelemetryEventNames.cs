@@ -32,6 +32,9 @@ public static class TelemetryEventNames
     public const string CrmNoteAdded = "crm.note_added";
     public const string CrmTagsApplied = "crm.tags_applied";
     public const string CrmBookingLinked = "crm.booking_linked";
+    public const string CrmTimelineEventAdded = "crm.timeline_event_added";
+    public const string CrmTimelineEventFailed = "crm.timeline_event_failed";
+    public const string CrmFollowUpRequired = "crm.followup_required";
     public const string CrmSkipped = "crm.skipped";
     public const string CrmFailed = "crm.failed";
     public const string ConfirmationRequested = "confirmation.requested";

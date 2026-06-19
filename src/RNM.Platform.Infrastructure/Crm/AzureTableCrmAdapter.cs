@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
 using RNM.Platform.Application.Crm;
@@ -12,11 +13,14 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     private const string DefaultContactsTableName = "RnmContacts";
     private const string DefaultNotesTableName = "RnmContactNotes";
     private const string DefaultBookingsTableName = "RnmBookings";
+    private const string DefaultTimelineTableName = "RnmTimelineEvents";
+    private const int MaxTableStringLength = 32000;
 
     private readonly string? connectionString;
     private readonly string contactsTableName;
     private readonly string notesTableName;
     private readonly string bookingsTableName;
+    private readonly string timelineTableName;
 
     public AzureTableCrmAdapter()
     {
@@ -26,6 +30,7 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         bookingsTableName = GetSetting(
             "RNM_CRM_BOOKINGS_TABLE_NAME",
             GetSetting("RNM_CRM_BOOKING_LINKS_TABLE_NAME", DefaultBookingsTableName));
+        timelineTableName = GetSetting("RNM_CRM_TIMELINE_TABLE_NAME", DefaultTimelineTableName);
     }
 
     public string ProviderName => ProviderNames.AzureTable;
@@ -102,9 +107,18 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
                 ["Email"] = SafeValue(Normalize(request.Email)),
                 ["Name"] = SafeValue(request.Name),
                 ["ZipCode"] = SafeValue(request.ZipCode),
+                ["LeadStatus"] = SafeValue(request.LeadStatus),
+                ["NeedsFollowUp"] = request.NeedsFollowUp,
+                ["FollowUpReason"] = SafeValue(request.FollowUpReason),
+                ["LastInteractionAt"] = request.LastInteractionAt,
                 ["UpdatedAt"] = DateTimeOffset.UtcNow,
                 ["CorrelationId"] = request.CorrelationId
             };
+            AddIfPresent(entity, "FollowUpAt", request.FollowUpAt);
+            if (created)
+            {
+                entity["CreatedAt"] = DateTimeOffset.UtcNow;
+            }
 
             foreach (var attribute in request.Attributes)
             {
@@ -248,11 +262,15 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
             var contact = new TableEntity(request.TenantId, request.ProviderContactId)
             {
                 ["LastProviderBookingId"] = request.ProviderBookingId,
+                ["LeadStatus"] = CrmLeadStatuses.AppointmentScheduled,
+                ["NeedsFollowUp"] = false,
+                ["FollowUpReason"] = string.Empty,
                 ["LastBookingState"] = SafeValue(request.BookingState),
                 ["LastServiceType"] = SafeValue(request.ServiceType),
                 ["LastUrgency"] = SafeValue(request.Urgency),
                 ["LastServiceAddress"] = SafeValue(request.ServiceAddress),
                 ["LastZipCode"] = SafeValue(request.ZipCode),
+                ["LastInteractionAt"] = DateTimeOffset.UtcNow,
                 ["UpdatedAt"] = DateTimeOffset.UtcNow,
                 ["CorrelationId"] = request.CorrelationId
             };
@@ -268,6 +286,79 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         catch
         {
             return FailedOperation("Azure Table CRM booking link write failed.", CrmFailureReason.BookingLinkFailed);
+        }
+    }
+
+    public async Task<CrmOperationResult> AddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return FailedOperation("Azure Table CRM connection string is missing.");
+        }
+
+        try
+        {
+            var table = await GetTableClientAsync(timelineTableName, cancellationToken).ConfigureAwait(false);
+            var entity = new TableEntity(request.TenantId, CreateTimestampRowKey())
+            {
+                ["ProviderContactId"] = SafeValue(request.ProviderContactId),
+                ["ProviderBookingId"] = SafeValue(request.ProviderBookingId),
+                ["EventType"] = SafeValue(request.EventType),
+                ["Source"] = SafeValue(request.Source),
+                ["Summary"] = SafeTableString(request.Summary),
+                ["MetadataJson"] = SafeTableString(JsonSerializer.Serialize(request.Metadata)),
+                ["CreatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = request.CorrelationId
+            };
+
+            await table.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
+            return new CrmOperationResult(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation("Azure Table CRM timeline write failed.", CrmFailureReason.AdapterFailure);
+        }
+    }
+
+    public async Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return FailedOperation("Azure Table CRM connection string is missing.");
+        }
+
+        try
+        {
+            var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var contact = new TableEntity(request.TenantId, request.ProviderContactId)
+            {
+                ["LeadStatus"] = SafeValue(request.LeadStatus),
+                ["NeedsFollowUp"] = true,
+                ["FollowUpReason"] = SafeValue(request.Reason),
+                ["LastInteractionAt"] = request.LastInteractionAt,
+                ["UpdatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = request.CorrelationId
+            };
+            AddIfPresent(contact, "FollowUpAt", request.FollowUpAt);
+
+            await table.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+            return new CrmOperationResult(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation("Azure Table CRM follow-up update failed.", CrmFailureReason.AdapterFailure);
         }
     }
 
@@ -347,6 +438,14 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     }
 
     private static string SafeValue(string? value) => value?.Trim() ?? string.Empty;
+
+    private static string SafeTableString(string? value)
+    {
+        var safeValue = SafeValue(value);
+        return safeValue.Length <= MaxTableStringLength
+            ? safeValue
+            : safeValue[..MaxTableStringLength];
+    }
 
     private static string EscapeODataString(string value) => value.Replace("'", "''", StringComparison.Ordinal);
 
