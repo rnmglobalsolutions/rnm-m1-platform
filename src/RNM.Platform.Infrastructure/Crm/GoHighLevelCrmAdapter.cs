@@ -190,6 +190,26 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
             Message: "The GoHighLevel appointment is linked during creation through contactId."));
     }
 
+    public Task<CrmOperationResult> AddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new CrmOperationResult(
+            false,
+            CrmFailureReason.AdapterFailure,
+            "RNM Native CRM timeline events are not persisted by the GoHighLevel CRM adapter."));
+    }
+
+    public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new CrmOperationResult(
+            false,
+            CrmFailureReason.AdapterFailure,
+            "RNM Native CRM follow-up state is not persisted by the GoHighLevel CRM adapter."));
+    }
+
     private async Task<CrmOperationResult> PostContactOperationAsync<TPayload>(
         string path,
         TPayload payload,

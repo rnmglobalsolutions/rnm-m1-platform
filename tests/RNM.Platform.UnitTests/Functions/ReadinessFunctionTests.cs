@@ -136,5 +136,15 @@ public sealed class ReadinessFunctionTests
             CrmBookingLinkRequest request,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<CrmOperationResult> AddTimelineEventAsync(
+            CrmTimelineEventRequest request,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+            CrmFollowUpRequest request,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

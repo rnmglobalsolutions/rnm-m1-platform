@@ -69,6 +69,26 @@ public sealed class ConfiguredCrmAdapter : ICrmAdapter
             : await adapter.LinkBookingToContactAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<CrmOperationResult> AddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        CancellationToken cancellationToken)
+    {
+        var adapter = await ResolveAsync(request.TenantId, cancellationToken).ConfigureAwait(false);
+        return adapter is null
+            ? UnsupportedOperation()
+            : await adapter.AddTimelineEventAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var adapter = await ResolveAsync(request.TenantId, cancellationToken).ConfigureAwait(false);
+        return adapter is null
+            ? UnsupportedOperation()
+            : await adapter.MarkFollowUpRequiredAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<ICrmProviderAdapter?> ResolveAsync(string tenantId, CancellationToken cancellationToken)
     {
         var tenantConfiguration = await tenantConfigurationProvider

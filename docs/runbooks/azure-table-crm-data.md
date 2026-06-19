@@ -1,6 +1,16 @@
-# Azure Table CRM Data
+# RNM Native CRM v0.5 Data
 
-The Azure Table CRM separates the current customer profile from immutable booking history.
+The RNM Native CRM v0.5 uses Azure Table Storage as the internal CRM ledger for M1.
+It is intentionally small: contacts, bookings, notes, and timeline events. It is not
+a HubSpot, GoHighLevel, ServiceTitan, or Jobber replacement.
+
+The native CRM separates the current customer profile from immutable booking history
+and a lightweight event timeline.
+
+This data model is persisted only when the tenant CRM provider is `AzureTable`. External
+CRM adapters may sync contacts, notes, tags, or appointments to their own systems, but they
+must not be treated as storage for RNM Native CRM timeline or follow-up state unless that
+adapter explicitly implements those operations.
 
 ## Tables
 
@@ -14,6 +24,10 @@ Stores the customer's current identity and latest operational context:
 - phone
 - email
 - ZIP code
+- lead status
+- follow-up flag and reason
+- follow-up date when available
+- last interaction date
 - latest service need
 - latest property type
 - latest service address
@@ -26,6 +40,15 @@ Stores the customer's current identity and latest operational context:
 - correlation ID
 
 Raw transcripts and provider payloads are not stored.
+
+Supported lead statuses are intentionally simple:
+
+- `New`
+- `Qualified`
+- `AppointmentScheduled`
+- `NeedsFollowUp`
+- `Booked`
+- `Lost`
 
 ### `RnmBookings`
 
@@ -58,3 +81,29 @@ Set `RNM_CRM_BOOKINGS_TABLE_NAME` to override the default table name. The legacy
 
 Stores interaction outcomes linked to the CRM contact. Notes must remain concise and must not
 contain raw transcripts or unnecessary sensitive data.
+
+### `RnmTimelineEvents`
+
+Partition key: `tenantId`
+
+Stores a lightweight timeline for CRM events. The timeline is best-effort and must not block
+booking or confirmation delivery.
+
+Events currently include:
+
+- `lead.qualified`
+- `booking.created`
+- `followup.required`
+
+Each event stores:
+
+- provider contact ID when available
+- provider booking ID when available
+- event type
+- source
+- summary
+- metadata JSON
+- created timestamp
+- correlation ID
+
+Set `RNM_CRM_TIMELINE_TABLE_NAME` to override the default table name.

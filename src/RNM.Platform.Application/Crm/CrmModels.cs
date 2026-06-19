@@ -22,7 +22,18 @@ public sealed record CrmContactUpsertRequest(
     string? Email,
     string? Name,
     string? ZipCode,
-    IReadOnlyDictionary<string, string> Attributes);
+    IReadOnlyDictionary<string, string> Attributes)
+{
+    public string LeadStatus { get; init; } = CrmLeadStatuses.Qualified;
+
+    public bool NeedsFollowUp { get; init; }
+
+    public string? FollowUpReason { get; init; }
+
+    public DateTimeOffset? FollowUpAt { get; init; }
+
+    public DateTimeOffset LastInteractionAt { get; init; } = DateTimeOffset.UtcNow;
+}
 
 public sealed record CrmContactUpsertResult(
     bool Succeeded,
@@ -93,6 +104,29 @@ public sealed record CrmOperationResult(
     CrmFailureReason? FailureReason = null,
     string? Message = null);
 
+public sealed record CrmTimelineEventRequest(
+    string TenantId,
+    string CorrelationId,
+    string? ProviderContactId,
+    string? ProviderBookingId,
+    string EventType,
+    string Source,
+    string Summary,
+    IReadOnlyDictionary<string, string> Metadata);
+
+public sealed record CrmFollowUpRequest(
+    string TenantId,
+    string CorrelationId,
+    string ProviderContactId,
+    string Reason)
+{
+    public string LeadStatus { get; init; } = CrmLeadStatuses.NeedsFollowUp;
+
+    public DateTimeOffset? FollowUpAt { get; init; }
+
+    public DateTimeOffset LastInteractionAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
 public sealed record CrmContactEnsureRequest(
     string TenantId,
     string VerticalId,
@@ -159,4 +193,21 @@ public enum CrmFailureReason
     BookingLinkFailed = 5,
     AdapterFailure = 6,
     MissingContactIdentifier = 7
+}
+
+public static class CrmLeadStatuses
+{
+    public const string New = "New";
+    public const string Qualified = "Qualified";
+    public const string AppointmentScheduled = "AppointmentScheduled";
+    public const string NeedsFollowUp = "NeedsFollowUp";
+    public const string Booked = "Booked";
+    public const string Lost = "Lost";
+}
+
+public static class CrmTimelineEventTypes
+{
+    public const string LeadQualified = "lead.qualified";
+    public const string BookingCreated = "booking.created";
+    public const string FollowUpRequired = "followup.required";
 }

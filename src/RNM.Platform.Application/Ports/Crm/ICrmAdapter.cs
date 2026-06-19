@@ -23,4 +23,12 @@ public interface ICrmAdapter
     Task<CrmOperationResult> LinkBookingToContactAsync(
         CrmBookingLinkRequest request,
         CancellationToken cancellationToken);
+
+    Task<CrmOperationResult> AddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        CancellationToken cancellationToken);
+
+    Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken);
 }

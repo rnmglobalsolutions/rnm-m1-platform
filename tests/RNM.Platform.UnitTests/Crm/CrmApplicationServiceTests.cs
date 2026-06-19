@@ -93,7 +93,40 @@ public sealed class CrmApplicationServiceTests
         Assert.Equal("Booked", booking.BookingState);
         Assert.Equal("Qualified", booking.QualificationState);
         Assert.Equal("InServiceArea", booking.ServiceAreaState);
+        Assert.Equal(2, adapter.TimelineEventCallCount);
+        Assert.Equal(CrmTimelineEventTypes.BookingCreated, adapter.LastTimelineEventRequest?.EventType);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmBookingLinked));
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmTimelineEventAdded));
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_DoesNotFailBookingSync_WhenTimelineWriteFails()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            TimelineEventResult = new CrmOperationResult(false, CrmFailureReason.AdapterFailure)
+        };
+        var eventLogger = new RecordingCrmEventLogger();
+        var service = CreateService(adapter, eventLogger);
+
+        var result = await service.SyncBookedLeadAsync(CreateRequest(), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, adapter.TimelineEventCallCount);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmTimelineEventFailed));
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_PropagatesCancellation_WhenTimelineWriteIsCanceled()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            CancelOnTimeline = true
+        };
+        var service = CreateService(adapter);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => service.SyncBookedLeadAsync(CreateRequest(), CancellationToken.None));
     }
 
     [Fact]
@@ -110,6 +143,10 @@ public sealed class CrmApplicationServiceTests
         var result = await service.EnsureContactAsync(request, CancellationToken.None);
 
         Assert.True(result.Succeeded);
+        Assert.Equal(CrmLeadStatuses.Qualified, adapter.LastUpsertRequest?.LeadStatus);
+        Assert.False(adapter.LastUpsertRequest?.NeedsFollowUp ?? true);
+        Assert.Equal(1, adapter.TimelineEventCallCount);
+        Assert.Equal(CrmTimelineEventTypes.LeadQualified, adapter.LastTimelineEventRequest?.EventType);
         var attributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
             adapter.LastUpsertRequest?.Attributes);
         Assert.Equal("Repair", attributes["serviceNeed"]);
@@ -149,7 +186,12 @@ public sealed class CrmApplicationServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(1, adapter.AddNoteCallCount);
-        Assert.Contains("booking outcome", adapter.LastNoteRequest?.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("AI booked appointment.", adapter.LastNoteRequest?.Note);
+        Assert.Contains("Booking state: Booked", adapter.LastNoteRequest?.Note);
+        Assert.Contains("Service: service", adapter.LastNoteRequest?.Note);
+        Assert.Contains("Urgency: non_urgent", adapter.LastNoteRequest?.Note);
+        Assert.Contains("ZIP: 75001", adapter.LastNoteRequest?.Note);
+        Assert.Contains("Reference: corr-123", adapter.LastNoteRequest?.Note);
         Assert.DoesNotContain("+15551234567", adapter.LastNoteRequest?.Note);
         Assert.DoesNotContain("lead@example.com", adapter.LastNoteRequest?.Note);
         Assert.DoesNotContain("123 Secret St", adapter.LastNoteRequest?.Note);
@@ -192,6 +234,19 @@ public sealed class CrmApplicationServiceTests
         Assert.Equal(CrmFailureReason.AdapterFailure, result.FailureReason);
         Assert.Equal(0, adapter.UpsertCallCount);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmFailed));
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_PropagatesCancellation_WhenLookupIsCanceled()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            CancelOnLookup = true
+        };
+        var service = CreateService(adapter);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => service.SyncBookedLeadAsync(CreateRequest(), CancellationToken.None));
     }
 
     [Fact]
@@ -507,9 +562,16 @@ public sealed class CrmApplicationServiceTests
         public CrmOperationResult BookingLinkResult { get; init; } =
             new(Succeeded: true);
 
+        public CrmOperationResult TimelineEventResult { get; init; } =
+            new(Succeeded: true);
+
         public bool ThrowOnUpsert { get; init; }
 
         public bool ThrowOnLookup { get; init; }
+
+        public bool CancelOnLookup { get; init; }
+
+        public bool CancelOnTimeline { get; init; }
 
         public int LookupCallCount { get; private set; }
 
@@ -521,6 +583,10 @@ public sealed class CrmApplicationServiceTests
 
         public int LinkBookingCallCount { get; private set; }
 
+        public int TimelineEventCallCount { get; private set; }
+
+        public int FollowUpCallCount { get; private set; }
+
         public CrmContactUpsertRequest? LastUpsertRequest { get; private set; }
 
         public CrmInteractionNoteRequest? LastNoteRequest { get; private set; }
@@ -529,11 +595,20 @@ public sealed class CrmApplicationServiceTests
 
         public CrmBookingLinkRequest? LastBookingLinkRequest { get; private set; }
 
+        public CrmTimelineEventRequest? LastTimelineEventRequest { get; private set; }
+
+        public CrmFollowUpRequest? LastFollowUpRequest { get; private set; }
+
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
             CancellationToken cancellationToken)
         {
             LookupCallCount++;
+            if (CancelOnLookup)
+            {
+                throw new OperationCanceledException();
+            }
+
             return ThrowOnLookup
                 ? throw new InvalidOperationException("CRM lookup failed.")
                 : Task.FromResult(LookupResult);
@@ -575,6 +650,29 @@ public sealed class CrmApplicationServiceTests
             LinkBookingCallCount++;
             LastBookingLinkRequest = request;
             return Task.FromResult(BookingLinkResult);
+        }
+
+        public Task<CrmOperationResult> AddTimelineEventAsync(
+            CrmTimelineEventRequest request,
+            CancellationToken cancellationToken)
+        {
+            TimelineEventCallCount++;
+            LastTimelineEventRequest = request;
+            if (CancelOnTimeline)
+            {
+                throw new OperationCanceledException();
+            }
+
+            return Task.FromResult(TimelineEventResult);
+        }
+
+        public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+            CrmFollowUpRequest request,
+            CancellationToken cancellationToken)
+        {
+            FollowUpCallCount++;
+            LastFollowUpRequest = request;
+            return Task.FromResult(new CrmOperationResult(true));
         }
     }
 

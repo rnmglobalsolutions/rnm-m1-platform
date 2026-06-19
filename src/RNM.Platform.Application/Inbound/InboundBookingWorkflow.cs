@@ -203,6 +203,16 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
 
             if (!bookingResult.IsBooked)
             {
+                await crmApplicationService
+                    .MarkFollowUpRequiredAsync(
+                        new CrmFollowUpRequest(
+                            tenantId,
+                            correlationId,
+                            contactResult.ProviderContactId,
+                            CreateBookingFollowUpReason(bookingResult)),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
                 var stopped = new InboundBookingWorkflowResult(
                     InboundBookingWorkflowOutcome.BookingStopped,
                     qualificationResult.State,
@@ -414,6 +424,21 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
         }
 
         return ConfirmationWorkflowState.Failed;
+    }
+
+    private static string CreateBookingFollowUpReason(BookingDecisionResult bookingResult)
+    {
+        if (!string.IsNullOrWhiteSpace(bookingResult.FailureMessage))
+        {
+            return bookingResult.FailureMessage;
+        }
+
+        if (bookingResult.FailureReason is not null)
+        {
+            return $"Booking stopped: {bookingResult.FailureReason}";
+        }
+
+        return $"Booking stopped: {bookingResult.State}";
     }
 
     private Task LogCompletedAsync(

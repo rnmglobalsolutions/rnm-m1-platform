@@ -100,6 +100,10 @@ public sealed class CrmApplicationService
                 .FindContactByPhoneOrEmailAsync(CreateLookupRequest(request, phoneNumber, email), cancellationToken)
                 .ConfigureAwait(false);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch
         {
             return await FailAsync(request, CrmFailureReason.AdapterFailure, null, cancellationToken)
@@ -121,6 +125,10 @@ public sealed class CrmApplicationService
             upsertResult = await crmAdapter
                 .UpsertContactAsync(CreateUpsertRequest(request, lookupResult, phoneNumber, email), cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -149,6 +157,11 @@ public sealed class CrmApplicationService
                 upsertResult.Created ? TelemetryEventNames.CrmContactCreated : TelemetryEventNames.CrmContactUpdated,
                 request,
                 new CrmSyncResult(CrmSyncState.Succeeded, contactId),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await TryAddTimelineEventAsync(
+                CreateLeadQualifiedTimelineEvent(request, contactId),
+                request,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -210,7 +223,77 @@ public sealed class CrmApplicationService
         var synced = new CrmSyncResult(CrmSyncState.Succeeded, contactId);
         await LogAsync(TelemetryEventNames.CrmBookingLinked, request, synced, cancellationToken)
             .ConfigureAwait(false);
+        await TryAddTimelineEventAsync(
+                CreateBookingTimelineEvent(request, contactId, request.BookingDecision.ProviderBookingId),
+                request,
+                cancellationToken)
+            .ConfigureAwait(false);
         return synced;
+    }
+
+    public async Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken)
+    {
+        CrmOperationResult result;
+        try
+        {
+            result = await crmAdapter
+                .MarkFollowUpRequiredAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            result = new CrmOperationResult(false, CrmFailureReason.AdapterFailure);
+        }
+
+        if (!result.Succeeded)
+        {
+            await LogAsync(
+                    TelemetryEventNames.CrmFailed,
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.ProviderContactId,
+                    result.FailureReason ?? CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return result;
+        }
+
+        await LogAsync(
+                TelemetryEventNames.CrmFollowUpRequired,
+                request.TenantId,
+                request.CorrelationId,
+                request.ProviderContactId,
+                null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await TryAddTimelineEventAsync(
+                new CrmTimelineEventRequest(
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.ProviderContactId,
+                    ProviderBookingId: null,
+                    CrmTimelineEventTypes.FollowUpRequired,
+                    Source: "InboundVoice",
+                    Summary: $"Follow-up required: {request.Reason}",
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["leadStatus"] = request.LeadStatus,
+                        ["followUpReason"] = request.Reason
+                    }),
+                request.TenantId,
+                request.CorrelationId,
+                request.ProviderContactId,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return result;
     }
 
     private static CrmContactLookupRequest CreateLookupRequest(
@@ -240,19 +323,36 @@ public sealed class CrmApplicationService
             email,
             GetFieldValue(request, "name"),
             request.QualificationResult.LeadData.ZipCode,
-            CreateContactAttributes(request));
+            CreateContactAttributes(request))
+        {
+            LeadStatus = CrmLeadStatuses.Qualified,
+            NeedsFollowUp = false,
+            LastInteractionAt = DateTimeOffset.UtcNow
+        };
     }
 
     private static CrmInteractionNoteRequest CreateNoteRequest(
         CrmPostBookingSyncRequest request,
         string providerContactId)
     {
-        var note = $"Inbound call booking outcome: {request.BookingDecision.State}; qualification: {request.QualificationResult.State}.";
+        var selectedSlot = request.BookingDecision.SelectedSlot;
+        var noteLines = new List<string>
+        {
+            "AI booked appointment.",
+            $"Booking state: {request.BookingDecision.State}",
+            $"Qualification: {request.QualificationResult.State}"
+        };
+        AddNoteLine(noteLines, "Service", request.ServiceType ?? GetFieldValue(request, "serviceNeed"));
+        AddNoteLine(noteLines, "Urgency", GetFieldValue(request, "urgency"));
+        AddNoteLine(noteLines, "ZIP", request.QualificationResult.LeadData.ZipCode);
+        AddNoteLine(noteLines, "Booking", selectedSlot?.Label);
+        AddNoteLine(noteLines, "Reference", request.CorrelationId);
+
         return new CrmInteractionNoteRequest(
             request.TenantId,
             request.CorrelationId,
             providerContactId,
-            note);
+            string.Join(Environment.NewLine, noteLines));
     }
 
     private static CrmTagRequest CreateTagRequest(
@@ -343,6 +443,135 @@ public sealed class CrmApplicationService
                 StringComparer.OrdinalIgnoreCase);
     }
 
+    private static CrmTimelineEventRequest CreateLeadQualifiedTimelineEvent(
+        CrmContactEnsureRequest request,
+        string providerContactId)
+    {
+        return new CrmTimelineEventRequest(
+            request.TenantId,
+            request.CorrelationId,
+            providerContactId,
+            ProviderBookingId: null,
+            CrmTimelineEventTypes.LeadQualified,
+            Source: "InboundVoice",
+            Summary: "Lead qualified and contact ensured.",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["qualificationState"] = request.QualificationResult.State.ToString(),
+                ["serviceAreaState"] = request.QualificationResult.ServiceAreaDecision.State.ToString(),
+                ["serviceNeed"] = GetFieldValue(request, "serviceNeed") ?? string.Empty,
+                ["urgency"] = GetFieldValue(request, "urgency") ?? string.Empty
+            });
+    }
+
+    private static CrmTimelineEventRequest CreateBookingTimelineEvent(
+        CrmPostBookingSyncRequest request,
+        string providerContactId,
+        string? providerBookingId)
+    {
+        return new CrmTimelineEventRequest(
+            request.TenantId,
+            request.CorrelationId,
+            providerContactId,
+            providerBookingId,
+            CrmTimelineEventTypes.BookingCreated,
+            request.Source,
+            "Appointment booked and linked to contact.",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["bookingState"] = request.BookingDecision.State.ToString(),
+                ["bookingProvider"] = request.BookingProvider ?? string.Empty,
+                ["serviceType"] = request.ServiceType ?? GetFieldValue(request, "serviceNeed") ?? string.Empty,
+                ["bookingLabel"] = request.BookingDecision.SelectedSlot?.Label ?? string.Empty
+            });
+    }
+
+    private async Task TryAddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        CrmContactEnsureRequest sourceRequest,
+        CancellationToken cancellationToken)
+    {
+        await TryAddTimelineEventAsync(
+                request,
+                sourceRequest.TenantId,
+                sourceRequest.CorrelationId,
+                request.ProviderContactId,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task TryAddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        CrmPostBookingSyncRequest sourceRequest,
+        CancellationToken cancellationToken)
+    {
+        await TryAddTimelineEventAsync(
+                request,
+                sourceRequest.TenantId,
+                sourceRequest.CorrelationId,
+                request.ProviderContactId,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task TryAddTimelineEventAsync(
+        CrmTimelineEventRequest request,
+        string tenantId,
+        string correlationId,
+        string? providerContactId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await crmAdapter.AddTimelineEventAsync(request, cancellationToken).ConfigureAwait(false);
+            if (result.Succeeded)
+            {
+                await LogAsync(
+                        TelemetryEventNames.CrmTimelineEventAdded,
+                        tenantId,
+                        correlationId,
+                        providerContactId,
+                        null,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await LogAsync(
+                        TelemetryEventNames.CrmTimelineEventFailed,
+                        tenantId,
+                        correlationId,
+                        providerContactId,
+                        result.FailureReason ?? CrmFailureReason.AdapterFailure,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogAsync(
+                    TelemetryEventNames.CrmTimelineEventFailed,
+                    tenantId,
+                    correlationId,
+                    providerContactId,
+                    CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static void AddNoteLine(List<string> noteLines, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            noteLines.Add($"{label}: {value.Trim()}");
+        }
+    }
+
     private static string? SanitizeTagValue(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -370,6 +599,10 @@ public sealed class CrmApplicationService
         try
         {
             return await operation().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -420,7 +653,33 @@ public sealed class CrmApplicationService
             await eventLogger.LogEventAsync(eventName, properties, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // CRM telemetry is best-effort.
+        }
+    }
+
+    private async Task LogAsync(
+        string eventName,
+        string tenantId,
+        string correlationId,
+        string? providerContactId,
+        CrmFailureReason? failureReason,
+        CancellationToken cancellationToken)
+    {
+        var properties = new SafeTelemetryProperties()
+            .Add("correlationId", correlationId)
+            .Add("tenantId", tenantId)
+            .AddIf(!string.IsNullOrWhiteSpace(providerContactId), "providerContactId", providerContactId)
+            .AddIf(failureReason is not null, "failureReason", failureReason?.ToString())
+            .ToDictionary();
+
+        try
+        {
+            await eventLogger.LogEventAsync(eventName, properties, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // CRM telemetry is best-effort.
         }
@@ -471,7 +730,7 @@ public sealed class CrmApplicationService
             await eventLogger.LogEventAsync(eventName, properties, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // CRM telemetry is best-effort.
         }

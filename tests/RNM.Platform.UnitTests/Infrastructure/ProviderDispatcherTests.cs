@@ -241,6 +241,16 @@ public sealed class ProviderDispatcherTests
             CrmBookingLinkRequest request,
             CancellationToken cancellationToken) =>
             Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> AddTimelineEventAsync(
+            CrmTimelineEventRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+            CrmFollowUpRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
     }
 
     private sealed class RecordingBookingProviderAdapter : IBookingProviderAdapter
