@@ -158,6 +158,40 @@ public sealed class CrmApplicationServiceTests
     }
 
     [Fact]
+    public async Task EnsureContactAsync_SavesOutboundAttributes()
+    {
+        var adapter = new FakeCrmAdapter();
+        var service = CreateService(adapter);
+        var qualification = CreateQualificationResult("+15551234567", email: null);
+        var fields = Assert.IsType<Dictionary<string, string>>(qualification.LeadData.Fields);
+        fields[CrmContactAttributeNames.LeadSource] = "zillow";
+        fields[CrmContactAttributeNames.CampaignId] = "reactivation-q3";
+        fields[CrmContactAttributeNames.LeadStatus] = CrmOutboundLeadStatuses.New;
+        fields[CrmContactAttributeNames.OutboundAttemptCount] = "0";
+        fields[CrmContactAttributeNames.NextFollowUpAt] = "2026-07-05T15:00:00Z";
+        fields[CrmContactAttributeNames.Intent] = CrmIntentValues.Seller;
+        fields[CrmContactAttributeNames.TargetPropertyAddress] = "10 Main St";
+        fields[CrmContactAttributeNames.AssignedAgent] = "Agent A";
+        fields[CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.Unknown;
+        var request = new CrmContactEnsureRequest("tenant-a", "real-estate", "corr-123", qualification);
+
+        var result = await service.EnsureContactAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var attributes = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+            adapter.LastUpsertRequest?.Attributes);
+        Assert.Equal("zillow", attributes[CrmContactAttributeNames.LeadSource]);
+        Assert.Equal("reactivation-q3", attributes[CrmContactAttributeNames.CampaignId]);
+        Assert.Equal(CrmOutboundLeadStatuses.New, attributes[CrmContactAttributeNames.LeadStatus]);
+        Assert.Equal("0", attributes[CrmContactAttributeNames.OutboundAttemptCount]);
+        Assert.Equal("2026-07-05T15:00:00Z", attributes[CrmContactAttributeNames.NextFollowUpAt]);
+        Assert.Equal(CrmIntentValues.Seller, attributes[CrmContactAttributeNames.Intent]);
+        Assert.Equal("10 Main St", attributes[CrmContactAttributeNames.TargetPropertyAddress]);
+        Assert.Equal("Agent A", attributes[CrmContactAttributeNames.AssignedAgent]);
+        Assert.Equal(CrmConsentStatuses.Unknown, attributes[CrmContactAttributeNames.ConsentStatus]);
+    }
+
+    [Fact]
     public async Task SyncBookedLeadAsync_AppliesExpectedTags()
     {
         var adapter = new FakeCrmAdapter();
@@ -674,6 +708,36 @@ public sealed class CrmApplicationServiceTests
             LastFollowUpRequest = request;
             return Task.FromResult(new CrmOperationResult(true));
         }
+
+        public Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+            CrmNextLeadToCallRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmNextLeadToCallResult(true, null));
+
+        public Task<CrmOperationResult> RecordOutboundAttemptAsync(
+            CrmOutboundAttemptRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkLeadReactivatedAsync(
+            CrmLeadReactivationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkOptOutAsync(
+            CrmOptOutRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
     }
 
     private sealed class RecordingCrmEventLogger : IEventLogger

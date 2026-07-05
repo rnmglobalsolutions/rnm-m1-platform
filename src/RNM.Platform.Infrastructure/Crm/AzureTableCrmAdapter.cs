@@ -362,6 +362,324 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         }
     }
 
+    public async Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+        CrmLeadQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        return await QueryContactsByAttributeAsync(
+                request,
+                CrmContactAttributeNames.LeadStatus,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+        CrmLeadQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        return await QueryContactsByAttributeAsync(
+                request,
+                CrmContactAttributeNames.CampaignId,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+        CrmNextLeadToCallRequest request,
+        CancellationToken cancellationToken)
+    {
+        var queryResult = await GetLeadsByCampaignAsync(
+                new CrmLeadQueryRequest(request.TenantId, request.CorrelationId, request.CampaignId),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!queryResult.Succeeded)
+        {
+            return new CrmNextLeadToCallResult(
+                false,
+                null,
+                queryResult.FailureReason,
+                queryResult.Message);
+        }
+
+        var lead = SelectNextLeadToCall(queryResult.Leads, request.MaxOutboundAttempts, request.Now);
+
+        return new CrmNextLeadToCallResult(true, lead);
+    }
+
+    public async Task<CrmOperationResult> RecordOutboundAttemptAsync(
+        CrmOutboundAttemptRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return FailedOperation("Azure Table CRM connection string is missing.");
+        }
+
+        try
+        {
+            var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var existing = await TryGetContactEntityAsync(
+                    table,
+                    request.TenantId,
+                    request.ProviderContactId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (existing is null)
+            {
+                return FailedOperation("Azure Table CRM contact was not found.", CrmFailureReason.ContactNotFound);
+            }
+
+            if (!CanRecordOutboundInteraction(GetAttribute(existing, CrmContactAttributeNames.ConsentStatus)))
+            {
+                return FailedOperation("Contact has opted out and cannot receive outbound interaction.", CrmFailureReason.ConsentOptedOut);
+            }
+
+            var attemptCount = ReadIntAttribute(existing, CrmContactAttributeNames.OutboundAttemptCount) + 1;
+            var contact = new TableEntity(request.TenantId, request.ProviderContactId)
+            {
+                [AttributePropertyName(CrmContactAttributeNames.OutboundAttemptCount)] = attemptCount.ToString(),
+                [AttributePropertyName(CrmContactAttributeNames.LastContactedAt)] = request.AttemptedAt.ToUniversalTime().ToString("O"),
+                [AttributePropertyName(CrmContactAttributeNames.LeadStatus)] = CrmOutboundLeadStatuses.Contacted,
+                ["LastInteractionAt"] = request.AttemptedAt,
+                ["UpdatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = request.CorrelationId
+            };
+
+            await table.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+
+            var summary = string.IsNullOrWhiteSpace(request.Note)
+                ? $"Outbound attempt recorded: {request.Outcome}"
+                : request.Note;
+            await TryAddTimelineEventAsync(
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.ProviderContactId,
+                    CrmTimelineEventTypes.OutboundAttemptRecorded,
+                    summary,
+                    new Dictionary<string, string>
+                    {
+                        ["outcome"] = request.Outcome,
+                        ["outboundAttemptCount"] = attemptCount.ToString()
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return new CrmOperationResult(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation("Azure Table CRM outbound attempt update failed.", CrmFailureReason.AdapterFailure);
+        }
+    }
+
+    public async Task<CrmOperationResult> MarkLeadReactivatedAsync(
+        CrmLeadReactivationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return FailedOperation("Azure Table CRM connection string is missing.");
+        }
+
+        try
+        {
+            var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var existing = await TryGetContactEntityAsync(
+                    table,
+                    request.TenantId,
+                    request.ProviderContactId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (existing is null)
+            {
+                return FailedOperation("Azure Table CRM contact was not found.", CrmFailureReason.ContactNotFound);
+            }
+
+            var contact = new TableEntity(request.TenantId, request.ProviderContactId)
+            {
+                [AttributePropertyName(CrmContactAttributeNames.LeadStatus)] = CrmOutboundLeadStatuses.Reactivated,
+                ["Tags"] = MergeTags(ReadString(existing, "Tags"), "reactivated"),
+                ["UpdatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = request.CorrelationId
+            };
+
+            await table.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+            await TryAddTimelineEventAsync(
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.ProviderContactId,
+                    CrmTimelineEventTypes.LeadReactivated,
+                    "Lead reactivated.",
+                    new Dictionary<string, string>
+                    {
+                        ["leadStatus"] = CrmOutboundLeadStatuses.Reactivated
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return new CrmOperationResult(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation("Azure Table CRM lead reactivation update failed.", CrmFailureReason.AdapterFailure);
+        }
+    }
+
+    public async Task<CrmOperationResult> MarkOptOutAsync(
+        CrmOptOutRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return FailedOperation("Azure Table CRM connection string is missing.");
+        }
+
+        try
+        {
+            var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var providerContactId = await ResolveOptOutContactIdAsync(
+                    table,
+                    request,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(providerContactId))
+            {
+                return FailedOperation(
+                    "Azure Table CRM opt-out requires contact id, phone number, or email.",
+                    CrmFailureReason.MissingContactIdentifier);
+            }
+
+            var contact = new TableEntity(request.TenantId, providerContactId)
+            {
+                [AttributePropertyName(CrmContactAttributeNames.ConsentStatus)] = CrmConsentStatuses.OptedOut,
+                ["UpdatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = request.CorrelationId
+            };
+            AddIfPresent(contact, "Phone", Normalize(request.PhoneNumber));
+            AddIfPresent(contact, "Email", Normalize(request.Email));
+
+            await table.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+            await TryAddTimelineEventAsync(
+                    request.TenantId,
+                    request.CorrelationId,
+                    providerContactId,
+                    CrmTimelineEventTypes.ConsentOptedOut,
+                    "Contact opted out.",
+                    new Dictionary<string, string>
+                    {
+                        ["source"] = request.Source,
+                        ["reason"] = request.Reason ?? string.Empty,
+                        ["consentStatus"] = CrmConsentStatuses.OptedOut
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return new CrmOperationResult(true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return FailedOperation("Azure Table CRM opt-out update failed.", CrmFailureReason.AdapterFailure);
+        }
+    }
+
+    private async Task<string?> ResolveOptOutContactIdAsync(
+        TableClient contactsTable,
+        CrmOptOutRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ProviderContactId))
+        {
+            return request.ProviderContactId;
+        }
+
+        var lookupResult = await FindContactByPhoneOrEmailAsync(
+                new CrmContactLookupRequest(
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.PhoneNumber,
+                    request.Email),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (lookupResult.Found && !string.IsNullOrWhiteSpace(lookupResult.ProviderContactId))
+        {
+            return lookupResult.ProviderContactId;
+        }
+
+        var identifier = Normalize(request.Email)
+            ?? Normalize(request.PhoneNumber);
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            return null;
+        }
+
+        var rowKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identifier))).ToLowerInvariant();
+        var entity = new TableEntity(request.TenantId, rowKey)
+        {
+            ["Phone"] = SafeValue(Normalize(request.PhoneNumber)),
+            ["Email"] = SafeValue(Normalize(request.Email)),
+            ["CreatedAt"] = DateTimeOffset.UtcNow,
+            ["UpdatedAt"] = DateTimeOffset.UtcNow,
+            ["CorrelationId"] = request.CorrelationId
+        };
+        await contactsTable.UpsertEntityAsync(entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+        return rowKey;
+    }
+
+    private async Task<CrmLeadQueryResult> QueryContactsByAttributeAsync(
+        CrmLeadQueryRequest request,
+        string attributeName,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return new CrmLeadQueryResult(
+                false,
+                [],
+                CrmFailureReason.AdapterFailure,
+                "Azure Table CRM connection string is missing.");
+        }
+
+        try
+        {
+            var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var propertyName = AttributePropertyName(attributeName);
+            var filter =
+                $"PartitionKey eq '{EscapeODataString(request.TenantId)}' and {propertyName} eq '{EscapeODataString(request.Value)}'";
+            var contacts = new List<CrmContactRecord>();
+
+            await foreach (var entity in table.QueryAsync<TableEntity>(filter, cancellationToken: cancellationToken))
+            {
+                contacts.Add(MaterializeContact(entity));
+            }
+
+            return new CrmLeadQueryResult(true, contacts);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return new CrmLeadQueryResult(
+                false,
+                [],
+                CrmFailureReason.AdapterFailure,
+                "Azure Table CRM contact query failed.");
+        }
+    }
+
     private async Task<TableClient> GetTableClientAsync(string tableName, CancellationToken cancellationToken)
     {
         var client = new TableClient(connectionString!, tableName);
@@ -387,6 +705,61 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         }
     }
 
+    private static async Task<TableEntity?> TryGetContactEntityAsync(
+        TableClient table,
+        string tenantId,
+        string providerContactId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await table.GetEntityAsync<TableEntity>(
+                    tenantId,
+                    providerContactId,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return response.Value;
+        }
+        catch (RequestFailedException exception) when (exception.Status is 404)
+        {
+            return null;
+        }
+    }
+
+    private async Task TryAddTimelineEventAsync(
+        string tenantId,
+        string correlationId,
+        string providerContactId,
+        string eventType,
+        string summary,
+        IReadOnlyDictionary<string, string> metadata,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await AddTimelineEventAsync(
+                    new CrmTimelineEventRequest(
+                        tenantId,
+                        correlationId,
+                        providerContactId,
+                        ProviderBookingId: null,
+                        eventType,
+                        ProviderName,
+                        summary,
+                        metadata),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // The contact update is the critical write. Timeline failures are captured by storage telemetry.
+        }
+    }
+
     private static string? GetConnectionString()
     {
         var explicitConnectionString = Environment.GetEnvironmentVariable("RNM_CRM_TABLE_STORAGE_CONNECTION_STRING");
@@ -403,6 +776,26 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     {
         var value = Environment.GetEnvironmentVariable(name);
         return string.IsNullOrWhiteSpace(value) ? defaultValue : value;
+    }
+
+    private static CrmContactRecord MaterializeContact(TableEntity entity)
+    {
+        var attributes = entity
+            .Where(property => property.Key.StartsWith("Attr_", StringComparison.Ordinal))
+            .Where(property => property.Value is not null)
+            .ToDictionary(
+                property => property.Key["Attr_".Length..],
+                property => property.Value.ToString() ?? string.Empty,
+                StringComparer.Ordinal);
+
+        return new CrmContactRecord(
+            entity.PartitionKey,
+            entity.RowKey,
+            ReadString(entity, "Phone"),
+            ReadString(entity, "Email"),
+            ReadString(entity, "Name"),
+            ReadString(entity, "ZipCode"),
+            attributes);
     }
 
     private static string CreateContactRowKey(CrmContactUpsertRequest request)
@@ -428,6 +821,53 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         {
             entity[propertyName] = value.Value;
         }
+    }
+
+    private static void AddIfPresent(TableEntity entity, string propertyName, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            entity[propertyName] = value;
+        }
+    }
+
+    private static string AttributePropertyName(string attributeName) =>
+        $"Attr_{SanitizePropertyName(attributeName)}";
+
+    private static string? GetAttribute(TableEntity entity, string attributeName) =>
+        ReadString(entity, AttributePropertyName(attributeName));
+
+    private static int ReadIntAttribute(TableEntity entity, string attributeName) =>
+        int.TryParse(GetAttribute(entity, attributeName), out var value) ? value : 0;
+
+    private static string? ReadString(TableEntity entity, string propertyName) =>
+        entity.TryGetValue(propertyName, out var value) ? value?.ToString() : null;
+
+    private static string MergeTags(string? existingTags, string newTag)
+    {
+        var tags = (existingTags ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        tags.Add(newTag);
+        return string.Join(",", tags.Order(StringComparer.OrdinalIgnoreCase));
+    }
+
+    internal static bool CanRecordOutboundInteraction(string? consentStatus) =>
+        !string.Equals(consentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
+
+    internal static CrmContactRecord? SelectNextLeadToCall(
+        IEnumerable<CrmContactRecord> leads,
+        int maxOutboundAttempts,
+        DateTimeOffset now)
+    {
+        return leads
+            .Where(lead => CanRecordOutboundInteraction(lead.ConsentStatus))
+            .Where(lead => lead.OutboundAttemptCount < maxOutboundAttempts)
+            .Where(lead => lead.NextFollowUpAt is null || lead.NextFollowUpAt <= now)
+            .OrderBy(lead => lead.NextFollowUpAt ?? DateTimeOffset.MinValue)
+            .ThenBy(lead => lead.OutboundAttemptCount)
+            .ThenBy(lead => lead.ProviderContactId, StringComparer.Ordinal)
+            .FirstOrDefault();
     }
 
     private static string? Normalize(string? value)

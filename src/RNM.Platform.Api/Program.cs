@@ -15,13 +15,16 @@ using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Booking;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
+using RNM.Platform.Application.Ports.Reporting;
 using RNM.Platform.Application.Qualification;
+using RNM.Platform.Application.Reporting;
 using RNM.Platform.Application.Tenancy;
 using RNM.Platform.Infrastructure.Booking;
 using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.Crm;
 using RNM.Platform.Infrastructure.Messaging;
 using RNM.Platform.Infrastructure.Observability;
+using RNM.Platform.Infrastructure.Reporting;
 using RNM.Platform.Infrastructure.Secrets;
 
 var runtimeConfiguration = RnmRuntimeConfiguration.FromEnvironment();
@@ -77,8 +80,10 @@ var host = new HostBuilder()
         services.AddSingleton<BookingApplicationService>();
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
+        services.AddSingleton<PilotReportingService>();
         services.AddSingleton<IConfirmationRetryScheduler, AzureQueueConfirmationRetryScheduler>();
         services.AddSingleton<AzureTableCrmAdapter>();
+        services.AddSingleton<IReportingReadAdapter, AzureTableReportingReadAdapter>();
         services.AddSingleton<ICrmProviderAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
         services.AddHttpClient<GoogleCalendarBookingAdapter>(client =>

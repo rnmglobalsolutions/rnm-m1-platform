@@ -318,7 +318,8 @@ public sealed class InboundBookingWorkflowTests
                 finalSmsSender,
                 finalEmailSender,
                 new FakeConfirmationRetryScheduler(),
-                eventLogger),
+                eventLogger,
+                finalCrmAdapter),
             eventLogger);
 
         return new WorkflowHarness(
@@ -536,6 +537,36 @@ public sealed class InboundBookingWorkflowTests
             LastFollowUpRequest = request;
             return Task.FromResult(new CrmOperationResult(true));
         }
+
+        public Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+            CrmNextLeadToCallRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmNextLeadToCallResult(true, null));
+
+        public Task<CrmOperationResult> RecordOutboundAttemptAsync(
+            CrmOutboundAttemptRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkLeadReactivatedAsync(
+            CrmLeadReactivationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkOptOutAsync(
+            CrmOptOutRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
 
         private CrmOperationResult RecordBookingLink()
         {

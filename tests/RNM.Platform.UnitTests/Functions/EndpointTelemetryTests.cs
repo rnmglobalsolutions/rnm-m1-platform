@@ -9,6 +9,7 @@ using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Qualification;
 using RNM.Platform.Application.Tenancy;
 using RNM.Platform.SharedKernel.Correlation;
@@ -680,6 +681,29 @@ public sealed class EndpointTelemetryTests
     }
 
     [Fact]
+    public async Task TwilioInboundWebhook_InvalidSignature_RejectsWithoutOptOut()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var crmAdapter = new RecordingCrmAdapter();
+        var function = CreateTwilioFunction(eventLogger, crmAdapter);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/twilio/sms-inbound",
+            "MessageSid=SM123&Body=STOP&From=%2B15551234567&To=%2B15550001000");
+        request.Headers.Add("X-Twilio-Signature", "invalid");
+
+        var response = (TestHttpResponseData)await function
+            .HandleInbound(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("\"code\":\"unauthorized\"", response.ReadBody());
+        Assert.Equal(0, crmAdapter.MarkOptOutCallCount);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.WebhookValidationFailed));
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.SecurityAuthFailed));
+        Assert.All(eventLogger.Events, AssertNoSensitiveTelemetry);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
     public async Task TwilioWebhook_ValidSignature_LogsSmsStatusWithoutPhoneNumbers()
     {
         var eventLogger = new RecordingEventLogger();
@@ -709,6 +733,58 @@ public sealed class EndpointTelemetryTests
             Assert.DoesNotContain(recordedEvent.Properties.Values, value => value.Contains("+15551234567", StringComparison.Ordinal));
             Assert.DoesNotContain(recordedEvent.Properties.Values, value => value.Contains("+15550001000", StringComparison.Ordinal));
         });
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task TwilioInboundWebhook_StopMarksContactOptedOut()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var crmAdapter = new RecordingCrmAdapter();
+        var function = CreateTwilioFunction(eventLogger, crmAdapter);
+        var body = "MessageSid=SM123&Body=STOP&From=%2B15551234567&To=%2B15550001000";
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/twilio/sms-inbound",
+            body);
+        AddValidTwilioSignature(request, body);
+
+        var response = (TestHttpResponseData)await function
+            .HandleInbound(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(1, crmAdapter.MarkOptOutCallCount);
+        Assert.Null(crmAdapter.LastOptOutRequest?.ProviderContactId);
+        Assert.Equal("+15551234567", crmAdapter.LastOptOutRequest?.PhoneNumber);
+        Assert.Equal("TwilioSmsInbound", crmAdapter.LastOptOutRequest?.Source);
+        Assert.Equal("STOP", crmAdapter.LastOptOutRequest?.Reason);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task TwilioInboundWebhook_StopFailsSafely_WhenOptOutCannotBePersisted()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var crmAdapter = new RecordingCrmAdapter
+        {
+            MarkOptOutResult = new CrmOperationResult(false, CrmFailureReason.AdapterFailure)
+        };
+        var function = CreateTwilioFunction(eventLogger, crmAdapter);
+        var body = "MessageSid=SM123&Body=STOP&From=%2B15551234567&To=%2B15550001000";
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/twilio/sms-inbound",
+            body);
+        AddValidTwilioSignature(request, body);
+
+        var response = (TestHttpResponseData)await function
+            .HandleInbound(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("\"code\":\"internal_error\"", response.ReadBody());
+        Assert.Equal(1, crmAdapter.MarkOptOutCallCount);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.ApiRequestFailed
+            && recordedEvent.Properties.TryGetValue("outcome", out var outcome)
+            && outcome == "opt_out_persistence_failed");
         AssertValidCorrelationHeader(response);
     }
 
@@ -1058,7 +1134,9 @@ public sealed class EndpointTelemetryTests
             options);
     }
 
-    private static TwilioSmsStatusWebhookFunction CreateTwilioFunction(RecordingEventLogger eventLogger)
+    private static TwilioSmsStatusWebhookFunction CreateTwilioFunction(
+        RecordingEventLogger eventLogger,
+        RecordingCrmAdapter? crmAdapter = null)
     {
         return new TwilioSmsStatusWebhookFunction(
             CreateTenantResolver(),
@@ -1068,7 +1146,8 @@ public sealed class EndpointTelemetryTests
             new SafeErrorResponseFactory(),
             new SafeHttpResponseWriter(),
             new CorrelationContextFactory(),
-            eventLogger);
+            eventLogger,
+            crmAdapter ?? new RecordingCrmAdapter());
     }
 
     private static HealthFunction CreateHealthFunction() => new();
@@ -1130,5 +1209,83 @@ public sealed class EndpointTelemetryTests
     {
         Assert.True(response.Headers.TryGetValues(headerName, out var values));
         return Assert.Single(values);
+    }
+
+    private sealed class RecordingCrmAdapter : ICrmAdapter
+    {
+        public int MarkOptOutCallCount { get; private set; }
+
+        public CrmOptOutRequest? LastOptOutRequest { get; private set; }
+
+        public CrmOperationResult MarkOptOutResult { get; init; } = new(true);
+
+        public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
+            CrmContactLookupRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmContactLookupResult(false, null));
+
+        public Task<CrmContactUpsertResult> UpsertContactAsync(
+            CrmContactUpsertRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmContactUpsertResult(true, Created: true, ProviderContactId: "contact-123"));
+
+        public Task<CrmOperationResult> AddInteractionNoteAsync(
+            CrmInteractionNoteRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> ApplyTagsAsync(
+            CrmTagRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> LinkBookingToContactAsync(
+            CrmBookingLinkRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> AddTimelineEventAsync(
+            CrmTimelineEventRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+            CrmFollowUpRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+            CrmNextLeadToCallRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmNextLeadToCallResult(true, null));
+
+        public Task<CrmOperationResult> RecordOutboundAttemptAsync(
+            CrmOutboundAttemptRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkLeadReactivatedAsync(
+            CrmLeadReactivationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkOptOutAsync(
+            CrmOptOutRequest request,
+            CancellationToken cancellationToken)
+        {
+            MarkOptOutCallCount++;
+            LastOptOutRequest = request;
+            return Task.FromResult(MarkOptOutResult);
+        }
     }
 }

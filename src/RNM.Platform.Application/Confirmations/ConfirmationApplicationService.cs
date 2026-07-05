@@ -1,4 +1,6 @@
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Crm;
+using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
 
 namespace RNM.Platform.Application.Confirmations;
@@ -9,17 +11,20 @@ public sealed class ConfirmationApplicationService
     private readonly IEmailSender emailSender;
     private readonly IConfirmationRetryScheduler retryScheduler;
     private readonly IEventLogger eventLogger;
+    private readonly ICrmAdapter crmAdapter;
 
     public ConfirmationApplicationService(
         ISmsSender smsSender,
         IEmailSender emailSender,
         IConfirmationRetryScheduler retryScheduler,
-        IEventLogger eventLogger)
+        IEventLogger eventLogger,
+        ICrmAdapter crmAdapter)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
         this.retryScheduler = retryScheduler;
         this.eventLogger = eventLogger;
+        this.crmAdapter = crmAdapter;
     }
 
     public async Task<BookingConfirmationResult> SendBookingConfirmationAsync(
@@ -98,6 +103,14 @@ public sealed class ConfirmationApplicationService
 
             var sent = Sent(ConfirmationChannel.Sms, sendResult.ProviderMessageId);
             await LogAsync(TelemetryEventNames.SmsConfirmationSent, request, sent, cancellationToken)
+                .ConfigureAwait(false);
+            await TryRecordSentTimelineEventAsync(
+                    request,
+                    CrmTimelineEventTypes.SmsSent,
+                    "SMS confirmation sent.",
+                    sent,
+                    "customer",
+                    cancellationToken)
                 .ConfigureAwait(false);
             return sent;
         }
@@ -178,6 +191,14 @@ public sealed class ConfirmationApplicationService
             var sent = Sent(ConfirmationChannel.Email, sendResult.ProviderMessageId);
             await LogAsync(TelemetryEventNames.EmailConfirmationSent, request, sent, cancellationToken)
                 .ConfigureAwait(false);
+            await TryRecordSentTimelineEventAsync(
+                    request,
+                    CrmTimelineEventTypes.EmailSent,
+                    "Email confirmation sent.",
+                    sent,
+                    "customer",
+                    cancellationToken)
+                .ConfigureAwait(false);
             return sent;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -254,6 +275,14 @@ public sealed class ConfirmationApplicationService
 
             var sent = Sent(ConfirmationChannel.Email, sendResult.ProviderMessageId);
             await LogAsync(TelemetryEventNames.BusinessEmailNotificationSent, request, sent, cancellationToken, "business")
+                .ConfigureAwait(false);
+            await TryRecordSentTimelineEventAsync(
+                    request,
+                    CrmTimelineEventTypes.EmailSent,
+                    "Business email notification sent.",
+                    sent,
+                    "business",
+                    cancellationToken)
                 .ConfigureAwait(false);
             return sent;
         }
@@ -335,6 +364,14 @@ public sealed class ConfirmationApplicationService
 
             var sent = Sent(ConfirmationChannel.Sms, sendResult.ProviderMessageId);
             await LogAsync(TelemetryEventNames.BusinessSmsNotificationSent, request, sent, cancellationToken, "business")
+                .ConfigureAwait(false);
+            await TryRecordSentTimelineEventAsync(
+                    request,
+                    CrmTimelineEventTypes.SmsSent,
+                    "Business SMS notification sent.",
+                    sent,
+                    "business",
+                    cancellationToken)
                 .ConfigureAwait(false);
             return sent;
         }
@@ -458,6 +495,48 @@ public sealed class ConfirmationApplicationService
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Retry telemetry is best-effort.
+        }
+    }
+
+    private async Task TryRecordSentTimelineEventAsync(
+        BookingConfirmationRequest request,
+        string eventType,
+        string summary,
+        ConfirmationChannelResult result,
+        string target,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var timelineResult = await crmAdapter
+                .AddTimelineEventAsync(
+                    new CrmTimelineEventRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.CrmSyncResult.ProviderContactId,
+                        request.BookingDecision.ProviderBookingId,
+                        eventType,
+                        "Confirmation",
+                        summary,
+                        new Dictionary<string, string>
+                        {
+                            ["target"] = target,
+                            ["channel"] = result.Channel.ToString(),
+                            ["providerMessageId"] = result.ProviderMessageId ?? string.Empty
+                        }),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!timelineResult.Succeeded)
+            {
+                await LogAsync(TelemetryEventNames.CrmTimelineEventFailed, request, result, cancellationToken, target)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogAsync(TelemetryEventNames.CrmTimelineEventFailed, request, result, cancellationToken, target)
+                .ConfigureAwait(false);
         }
     }
 

@@ -76,7 +76,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ServiceAreaConfigurationDto? ServiceArea,
         ProviderConfigurationDto? Providers,
         SecretNameConfigurationDto? SecretNames,
-        CommunicationConfigurationDto? Communication)
+        CommunicationConfigurationDto? Communication,
+        ReportingConfigurationDto? Reporting)
     {
         public TenantConfiguration ToDomain()
         {
@@ -115,7 +116,16 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                         Communication?.ConfirmationTemplates?.BusinessEmailBodyTemplate),
                     Communication?.BusinessNotificationEmail,
                     Communication?.BusinessNotificationPhoneNumber,
-                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? true));
+                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? true),
+                new ReportingConfiguration(
+                    Reporting?.CloseRate,
+                    Reporting?.AvgCommissionValue,
+                    Reporting?.Baseline is null
+                        ? null
+                        : new ReportingBaselineConfiguration(
+                            Reporting.Baseline.LeadsContactedPerWeek,
+                            Reporting.Baseline.AvgContactTimeSeconds,
+                            Reporting.Baseline.AppointmentsPerWeek)));
         }
     }
 
@@ -156,4 +166,14 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? BusinessSmsBodyTemplate,
         string? BusinessEmailSubjectTemplate,
         string? BusinessEmailBodyTemplate);
+
+    private sealed record ReportingConfigurationDto(
+        decimal? CloseRate,
+        decimal? AvgCommissionValue,
+        ReportingBaselineConfigurationDto? Baseline);
+
+    private sealed record ReportingBaselineConfigurationDto(
+        int? LeadsContactedPerWeek,
+        int? AvgContactTimeSeconds,
+        int? AppointmentsPerWeek);
 }

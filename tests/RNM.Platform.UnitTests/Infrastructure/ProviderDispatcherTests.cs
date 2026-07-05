@@ -61,6 +61,44 @@ public sealed class ProviderDispatcherTests
     }
 
     [Fact]
+    public async Task ConfiguredCrmAdapter_RoutesOutboundLeadQueries()
+    {
+        var azureTable = new RecordingCrmProviderAdapter("AzureTable", providerContactId: "azure-contact");
+        var goHighLevel = new RecordingCrmProviderAdapter("GoHighLevel", providerContactId: "ghl-contact");
+        var adapter = new ConfiguredCrmAdapter(
+            new StubTenantConfigurationProvider(crmProvider: "AzureTable"),
+            CreateServiceProvider(azureTable, goHighLevel));
+
+        var result = await adapter.GetLeadsByCampaignAsync(
+            new CrmLeadQueryRequest("tenant-a", "corr-123", "campaign-a"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, azureTable.CampaignQueryCallCount);
+        Assert.Equal(0, goHighLevel.CampaignQueryCallCount);
+        Assert.Equal("tenant-a", azureTable.LastLeadQueryRequest?.TenantId);
+    }
+
+    [Fact]
+    public async Task ConfiguredCrmAdapter_RoutesOutboundMutations()
+    {
+        var azureTable = new RecordingCrmProviderAdapter("AzureTable", providerContactId: "azure-contact");
+        var goHighLevel = new RecordingCrmProviderAdapter("GoHighLevel", providerContactId: "ghl-contact");
+        var adapter = new ConfiguredCrmAdapter(
+            new StubTenantConfigurationProvider(crmProvider: "AzureTable"),
+            CreateServiceProvider(azureTable, goHighLevel));
+
+        var result = await adapter.RecordOutboundAttemptAsync(
+            new CrmOutboundAttemptRequest("tenant-a", "corr-123", "contact-123", "answered"),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, azureTable.OutboundAttemptCallCount);
+        Assert.Equal(0, goHighLevel.OutboundAttemptCallCount);
+        Assert.Equal("tenant-a", azureTable.LastOutboundAttemptRequest?.TenantId);
+    }
+
+    [Fact]
     public async Task ConfiguredBookingAdapter_RoutesGoogleCalendarProvider()
     {
         var google = new RecordingBookingProviderAdapter("GoogleCalendar", providerBookingId: "google-booking");
@@ -214,6 +252,14 @@ public sealed class ProviderDispatcherTests
 
         public int UpsertCallCount { get; private set; }
 
+        public int CampaignQueryCallCount { get; private set; }
+
+        public int OutboundAttemptCallCount { get; private set; }
+
+        public CrmLeadQueryRequest? LastLeadQueryRequest { get; private set; }
+
+        public CrmOutboundAttemptRequest? LastOutboundAttemptRequest { get; private set; }
+
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
             CancellationToken cancellationToken) =>
@@ -249,6 +295,47 @@ public sealed class ProviderDispatcherTests
 
         public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
             CrmFollowUpRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken)
+        {
+            LastLeadQueryRequest = request;
+            return Task.FromResult(new CrmLeadQueryResult(true, []));
+        }
+
+        public Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken)
+        {
+            CampaignQueryCallCount++;
+            LastLeadQueryRequest = request;
+            return Task.FromResult(new CrmLeadQueryResult(true, []));
+        }
+
+        public Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+            CrmNextLeadToCallRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmNextLeadToCallResult(true, null));
+
+        public Task<CrmOperationResult> RecordOutboundAttemptAsync(
+            CrmOutboundAttemptRequest request,
+            CancellationToken cancellationToken)
+        {
+            OutboundAttemptCallCount++;
+            LastOutboundAttemptRequest = request;
+            return Task.FromResult(new CrmOperationResult(true));
+        }
+
+        public Task<CrmOperationResult> MarkLeadReactivatedAsync(
+            CrmLeadReactivationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkOptOutAsync(
+            CrmOptOutRequest request,
             CancellationToken cancellationToken) =>
             Task.FromResult(new CrmOperationResult(true));
     }

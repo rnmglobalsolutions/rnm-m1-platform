@@ -15,7 +15,17 @@ public sealed class CrmApplicationService
             "propertyType",
             "serviceAddress",
             "urgency",
-            "preferredTime"
+            "preferredTime",
+            CrmContactAttributeNames.LeadSource,
+            CrmContactAttributeNames.CampaignId,
+            CrmContactAttributeNames.LeadStatus,
+            CrmContactAttributeNames.OutboundAttemptCount,
+            CrmContactAttributeNames.LastContactedAt,
+            CrmContactAttributeNames.NextFollowUpAt,
+            CrmContactAttributeNames.Intent,
+            CrmContactAttributeNames.TargetPropertyAddress,
+            CrmContactAttributeNames.AssignedAgent,
+            CrmContactAttributeNames.ConsentStatus
         };
 
     private readonly ICrmAdapter crmAdapter;

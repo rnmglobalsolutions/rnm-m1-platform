@@ -10,7 +10,8 @@ public sealed record TenantConfiguration(
     ServiceAreaConfiguration ServiceArea,
     ProviderConfiguration Providers,
     SecretNameConfiguration SecretNames,
-    CommunicationConfiguration Communication);
+    CommunicationConfiguration Communication,
+    ReportingConfiguration? Reporting = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,
@@ -43,3 +44,19 @@ public sealed record ConfirmationTemplateConfiguration(
     string? BusinessSmsBodyTemplate = null,
     string? BusinessEmailSubjectTemplate = null,
     string? BusinessEmailBodyTemplate = null);
+
+public sealed record ReportingConfiguration(
+    decimal? CloseRate = null,
+    decimal? AvgCommissionValue = null,
+    ReportingBaselineConfiguration? Baseline = null);
+
+public sealed record ReportingBaselineConfiguration(
+    int? LeadsContactedPerWeek = null,
+    int? AvgContactTimeSeconds = null,
+    int? AppointmentsPerWeek = null)
+{
+    public bool IsSet =>
+        LeadsContactedPerWeek.HasValue
+        || AvgContactTimeSeconds.HasValue
+        || AppointmentsPerWeek.HasValue;
+}
