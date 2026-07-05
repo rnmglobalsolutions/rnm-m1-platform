@@ -1,3 +1,4 @@
+using System.Globalization;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Reporting;
@@ -181,7 +182,7 @@ public sealed class PilotReportingService
         var baselineText = baseline.Label == BaselineNotSet
             ? "baseline not set"
             : $"baseline ~{baseline.LeadsContactedPerWeek.Baseline:0}/week";
-        return $"Contacted {funnel.LeadsContacted} leads ({baselineText}), avg {speed.AverageSecondsToContact:0}s to first contact, booked {funnel.AppointmentsBooked} appointments, revived {funnel.ReactivatedBooked} from reactivated leads. Projected commission: {revenue.ProjectedRevenue:C0}.";
+        return $"Contacted {funnel.LeadsContacted} leads ({baselineText}), avg {speed.AverageSecondsToContact:0}s to first contact, booked {funnel.AppointmentsBooked} appointments, revived {funnel.ReactivatedBooked} from reactivated leads. Projected commission: {FormatUsd(revenue.ProjectedRevenue)}.";
     }
 
     private async Task LogAsync(
@@ -248,4 +249,7 @@ public sealed class PilotReportingService
         denominator <= 0 ? 0 : Round(numerator * 100m / denominator);
 
     private static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    private static string FormatUsd(decimal value) =>
+        string.Create(CultureInfo.InvariantCulture, $"${value:N0}");
 }
