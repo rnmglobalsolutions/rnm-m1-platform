@@ -210,6 +210,58 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
             "RNM Native CRM follow-up state is not persisted by the GoHighLevel CRM adapter."));
     }
 
+    public Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+        CrmLeadQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(UnsupportedLeadQuery());
+    }
+
+    public Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+        CrmLeadQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(UnsupportedLeadQuery());
+    }
+
+    public Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+        CrmNextLeadToCallRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new CrmNextLeadToCallResult(
+            false,
+            null,
+            CrmFailureReason.AdapterFailure,
+            "Outbound lead lists are only supported by RNM Native CRM."));
+    }
+
+    public Task<CrmOperationResult> RecordOutboundAttemptAsync(
+        CrmOutboundAttemptRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FailedOperation(
+            CrmFailureReason.AdapterFailure,
+            "Outbound attempts are only supported by RNM Native CRM."));
+    }
+
+    public Task<CrmOperationResult> MarkLeadReactivatedAsync(
+        CrmLeadReactivationRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FailedOperation(
+            CrmFailureReason.AdapterFailure,
+            "Lead reactivation state is only supported by RNM Native CRM."));
+    }
+
+    public Task<CrmOperationResult> MarkOptOutAsync(
+        CrmOptOutRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(FailedOperation(
+            CrmFailureReason.AdapterFailure,
+            "Opt-out state is only supported by RNM Native CRM."));
+    }
+
     private async Task<CrmOperationResult> PostContactOperationAsync<TPayload>(
         string path,
         TPayload payload,
@@ -323,6 +375,13 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
         CrmFailureReason reason,
         string message) =>
         new(false, reason, message);
+
+    private static CrmLeadQueryResult UnsupportedLeadQuery() =>
+        new(
+            false,
+            [],
+            CrmFailureReason.AdapterFailure,
+            "Outbound lead lists are only supported by RNM Native CRM.");
 }
 
 internal sealed record GoHighLevelContactSearchRequestDto(

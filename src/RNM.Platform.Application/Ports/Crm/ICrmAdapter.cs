@@ -31,4 +31,28 @@ public interface ICrmAdapter
     Task<CrmOperationResult> MarkFollowUpRequiredAsync(
         CrmFollowUpRequest request,
         CancellationToken cancellationToken);
+
+    Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+        CrmLeadQueryRequest request,
+        CancellationToken cancellationToken);
+
+    Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+        CrmLeadQueryRequest request,
+        CancellationToken cancellationToken);
+
+    Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+        CrmNextLeadToCallRequest request,
+        CancellationToken cancellationToken);
+
+    Task<CrmOperationResult> RecordOutboundAttemptAsync(
+        CrmOutboundAttemptRequest request,
+        CancellationToken cancellationToken);
+
+    Task<CrmOperationResult> MarkLeadReactivatedAsync(
+        CrmLeadReactivationRequest request,
+        CancellationToken cancellationToken);
+
+    Task<CrmOperationResult> MarkOptOutAsync(
+        CrmOptOutRequest request,
+        CancellationToken cancellationToken);
 }

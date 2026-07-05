@@ -129,6 +129,8 @@ public sealed class ConfigurationValidator : IConfigurationValidator
                 MaxEmailBodyTemplateLength);
         }
 
+        ValidateReporting(errors, tenantConfiguration.Reporting);
+
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
 
@@ -209,6 +211,41 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             }
 
             searchIndex = tokenEnd + 2;
+        }
+    }
+
+    private static void ValidateReporting(
+        ICollection<string> errors,
+        ReportingConfiguration? reporting)
+    {
+        if (reporting is null)
+        {
+            return;
+        }
+
+        if (reporting.CloseRate is < 0 or > 1)
+        {
+            errors.Add("reporting.closeRate must be between 0 and 1.");
+        }
+
+        if (reporting.AvgCommissionValue is < 0)
+        {
+            errors.Add("reporting.avgCommissionValue must be zero or greater.");
+        }
+
+        if (reporting.Baseline?.LeadsContactedPerWeek is < 0)
+        {
+            errors.Add("reporting.baseline.leadsContactedPerWeek must be zero or greater.");
+        }
+
+        if (reporting.Baseline?.AvgContactTimeSeconds is < 0)
+        {
+            errors.Add("reporting.baseline.avgContactTimeSeconds must be zero or greater.");
+        }
+
+        if (reporting.Baseline?.AppointmentsPerWeek is < 0)
+        {
+            errors.Add("reporting.baseline.appointmentsPerWeek must be zero or greater.");
         }
     }
 }

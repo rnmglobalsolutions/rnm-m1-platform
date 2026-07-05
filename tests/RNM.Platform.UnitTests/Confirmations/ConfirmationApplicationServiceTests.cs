@@ -2,6 +2,7 @@ using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
 using RNM.Platform.Domain.Configuration;
 using Xunit;
@@ -104,6 +105,38 @@ public sealed class ConfirmationApplicationServiceTests
         Assert.Equal(1, emailSender.SendCallCount);
         Assert.Equal("lead@example.com", emailSender.LastRequest?.ToEmail);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.EmailConfirmationSent));
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_RecordsSentTimelineEvents()
+    {
+        var crmAdapter = new FakeCrmAdapter();
+        var service = CreateService(crmAdapter: crmAdapter);
+
+        var result = await service.SendBookingConfirmationAsync(CreateRequest(), CancellationToken.None);
+
+        Assert.True(result.SmsSent);
+        Assert.True(result.EmailSent);
+        Assert.Contains(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.SmsSent);
+        Assert.Contains(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.EmailSent);
+        Assert.All(crmAdapter.TimelineEvents, evt => Assert.Equal("contact-123", evt.ProviderContactId));
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_StillSucceeds_WhenSentTimelineWriteThrows()
+    {
+        var eventLogger = new RecordingConfirmationEventLogger();
+        var crmAdapter = new FakeCrmAdapter
+        {
+            ThrowOnTimeline = true
+        };
+        var service = CreateService(eventLogger: eventLogger, crmAdapter: crmAdapter);
+
+        var result = await service.SendBookingConfirmationAsync(CreateRequest(), CancellationToken.None);
+
+        Assert.True(result.SmsSent);
+        Assert.True(result.EmailSent);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmTimelineEventFailed));
     }
 
     [Fact]
@@ -326,13 +359,15 @@ public sealed class ConfirmationApplicationServiceTests
         FakeSmsSender? smsSender = null,
         FakeEmailSender? emailSender = null,
         FakeConfirmationRetryScheduler? retryScheduler = null,
-        RecordingConfirmationEventLogger? eventLogger = null)
+        RecordingConfirmationEventLogger? eventLogger = null,
+        FakeCrmAdapter? crmAdapter = null)
     {
         return new ConfirmationApplicationService(
             smsSender ?? new FakeSmsSender(),
             emailSender ?? new FakeEmailSender(),
             retryScheduler ?? new FakeConfirmationRetryScheduler(),
-            eventLogger ?? new RecordingConfirmationEventLogger());
+            eventLogger ?? new RecordingConfirmationEventLogger(),
+            crmAdapter ?? new FakeCrmAdapter());
     }
 
     private static BookingConfirmationRequest CreateRequest(
@@ -509,4 +544,84 @@ public sealed class ConfirmationApplicationServiceTests
     private sealed record RecordedConfirmationEvent(
         string EventName,
         IReadOnlyDictionary<string, string> Properties);
+
+    private sealed class FakeCrmAdapter : ICrmAdapter
+    {
+        public bool ThrowOnTimeline { get; init; }
+
+        public List<CrmTimelineEventRequest> TimelineEvents { get; } = [];
+
+        public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
+            CrmContactLookupRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmContactLookupResult(false, null));
+
+        public Task<CrmContactUpsertResult> UpsertContactAsync(
+            CrmContactUpsertRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmContactUpsertResult(true, Created: true, ProviderContactId: "contact-123"));
+
+        public Task<CrmOperationResult> AddInteractionNoteAsync(
+            CrmInteractionNoteRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> ApplyTagsAsync(
+            CrmTagRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> LinkBookingToContactAsync(
+            CrmBookingLinkRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> AddTimelineEventAsync(
+            CrmTimelineEventRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (ThrowOnTimeline)
+            {
+                throw new InvalidOperationException("timeline failed");
+            }
+
+            TimelineEvents.Add(request);
+            return Task.FromResult(new CrmOperationResult(true));
+        }
+
+        public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
+            CrmFollowUpRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmLeadQueryResult> GetLeadsByStatusAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmLeadQueryResult> GetLeadsByCampaignAsync(
+            CrmLeadQueryRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmLeadQueryResult(true, []));
+
+        public Task<CrmNextLeadToCallResult> GetNextLeadToCallAsync(
+            CrmNextLeadToCallRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmNextLeadToCallResult(true, null));
+
+        public Task<CrmOperationResult> RecordOutboundAttemptAsync(
+            CrmOutboundAttemptRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkLeadReactivatedAsync(
+            CrmLeadReactivationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+
+        public Task<CrmOperationResult> MarkOptOutAsync(
+            CrmOptOutRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new CrmOperationResult(true));
+    }
 }
