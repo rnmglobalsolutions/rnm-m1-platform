@@ -11,7 +11,8 @@ public sealed record TenantConfiguration(
     ProviderConfiguration Providers,
     SecretNameConfiguration SecretNames,
     CommunicationConfiguration Communication,
-    ReportingConfiguration? Reporting = null);
+    ReportingConfiguration? Reporting = null,
+    VoiceConfiguration? Voice = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,
@@ -59,4 +60,35 @@ public sealed record ReportingBaselineConfiguration(
         LeadsContactedPerWeek.HasValue
         || AvgContactTimeSeconds.HasValue
         || AppointmentsPerWeek.HasValue;
+}
+
+public sealed record VoiceConfiguration(
+    OutboundVoiceConfiguration? Outbound = null);
+
+public sealed record OutboundVoiceConfiguration(
+    string? VapiApiKeySecretName = null,
+    string? VapiBaseUrl = null,
+    string? OutboundAssistantId = null,
+    string? OutboundPhoneNumberId = null,
+    string? CallbackWebhookBaseUrl = null,
+    OutboundPacingConfiguration? Pacing = null,
+    int? MaxAttemptsPerLead = null,
+    TcpaWindowConfiguration? TcpaWindow = null);
+
+public sealed record OutboundPacingConfiguration(
+    int? MaxConcurrentCalls = null,
+    int? MinSecondsBetweenCalls = null)
+{
+    public int EffectiveMaxConcurrentCalls => Math.Max(1, MaxConcurrentCalls ?? 1);
+
+    public int EffectiveMinSecondsBetweenCalls => Math.Max(0, MinSecondsBetweenCalls ?? 0);
+}
+
+public sealed record TcpaWindowConfiguration(
+    int? StartHour = null,
+    int? EndHour = null)
+{
+    public int EffectiveStartHour => StartHour ?? 8;
+
+    public int EffectiveEndHour => EndHour ?? 21;
 }

@@ -150,6 +150,8 @@ public sealed record CrmNextLeadToCallRequest(
     public int MaxOutboundAttempts { get; init; } = 3;
 
     public DateTimeOffset Now { get; init; } = DateTimeOffset.UtcNow;
+
+    public IReadOnlyCollection<string> ExcludedProviderContactIds { get; init; } = [];
 }
 
 public sealed record CrmLeadQueryResult(
