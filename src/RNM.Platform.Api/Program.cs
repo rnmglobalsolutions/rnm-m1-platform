@@ -12,9 +12,11 @@ using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Outbound;
 using RNM.Platform.Application.Ports.Booking;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
+using RNM.Platform.Application.Ports.Outbound;
 using RNM.Platform.Application.Ports.Reporting;
 using RNM.Platform.Application.Qualification;
 using RNM.Platform.Application.Reporting;
@@ -24,6 +26,7 @@ using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.Crm;
 using RNM.Platform.Infrastructure.Messaging;
 using RNM.Platform.Infrastructure.Observability;
+using RNM.Platform.Infrastructure.Outbound;
 using RNM.Platform.Infrastructure.Reporting;
 using RNM.Platform.Infrastructure.Secrets;
 
@@ -81,6 +84,7 @@ var host = new HostBuilder()
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
         services.AddSingleton<PilotReportingService>();
+        services.AddSingleton<OutboundCampaignRunService>();
         services.AddSingleton<IConfirmationRetryScheduler, AzureQueueConfirmationRetryScheduler>();
         services.AddSingleton<AzureTableCrmAdapter>();
         services.AddSingleton<IReportingReadAdapter, AzureTableReportingReadAdapter>();
@@ -113,6 +117,10 @@ var host = new HostBuilder()
             serviceProvider.GetRequiredService<GoHighLevelCrmAdapter>());
         services.AddSingleton<IBookingAdapter, ConfiguredBookingAdapter>();
         services.AddSingleton<ICrmAdapter, ConfiguredCrmAdapter>();
+        services.AddHttpClient<IOutboundCallAdapter, VapiOutboundCallAdapter>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
         services.AddHttpClient<ISmsSender, TwilioSmsSender>(client =>
         {
             client.BaseAddress = new Uri("https://api.twilio.com/2010-04-01/");

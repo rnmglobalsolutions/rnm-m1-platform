@@ -401,7 +401,11 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
                 queryResult.Message);
         }
 
-        var lead = SelectNextLeadToCall(queryResult.Leads, request.MaxOutboundAttempts, request.Now);
+        var lead = SelectNextLeadToCall(
+            queryResult.Leads,
+            request.MaxOutboundAttempts,
+            request.Now,
+            request.ExcludedProviderContactIds);
 
         return new CrmNextLeadToCallResult(true, lead);
     }
@@ -858,10 +862,16 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     internal static CrmContactRecord? SelectNextLeadToCall(
         IEnumerable<CrmContactRecord> leads,
         int maxOutboundAttempts,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        IReadOnlyCollection<string>? excludedProviderContactIds = null)
     {
+        var excluded = excludedProviderContactIds is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : excludedProviderContactIds.ToHashSet(StringComparer.Ordinal);
+
         return leads
             .Where(lead => CanRecordOutboundInteraction(lead.ConsentStatus))
+            .Where(lead => !excluded.Contains(lead.ProviderContactId))
             .Where(lead => lead.OutboundAttemptCount < maxOutboundAttempts)
             .Where(lead => lead.NextFollowUpAt is null || lead.NextFollowUpAt <= now)
             .OrderBy(lead => lead.NextFollowUpAt ?? DateTimeOffset.MinValue)

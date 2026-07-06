@@ -62,4 +62,12 @@ public static class TelemetryEventNames
     public const string WorkflowCompleted = "workflow.completed";
     // Runtime/system failure only; expected business stops use workflow.completed with stopped outcomes.
     public const string WorkflowFailed = "workflow.failed";
+    public const string OutboundCampaignRunRequested = "outbound.campaign_run.requested";
+    public const string OutboundCampaignRunCompleted = "outbound.campaign_run.completed";
+    public const string OutboundCampaignRunFailed = "outbound.campaign_run.failed";
+    public const string OutboundCallSkipped = "outbound.call.skipped";
+    public const string OutboundCallStartRequested = "outbound.call_start.requested";
+    public const string OutboundCallStarted = "outbound.call.started";
+    public const string OutboundCallFailed = "outbound.call.failed";
+    public const string OutboundCallCompleted = "outbound.call.completed";
 }

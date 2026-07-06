@@ -130,6 +130,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         }
 
         ValidateReporting(errors, tenantConfiguration.Reporting);
+        ValidateVoice(errors, tenantConfiguration.Voice);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -246,6 +247,68 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (reporting.Baseline?.AppointmentsPerWeek is < 0)
         {
             errors.Add("reporting.baseline.appointmentsPerWeek must be zero or greater.");
+        }
+    }
+
+    private static void ValidateVoice(
+        ICollection<string> errors,
+        VoiceConfiguration? voice)
+    {
+        var outbound = voice?.Outbound;
+        if (outbound is null)
+        {
+            return;
+        }
+
+        ValidateAbsoluteUri(errors, outbound.VapiBaseUrl, "voice.outbound.vapiBaseUrl");
+        ValidateAbsoluteUri(errors, outbound.CallbackWebhookBaseUrl, "voice.outbound.callbackWebhookBaseUrl");
+
+        if (outbound.Pacing?.MaxConcurrentCalls is < 1 or > 10)
+        {
+            errors.Add("voice.outbound.pacing.maxConcurrentCalls must be between 1 and 10.");
+        }
+
+        if (outbound.Pacing?.MinSecondsBetweenCalls is < 0)
+        {
+            errors.Add("voice.outbound.pacing.minSecondsBetweenCalls must be zero or greater.");
+        }
+
+        if (outbound.MaxAttemptsPerLead is < 1)
+        {
+            errors.Add("voice.outbound.maxAttemptsPerLead must be one or greater.");
+        }
+
+        var startHour = outbound.TcpaWindow?.StartHour;
+        var endHour = outbound.TcpaWindow?.EndHour;
+        if (startHour is < 0 or > 23)
+        {
+            errors.Add("voice.outbound.tcpaWindow.startHour must be between 0 and 23.");
+        }
+
+        if (endHour is < 0 or > 23)
+        {
+            errors.Add("voice.outbound.tcpaWindow.endHour must be between 0 and 23.");
+        }
+
+        if (startHour is not null && endHour is not null && startHour >= endHour)
+        {
+            errors.Add("voice.outbound.tcpaWindow.startHour must be before endHour.");
+        }
+    }
+
+    private static void ValidateAbsoluteUri(
+        ICollection<string> errors,
+        string? value,
+        string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out _))
+        {
+            errors.Add($"{fieldName} must be an absolute URL.");
         }
     }
 }

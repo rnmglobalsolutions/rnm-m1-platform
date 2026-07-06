@@ -77,7 +77,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ProviderConfigurationDto? Providers,
         SecretNameConfigurationDto? SecretNames,
         CommunicationConfigurationDto? Communication,
-        ReportingConfigurationDto? Reporting)
+        ReportingConfigurationDto? Reporting,
+        VoiceConfigurationDto? Voice)
     {
         public TenantConfiguration ToDomain()
         {
@@ -125,7 +126,29 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                         : new ReportingBaselineConfiguration(
                             Reporting.Baseline.LeadsContactedPerWeek,
                             Reporting.Baseline.AvgContactTimeSeconds,
-                            Reporting.Baseline.AppointmentsPerWeek)));
+                            Reporting.Baseline.AppointmentsPerWeek)),
+                Voice is null
+                    ? null
+                    : new VoiceConfiguration(
+                        Voice.Outbound is null
+                            ? null
+                            : new OutboundVoiceConfiguration(
+                                Voice.Outbound.VapiApiKeySecretName,
+                                Voice.Outbound.VapiBaseUrl,
+                                Voice.Outbound.OutboundAssistantId,
+                                Voice.Outbound.OutboundPhoneNumberId,
+                                Voice.Outbound.CallbackWebhookBaseUrl,
+                                Voice.Outbound.Pacing is null
+                                    ? null
+                                    : new OutboundPacingConfiguration(
+                                        Voice.Outbound.Pacing.MaxConcurrentCalls,
+                                        Voice.Outbound.Pacing.MinSecondsBetweenCalls),
+                                Voice.Outbound.MaxAttemptsPerLead,
+                                Voice.Outbound.TcpaWindow is null
+                                    ? null
+                                    : new TcpaWindowConfiguration(
+                                        Voice.Outbound.TcpaWindow.StartHour,
+                                        Voice.Outbound.TcpaWindow.EndHour))));
         }
     }
 
@@ -176,4 +199,25 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         int? LeadsContactedPerWeek,
         int? AvgContactTimeSeconds,
         int? AppointmentsPerWeek);
+
+    private sealed record VoiceConfigurationDto(
+        OutboundVoiceConfigurationDto? Outbound);
+
+    private sealed record OutboundVoiceConfigurationDto(
+        string? VapiApiKeySecretName,
+        string? VapiBaseUrl,
+        string? OutboundAssistantId,
+        string? OutboundPhoneNumberId,
+        string? CallbackWebhookBaseUrl,
+        OutboundPacingConfigurationDto? Pacing,
+        int? MaxAttemptsPerLead,
+        TcpaWindowConfigurationDto? TcpaWindow);
+
+    private sealed record OutboundPacingConfigurationDto(
+        int? MaxConcurrentCalls,
+        int? MinSecondsBetweenCalls);
+
+    private sealed record TcpaWindowConfigurationDto(
+        int? StartHour,
+        int? EndHour);
 }
