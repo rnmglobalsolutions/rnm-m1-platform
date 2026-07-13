@@ -75,7 +75,7 @@ public sealed class EndpointTelemetryTests
                 "toolCallList": [
                   {
                     "id": "tool-1",
-                    "name": "book_hvac_appointment",
+                    "name": "book_appointment",
                     "arguments": {
                       "serviceNeed": "AC repair",
                       "propertyType": "residential",
@@ -112,13 +112,108 @@ public sealed class EndpointTelemetryTests
         var callEvent = Assert.Single(workflow.Events);
         var workflowRequest = Assert.Single(workflow.Requests);
         Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
-        Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        Assert.Equal("book_appointment", callEvent.ActionRequest?.Name);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "book_appointment"
+            && recordedEvent.Properties["toolNameVariant"] == "current");
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
         Assert.NotNull(workflowRequest.SelectedSlot);
         Assert.Equal("slot-1", workflowRequest.SelectedSlot?.SlotId);
         Assert.Equal(new DateTimeOffset(2026, 5, 29, 21, 0, 0, TimeSpan.Zero), workflowRequest.SelectedSlot?.StartsAt);
         Assert.Equal(new DateTimeOffset(2026, 5, 29, 21, 30, 0, TimeSpan.Zero), workflowRequest.SelectedSlot?.EndsAt);
         AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_RecordContactConsentTool_RecordsOptInWithoutRunningBookingWorkflow()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow();
+        var crmAdapter = new RecordingCrmAdapter();
+        var function = CreateVapiFunction(eventLogger, workflow: workflow, crmAdapter: crmAdapter);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "message": {
+                "type": "tool-calls",
+                "call": {
+                  "id": "call-123",
+                  "customer": { "number": "+15551234567" }
+                },
+                "toolCallList": [
+                  {
+                    "id": "tool-consent-1",
+                    "name": "record_contact_consent",
+                    "arguments": {
+                      "name": "Jane Customer",
+                      "phoneNumber": "+15551234567",
+                      "email": "jane@example.com",
+                      "zipCode": "75001",
+                      "channelScope": "sms_and_outbound_calls",
+                      "granted": true,
+                      "capturedDuringCallId": "call-123"
+                    }
+                  }
+                ]
+              }
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"toolCallId\":\"tool-consent-1\"", body);
+        Assert.Contains("consentRecorded", body);
+        Assert.Contains(CrmConsentStatuses.OptIn, body);
+        Assert.DoesNotContain("providerContactId", body);
+        Assert.Empty(workflow.Events);
+        Assert.Equal(2, crmAdapter.UpsertCallCount);
+        Assert.Equal(1, crmAdapter.TimelineEventCallCount);
+        Assert.Equal(CrmConsentStatuses.OptIn, crmAdapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentInboundCallGranted, crmAdapter.LastTimelineEventRequest?.EventType);
+        Assert.Equal("sms_and_outbound_calls", crmAdapter.LastTimelineEventRequest?.Metadata["scope"]);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.VoiceToolCallResponded));
+    }
+
+    [Fact]
+    public async Task VapiWebhook_DirectConsentApiRequest_ReturnsDirectConsentPayload()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow();
+        var crmAdapter = new RecordingCrmAdapter();
+        var function = CreateVapiFunction(eventLogger, workflow: workflow, crmAdapter: crmAdapter);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "zipCode": "75001",
+              "channelScope": "sms_and_outbound_calls",
+              "granted": true,
+              "capturedDuringCallId": "call-123"
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        var body = response.ReadBody();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("\"results\"", body);
+        Assert.Contains("\"consentRecorded\":true", body);
+        Assert.Contains(CrmConsentStatuses.OptIn, body);
+        Assert.DoesNotContain("providerContactId", body);
+        Assert.Empty(workflow.Events);
+        Assert.Equal(2, crmAdapter.UpsertCallCount);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentInboundCallGranted, crmAdapter.LastTimelineEventRequest?.EventType);
     }
 
     [Fact]
@@ -156,7 +251,7 @@ public sealed class EndpointTelemetryTests
                 "toolCallList": [
                   {
                     "id": "tool-1",
-                    "name": "check_hvac_availability",
+                    "name": "check_availability",
                     "arguments": {
                       "serviceNeed": "AC repair",
                       "propertyType": "residential",
@@ -201,7 +296,11 @@ public sealed class EndpointTelemetryTests
             && recordedEvent.Properties["availabilityModeUsed"] == "earliest"
             && recordedEvent.Properties["availableSlotCount"] == "1"
             && recordedEvent.Properties["selectedSlotReturned"] == bool.TrueString);
-        Assert.Equal("check_hvac_availability", workflowRequest.InboundCallEvent.ActionRequest?.Name);
+        Assert.Equal("check_availability", workflowRequest.InboundCallEvent.ActionRequest?.Name);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "check_availability"
+            && recordedEvent.Properties["toolNameVariant"] == "current");
         AssertValidCorrelationHeader(response);
     }
 
@@ -469,11 +568,147 @@ public sealed class EndpointTelemetryTests
         var callEvent = Assert.Single(workflow.Events);
         var workflowRequest = Assert.Single(workflow.Requests);
         Assert.Equal(InboundCallEventType.ActionRequested, callEvent.EventType);
-        Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        Assert.Equal("book_appointment", callEvent.ActionRequest?.Name);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "book_appointment"
+            && recordedEvent.Properties["toolNameVariant"] == "current");
         Assert.Equal("+15551234567", callEvent.Session.CallerPhoneNumber);
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
         Assert.Equal("slot-1", workflowRequest.SelectedSlot?.SlotId);
         Assert.Equal(new DateTimeOffset(2026, 5, 29, 21, 0, 0, TimeSpan.Zero), workflowRequest.SelectedSlot?.StartsAt);
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_DirectAvailabilityApiRequestBody_UsesCurrentToolName()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.AvailabilityFound,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "urgent",
+              "availabilityMode": "earliest"
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("\"results\"", response.ReadBody());
+        var workflowRequest = Assert.Single(workflow.Requests);
+        Assert.Equal("check_availability", workflowRequest.InboundCallEvent.ActionRequest?.Name);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "check_availability"
+            && recordedEvent.Properties["toolNameVariant"] == "current");
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_DirectApiRequestBodyWithLegacyToolName_StillDispatches()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow();
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "toolName": "book_hvac_appointment",
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "today",
+              "preferredTime": "Friday, May 29 at 4:00 PM",
+              "selectedSlotId": "slot-1",
+              "selectedSlotStart": "2026-05-29T16:00:00-05:00",
+              "selectedSlotEnd": "2026-05-29T16:30:00-05:00",
+              "selectedSlotLabel": "Friday, May 29 at 4:00 PM",
+              "customerConfirmedSlot": true
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("\"results\"", response.ReadBody());
+        var callEvent = Assert.Single(workflow.Events);
+        Assert.Equal("book_hvac_appointment", callEvent.ActionRequest?.Name);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "book_hvac_appointment"
+            && recordedEvent.Properties["toolNameVariant"] == "legacy");
+        AssertValidCorrelationHeader(response);
+    }
+
+    [Fact]
+    public async Task VapiWebhook_DirectAvailabilityApiRequestBodyWithLegacyToolName_StillDispatches()
+    {
+        var eventLogger = new RecordingEventLogger();
+        var workflow = new RecordingInboundBookingWorkflow(result: new InboundBookingWorkflowResult(
+            InboundBookingWorkflowOutcome.BookingStopped,
+            QualificationResultState.Qualified,
+            ServiceAreaDecisionState.InServiceArea,
+            BookingDecisionState.AvailabilityFound,
+            CrmSyncState.Succeeded,
+            ConfirmationState: null));
+        var function = CreateVapiFunction(eventLogger, workflow: workflow);
+        var request = CreatePostRequest(
+            "https://platform.example.com/api/tenants/tenant-a/webhooks/vapi/inbound",
+            """
+            {
+              "toolName": "check_hvac_availability",
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "urgent",
+              "availabilityMode": "earliest"
+            }
+            """);
+        request.Headers.Add("Authorization", "Bearer expected-secret");
+
+        var response = (TestHttpResponseData)await function
+            .Handle(request, "tenant-a", CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("\"results\"", response.ReadBody());
+        var workflowRequest = Assert.Single(workflow.Requests);
+        Assert.Equal("check_hvac_availability", workflowRequest.InboundCallEvent.ActionRequest?.Name);
+        Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
+        Assert.False(workflowRequest.RequirePreferredWindow);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "check_hvac_availability"
+            && recordedEvent.Properties["toolNameVariant"] == "legacy");
         AssertValidCorrelationHeader(response);
     }
 
@@ -531,6 +766,10 @@ public sealed class EndpointTelemetryTests
         Assert.False(workflowRequest.AutoSelectFirstAvailableSlot);
         Assert.Null(workflowRequest.SelectedSlot);
         Assert.True(workflowRequest.RequirePreferredWindow);
+        Assert.Contains(eventLogger.Events, recordedEvent =>
+            recordedEvent.EventName == TelemetryEventNames.VoiceToolCallReceived
+            && recordedEvent.Properties["toolName"] == "book_hvac_appointment"
+            && recordedEvent.Properties["toolNameVariant"] == "legacy");
         AssertValidCorrelationHeader(response);
     }
 
@@ -1113,10 +1352,12 @@ public sealed class EndpointTelemetryTests
         TenantResolver? tenantResolver = null,
         RecordingInboundBookingWorkflow? workflow = null,
         RecordingInboundCallEventProcessor? processor = null,
+        RecordingCrmAdapter? crmAdapter = null,
         StubSecretProvider? secretProvider = null,
         VapiWebhookOptions? options = null)
     {
         options ??= new VapiWebhookOptions();
+        crmAdapter ??= new RecordingCrmAdapter();
 
         return new VapiInboundWebhookFunction(
             tenantResolver ?? CreateTenantResolver(),
@@ -1130,6 +1371,7 @@ public sealed class EndpointTelemetryTests
             new VapiWebhookMapper(),
             processor ?? new RecordingInboundCallEventProcessor(),
             workflow ?? new RecordingInboundBookingWorkflow(),
+            new CrmApplicationService(crmAdapter, eventLogger),
             new LimitedRequestBodyReader(),
             options);
     }
@@ -1213,7 +1455,26 @@ public sealed class EndpointTelemetryTests
 
     private sealed class RecordingCrmAdapter : ICrmAdapter
     {
+        public CrmContactLookupResult LookupResult { get; init; } = new(false, null);
+
+        public CrmContactUpsertResult UpsertResult { get; init; } =
+            new(true, Created: true, ProviderContactId: "contact-123");
+
+        public int LookupCallCount { get; private set; }
+
+        public int UpsertCallCount { get; private set; }
+
+        public int TimelineEventCallCount { get; private set; }
+
         public int MarkOptOutCallCount { get; private set; }
+
+        public CrmContactUpsertRequest? LastUpsertRequest { get; private set; }
+
+        public CrmTimelineEventRequest? LastTimelineEventRequest { get; private set; }
+
+        public List<CrmContactUpsertRequest> UpsertRequests { get; } = [];
+
+        public List<CrmTimelineEventRequest> TimelineEvents { get; } = [];
 
         public CrmOptOutRequest? LastOptOutRequest { get; private set; }
 
@@ -1221,13 +1482,21 @@ public sealed class EndpointTelemetryTests
 
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new CrmContactLookupResult(false, null));
+            CancellationToken cancellationToken)
+        {
+            LookupCallCount++;
+            return Task.FromResult(LookupResult);
+        }
 
         public Task<CrmContactUpsertResult> UpsertContactAsync(
             CrmContactUpsertRequest request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new CrmContactUpsertResult(true, Created: true, ProviderContactId: "contact-123"));
+            CancellationToken cancellationToken)
+        {
+            UpsertCallCount++;
+            LastUpsertRequest = request;
+            UpsertRequests.Add(request);
+            return Task.FromResult(UpsertResult);
+        }
 
         public Task<CrmOperationResult> AddInteractionNoteAsync(
             CrmInteractionNoteRequest request,
@@ -1246,8 +1515,13 @@ public sealed class EndpointTelemetryTests
 
         public Task<CrmOperationResult> AddTimelineEventAsync(
             CrmTimelineEventRequest request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new CrmOperationResult(true));
+            CancellationToken cancellationToken)
+        {
+            TimelineEventCallCount++;
+            LastTimelineEventRequest = request;
+            TimelineEvents.Add(request);
+            return Task.FromResult(new CrmOperationResult(true));
+        }
 
         public Task<CrmOperationResult> MarkFollowUpRequiredAsync(
             CrmFollowUpRequest request,

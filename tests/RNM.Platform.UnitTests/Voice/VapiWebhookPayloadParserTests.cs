@@ -104,7 +104,7 @@ public sealed class VapiWebhookPayloadParserTests
     }
 
     [Fact]
-    public void Parse_CurrentVapiToolCallList_ReturnsTypedEnvelope()
+    public void Parse_LegacyVapiToolCallList_ReturnsTypedEnvelope()
     {
         var parser = new VapiWebhookPayloadParser();
 
@@ -170,6 +170,37 @@ public sealed class VapiWebhookPayloadParserTests
         Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
         Assert.Equal("+15551234567", result.Envelope.CallerPhoneNumber);
         Assert.NotNull(result.Envelope.ToolCall);
+        Assert.Equal("book_appointment", result.Envelope.ToolCall.Name);
+        Assert.Contains("serviceNeed", result.Envelope.ToolCall.ArgumentsJson);
+    }
+
+    [Fact]
+    public void Parse_DirectApiRequestBodyWithLegacyToolName_ReturnsLegacyBookingToolCall()
+    {
+        var parser = new VapiWebhookPayloadParser();
+
+        var result = parser.Parse(
+            """
+            {
+              "toolName": "book_hvac_appointment",
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "today",
+              "preferredTime": "tomorrow morning"
+            }
+            """,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Envelope);
+        Assert.Equal("api-request", result.Envelope.RawEventType);
+        Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
+        Assert.NotNull(result.Envelope.ToolCall);
         Assert.Equal("book_hvac_appointment", result.Envelope.ToolCall.Name);
         Assert.Contains("serviceNeed", result.Envelope.ToolCall.ArgumentsJson);
     }
@@ -200,8 +231,67 @@ public sealed class VapiWebhookPayloadParserTests
         Assert.Equal("api-request", result.Envelope.RawEventType);
         Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
         Assert.NotNull(result.Envelope.ToolCall);
+        Assert.Equal("check_availability", result.Envelope.ToolCall.Name);
+        Assert.Contains("availabilityMode", result.Envelope.ToolCall.ArgumentsJson);
+    }
+
+    [Fact]
+    public void Parse_DirectAvailabilityApiRequestBodyWithLegacyToolName_ReturnsLegacyAvailabilityToolCall()
+    {
+        var parser = new VapiWebhookPayloadParser();
+
+        var result = parser.Parse(
+            """
+            {
+              "toolName": "check_hvac_availability",
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "serviceNeed": "AC repair",
+              "propertyType": "residential",
+              "serviceAddress": "123 Main St, Addison TX 75001",
+              "zipCode": "75001",
+              "urgency": "urgent",
+              "availabilityMode": "earliest"
+            }
+            """,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Envelope);
+        Assert.Equal("api-request", result.Envelope.RawEventType);
+        Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
+        Assert.NotNull(result.Envelope.ToolCall);
         Assert.Equal("check_hvac_availability", result.Envelope.ToolCall.Name);
         Assert.Contains("availabilityMode", result.Envelope.ToolCall.ArgumentsJson);
+    }
+
+    [Fact]
+    public void Parse_DirectConsentApiRequestBody_ReturnsConsentToolCall()
+    {
+        var parser = new VapiWebhookPayloadParser();
+
+        var result = parser.Parse(
+            """
+            {
+              "name": "Jane Customer",
+              "phoneNumber": "+15551234567",
+              "email": "jane@example.com",
+              "channelScope": "sms_and_outbound_calls",
+              "granted": true,
+              "capturedDuringCallId": "call-123"
+            }
+            """,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.Envelope);
+        Assert.Equal("api-request", result.Envelope.RawEventType);
+        Assert.Equal(VapiWebhookEventKind.ToolCallRequested, result.Envelope.EventKind);
+        Assert.Equal("+15551234567", result.Envelope.CallerPhoneNumber);
+        Assert.NotNull(result.Envelope.ToolCall);
+        Assert.Equal("record_contact_consent", result.Envelope.ToolCall.Name);
+        Assert.Contains("channelScope", result.Envelope.ToolCall.ArgumentsJson);
     }
 
     [Fact]

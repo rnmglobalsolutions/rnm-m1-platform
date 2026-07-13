@@ -37,8 +37,12 @@ public static class TelemetryEventNames
     public const string CrmFollowUpRequired = "crm.followup_required";
     public const string CrmSkipped = "crm.skipped";
     public const string CrmFailed = "crm.failed";
+    public const string CrmPhoneIndexUpdated = "crm.phone_index.updated";
+    public const string CrmPhoneIndexFailed = "crm.phone_index.failed";
+    public const string CrmPhoneIndexBackfilled = "crm.phone_index.backfilled";
     public const string ConfirmationRequested = "confirmation.requested";
     public const string SmsConfirmationSent = "sms.confirmation.sent";
+    public const string SmsConfirmationSkipped = "sms.confirmation.skipped";
     public const string SmsConfirmationFailed = "sms.confirmation.failed";
     public const string SmsStatusReceived = "sms.status.received";
     public const string EmailConfirmationSent = "email.confirmation.sent";

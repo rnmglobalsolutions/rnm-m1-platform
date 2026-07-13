@@ -43,8 +43,9 @@ public sealed class ConfirmationApplicationService
             return new BookingConfirmationResult(smsSkipped, emailSkipped);
         }
 
-        var smsResult = await SendSmsAsync(request, cancellationToken).ConfigureAwait(false);
-        var emailResult = await SendEmailAsync(request, cancellationToken).ConfigureAwait(false);
+        var contactOptedOut = await IsCustomerOptedOutAsync(request, cancellationToken).ConfigureAwait(false);
+        var smsResult = await SendSmsAsync(request, contactOptedOut, cancellationToken).ConfigureAwait(false);
+        var emailResult = await SendEmailAsync(request, contactOptedOut, cancellationToken).ConfigureAwait(false);
         var businessEmailResult = await SendBusinessEmailAsync(request, cancellationToken).ConfigureAwait(false);
         var businessSmsResult = await SendBusinessSmsAsync(request, cancellationToken).ConfigureAwait(false);
         return new BookingConfirmationResult(smsResult, emailResult, businessSmsResult, businessEmailResult);
@@ -52,8 +53,17 @@ public sealed class ConfirmationApplicationService
 
     private async Task<ConfirmationChannelResult> SendSmsAsync(
         BookingConfirmationRequest request,
+        bool contactOptedOut,
         CancellationToken cancellationToken)
     {
+        if (contactOptedOut)
+        {
+            var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.ContactOptedOut);
+            await LogAsync(TelemetryEventNames.SmsConfirmationSkipped, request, skipped, cancellationToken)
+                .ConfigureAwait(false);
+            return skipped;
+        }
+
         if (string.IsNullOrWhiteSpace(request.CustomerPhoneNumber))
         {
             var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingPhoneNumber);
@@ -135,8 +145,17 @@ public sealed class ConfirmationApplicationService
 
     private async Task<ConfirmationChannelResult> SendEmailAsync(
         BookingConfirmationRequest request,
+        bool contactOptedOut,
         CancellationToken cancellationToken)
     {
+        if (contactOptedOut)
+        {
+            var skipped = Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.ContactOptedOut);
+            await LogAsync(TelemetryEventNames.EmailConfirmationSkipped, request, skipped, cancellationToken)
+                .ConfigureAwait(false);
+            return skipped;
+        }
+
         if (string.IsNullOrWhiteSpace(request.CustomerEmail))
         {
             var skipped = Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingEmail);
@@ -568,6 +587,44 @@ public sealed class ConfirmationApplicationService
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Confirmation telemetry is best-effort.
+        }
+    }
+
+    private async Task<bool> IsCustomerOptedOutAsync(
+        BookingConfirmationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.CustomerPhoneNumber)
+            && string.IsNullOrWhiteSpace(request.CustomerEmail))
+        {
+            return false;
+        }
+
+        try
+        {
+            var lookup = await crmAdapter
+                .FindContactByPhoneOrEmailAsync(
+                    new CrmContactLookupRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.CustomerPhoneNumber,
+                        request.CustomerEmail),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return string.Equals(
+                lookup.Contact?.ConsentStatus,
+                CrmConsentStatuses.OptedOut,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // CRM lookup failures should not block a caller-requested appointment confirmation.
+            return false;
         }
     }
 }

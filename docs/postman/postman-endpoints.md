@@ -9,10 +9,13 @@ Import `docs/postman/RNM.Platform.M1.postman_collection.json` into Postman and c
 | `functionHost` | Main Function App host, for example `https://<main-app>.azurewebsites.net` |
 | `contactFunctionHost` | Contact Function App host, for example `https://<contact-app>.azurewebsites.net` |
 | `tenantId` | Tenant route id, for example `sample-hvac-tenant` |
+| `campaignId` | Outbound campaign id used by CRM v0.5 lead records |
 | `internalApiKey` | Internal API key used by protected test endpoints |
 | `vapiWebhookSecret` | Vapi webhook secret for bearer-token testing |
 | `twilioSignature` | Twilio-generated request signature |
 | `correlationId` | Optional request correlation id |
+| `reportFrom` | Pilot report start timestamp |
+| `reportTo` | Pilot report end timestamp |
 | `testEmail` | Recipient for the test email endpoint |
 | `contactOrigin` | Allowed browser origin for the public contact endpoint |
 | `contactEmail` | Email address used in contact form endpoint tests |
@@ -28,6 +31,39 @@ Expected success:
   "status": "healthy"
 }
 ```
+
+## GET `/api/tenants/{tenantId}/ready`
+
+Protected readiness endpoint for tenant configuration, provider adapter support, storage, secrets, and messaging configuration.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Expected success is `200 OK` with `status: "ready"`. If a dependency is missing, expect `503 Service Unavailable` with per-check readiness details.
+
+## GET `/api/tenants/{tenantId}/reports/pilot?from=&to=`
+
+Protected pilot reporting endpoint. It computes real CRM v0.5/reporting numbers for the requested tenant and date range.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Query parameters:
+
+```text
+from=2026-07-01T00:00:00Z
+to=2026-07-07T23:59:59Z
+```
+
+Expected success is `200 OK` with speed-to-contact, funnel, projected revenue, activity summary, baseline comparison, and summary text.
 
 ## POST `/api/tenants/{tenantId}/webhooks/vapi/inbound`
 
@@ -60,13 +96,15 @@ Expected valid response is usually `202 Accepted`.
 Call lifecycle events are acknowledged quickly and do not run the booking workflow. The workflow starts only when Vapi sends a supported tool call:
 
 ```text
-check_hvac_availability
-book_hvac_appointment
+check_availability
+book_appointment
 ```
+
+Transition note: Vapi assistants should be configured with the agnostic names above. During migration, M1 still accepts the legacy names `check_hvac_availability` and `book_hvac_appointment` with identical behavior.
 
 ### Vapi tool-call body for availability
 
-Use `check_hvac_availability` to inspect real calendar availability without creating an appointment. For urgent calls where the caller has not provided a specific day/time yet, send `availabilityMode: "earliest"`. Urgent requests can use the urgent-only schedule configured in Key Vault, currently Monday-Sunday 7:30am-9:00pm America/Chicago.
+Use `check_availability` to inspect real calendar availability without creating an appointment. For urgent calls where the caller has not provided a specific day/time yet, send `availabilityMode: "earliest"`. M1 tenant/booking configuration is the source of truth for business hours, urgent scheduling rules, and availability.
 
 ```json
 {
@@ -81,7 +119,7 @@ Use `check_hvac_availability` to inspect real calendar availability without crea
     "toolCallList": [
       {
         "id": "tool-123",
-        "name": "check_hvac_availability",
+        "name": "check_availability",
         "arguments": {
           "name": "Jane Customer",
           "phoneNumber": "+15551234567",
@@ -105,7 +143,7 @@ Expected valid tool response is `200 OK` with Vapi's tool result shape and an in
 
 ### Vapi tool-call body for booking
 
-Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy the accepted slot values from `firstAvailableSlot` or one of the returned `suggestedSlots`. Prefer the booking-ready aliases: `selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, and `selectedSlotLabel`. M1 will not auto-book a slot unless `customerConfirmedSlot` is `true` and the selected slot is still available.
+Before sending `book_appointment`, run `check_availability` and copy the accepted slot values from `firstAvailableSlot` or one of the returned `suggestedSlots`. Prefer the booking-ready aliases: `selectedSlotId`, `selectedSlotStart`, `selectedSlotEnd`, and `selectedSlotLabel`. M1 will not auto-book a slot unless `customerConfirmedSlot` is `true` and the selected slot is still available.
 
 ```json
 {
@@ -120,7 +158,7 @@ Before sending `book_hvac_appointment`, run `check_hvac_availability` and copy t
     "toolCallList": [
       {
         "id": "tool-123",
-        "name": "book_hvac_appointment",
+        "name": "book_appointment",
         "arguments": {
           "name": "Jane Customer",
           "phoneNumber": "+15551234567",
@@ -147,7 +185,7 @@ Expected valid tool response is `200 OK` with Vapi's tool result shape. Treat `b
 
 ### Vapi direct API request body for booking
 
-Vapi's `apiRequest` Tool UI may send the request body as a flat JSON object instead of a `toolCallList` envelope. M1 accepts this shape for `book_hvac_appointment` when all required booking fields are present:
+Vapi's `apiRequest` Tool UI may send the request body as a flat JSON object instead of a `toolCallList` envelope. M1 accepts this shape for `book_appointment` when all required booking fields are present:
 
 ```json
 {
@@ -188,6 +226,93 @@ Expected valid direct response is `200 OK` with `bookingSucceeded`, `crmSucceede
 
 Expected valid direct response is `200 OK` with `availabilityFound`, `firstAvailableSlot`, `suggestedSlots`, `timezone`, `outcome`, `tenantId`, and `correlationId` at the top level.
 
+## POST `/api/tenants/{tenantId}/webhooks/vapi/outbound`
+
+Outbound Vapi webhook endpoint. Vapi calls this after outbound call lifecycle events. Terminal events close the CRM loop by recording the outbound attempt.
+
+Headers:
+
+```text
+Content-Type: application/json
+Authorization: Bearer <VAPI_WEBHOOK_SECRET>
+x-correlation-id: <optional-correlation-id>
+```
+
+Sample terminal body:
+
+```json
+{
+  "message": {
+    "type": "end-of-call-report",
+    "call": {
+      "id": "call-123",
+      "status": "ended",
+      "endedReason": "customer-ended-call",
+      "metadata": {
+        "providerContactId": "contact-123",
+        "correlationId": "optional-correlation-id"
+      }
+    }
+  }
+}
+```
+
+You can also pass `contactId`, `campaignId`, and `correlationId` in the query string. Expected valid response is `202 Accepted`.
+
+## POST `/api/tenants/{tenantId}/outbound/campaigns/{campaignId}/run`
+
+Protected manual outbound pilot trigger. It selects eligible CRM v0.5 leads for the campaign, enforces consent and TCPA window, and starts outbound calls through Vapi. This is intentionally manual for the pilot; there is no scheduler.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Expected success is `202 Accepted` with started, skipped, failed counts, and per-lead outcomes. If outbound voice config is missing, expect a safe `400 Bad Request` and no calls placed.
+
+## POST `/api/tenants/{tenantId}/crm/campaigns/{campaignId}/leads/import-csv`
+
+Protected CSV lead import for clients without a CRM. The body is raw `text/csv`.
+
+Headers:
+
+```text
+Content-Type: text/csv
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Required columns:
+
+```text
+firstName,lastName,phone
+```
+
+Recommended columns:
+
+```text
+email,leadSource,intent,targetPropertyAddress,assignedAgent,estimatedValue,timeZone,consentStatus
+```
+
+`consentStatus` may be `opt_in`, `unknown`, or `opted_out`. Missing or unclear consent imports as `unknown`, never `opt_in`.
+
+Expected success is `200 OK` with created, updated, skipped, row errors, and consent breakdown.
+
+## POST `/api/tenants/{tenantId}/crm/phone-index/backfill`
+
+Protected repair endpoint that rebuilds `RnmContactPhoneIndex` for one tenant from `RnmContacts`. It is idempotent and safe to run after deploy or after importing legacy leads.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Expected success is `200 OK` with contactsScanned, indexed, skipped, and failed counts. Contact records remain the source of truth; index failures are repairable and do not change dedup results.
+
 ## POST `/api/tenants/{tenantId}/webhooks/twilio/sms-status`
 
 Twilio SMS delivery-status webhook endpoint.
@@ -210,6 +335,29 @@ From=<NEW_DEMO_TWILIO_NUMBER>
 ```
 
 Twilio signatures depend on the exact URL and form fields. Use a real Twilio webhook call or generate the signature with Twilio tooling for a valid request.
+
+## POST `/api/tenants/{tenantId}/webhooks/twilio/sms-inbound`
+
+Twilio inbound SMS webhook endpoint. Currently used for STOP/opt-out handling.
+
+Headers:
+
+```text
+Content-Type: application/x-www-form-urlencoded
+X-Twilio-Signature: <TWILIO_SIGNATURE>
+x-correlation-id: <optional-correlation-id>
+```
+
+Sample form fields:
+
+```text
+MessageSid=SM1234567890
+Body=STOP
+From=+15551234567
+To=<NEW_DEMO_TWILIO_NUMBER>
+```
+
+Expected valid response is `202 Accepted`. Invalid or unsigned requests are rejected.
 
 ## POST `/api/test/email/send`
 

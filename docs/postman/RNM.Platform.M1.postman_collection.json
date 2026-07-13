@@ -18,6 +18,10 @@
       "value": "sample-hvac-tenant"
     },
     {
+      "key": "campaignId",
+      "value": "pilot-campaign"
+    },
+    {
       "key": "internalApiKey",
       "value": ""
     },
@@ -32,6 +36,14 @@
     {
       "key": "correlationId",
       "value": "{{$guid}}"
+    },
+    {
+      "key": "reportFrom",
+      "value": "2026-07-01T00:00:00Z"
+    },
+    {
+      "key": "reportTo",
+      "value": "2026-07-07T23:59:59Z"
     },
     {
       "key": "selectedSlotId",
@@ -86,6 +98,73 @@
       }
     },
     {
+      "name": "Tenant Readiness",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/ready",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "ready"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pilot Report",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/reports/pilot?from={{reportFrom}}&to={{reportTo}}",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "reports",
+            "pilot"
+          ],
+          "query": [
+            {
+              "key": "from",
+              "value": "{{reportFrom}}"
+            },
+            {
+              "key": "to",
+              "value": "{{reportTo}}"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "Vapi Inbound Webhook",
       "request": {
         "method": "POST",
@@ -124,6 +203,58 @@
       }
     },
     {
+      "name": "Vapi Outbound Webhook",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{vapiWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": {\n    \"type\": \"end-of-call-report\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"status\": \"ended\",\n      \"endedReason\": \"customer-ended-call\",\n      \"metadata\": {\n        \"providerContactId\": \"contact-123\",\n        \"correlationId\": \"{{correlationId}}\"\n      }\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/outbound?contactId=contact-123&campaignId={{campaignId}}&correlationId={{correlationId}}",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "vapi",
+            "outbound"
+          ],
+          "query": [
+            {
+              "key": "contactId",
+              "value": "contact-123"
+            },
+            {
+              "key": "campaignId",
+              "value": "{{campaignId}}"
+            },
+            {
+              "key": "correlationId",
+              "value": "{{correlationId}}"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "Vapi Check HVAC Availability Tool Call",
       "request": {
         "method": "POST",
@@ -143,7 +274,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"check_hvac_availability\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"urgent\",\n          \"availabilityMode\": \"earliest\"\n        }\n      }\n    ]\n  }\n}"
+          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"check_availability\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"urgent\",\n          \"availabilityMode\": \"earliest\"\n        }\n      }\n    ]\n  }\n}"
         },
         "url": {
           "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
@@ -219,7 +350,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"book_hvac_appointment\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"today\",\n          \"preferredTime\": \"{{selectedSlotLabel}}\",\n          \"selectedSlotId\": \"{{selectedSlotId}}\",\n          \"selectedSlotStart\": \"{{selectedSlotStart}}\",\n          \"selectedSlotEnd\": \"{{selectedSlotEnd}}\",\n          \"selectedSlotLabel\": \"{{selectedSlotLabel}}\",\n          \"customerConfirmedSlot\": true\n        }\n      }\n    ]\n  }\n}"
+          "raw": "{\n  \"message\": {\n    \"type\": \"tool-calls\",\n    \"call\": {\n      \"id\": \"call-{{$timestamp}}\",\n      \"customer\": {\n        \"number\": \"+15551234567\"\n      }\n    },\n    \"toolCallList\": [\n      {\n        \"id\": \"tool-{{$timestamp}}\",\n        \"name\": \"book_appointment\",\n        \"arguments\": {\n          \"name\": \"Jane Customer\",\n          \"phoneNumber\": \"+15551234567\",\n          \"email\": \"jane@example.com\",\n          \"serviceNeed\": \"AC not cooling\",\n          \"propertyType\": \"residential\",\n          \"serviceAddress\": \"123 Main Street, Addison, TX 75001\",\n          \"zipCode\": \"75001\",\n          \"urgency\": \"today\",\n          \"preferredTime\": \"{{selectedSlotLabel}}\",\n          \"selectedSlotId\": \"{{selectedSlotId}}\",\n          \"selectedSlotStart\": \"{{selectedSlotStart}}\",\n          \"selectedSlotEnd\": \"{{selectedSlotEnd}}\",\n          \"selectedSlotLabel\": \"{{selectedSlotLabel}}\",\n          \"customerConfirmedSlot\": true\n        }\n      }\n    ]\n  }\n}"
         },
         "url": {
           "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/vapi/inbound",
@@ -271,6 +402,107 @@
             "webhooks",
             "vapi",
             "inbound"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Outbound Campaign Run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/outbound/campaigns/{{campaignId}}/run",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "outbound",
+            "campaigns",
+            "{{campaignId}}",
+            "run"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Lead CSV Import",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/csv"
+          },
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "firstName,lastName,phone,email,leadSource,intent,targetPropertyAddress,assignedAgent,estimatedValue,timeZone,consentStatus\nJane,Seller,3052445176,jane@example.com,zillow,seller,\"123 Main St, Miami, FL\",Alex,450000,America/New_York,opt_in\nBob,Buyer,+13055550123,,old_database,buyer,,Alex,,America/New_York,unknown\nPat,Owner,3055550188,pat@example.com,expired_listing,seller,\"900 Ocean Dr, Miami, FL\",Alex,725000,America/New_York,opted_out"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/crm/campaigns/{{campaignId}}/leads/import-csv",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "crm",
+            "campaigns",
+            "{{campaignId}}",
+            "leads",
+            "import-csv"
+          ]
+        }
+      }
+    },
+    {
+      "name": "CRM Phone Index Backfill",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/crm/phone-index/backfill",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "crm",
+            "phone-index",
+            "backfill"
           ]
         }
       }
@@ -330,6 +562,65 @@
             "webhooks",
             "twilio",
             "sms-status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Twilio SMS Inbound Webhook",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "X-Twilio-Signature",
+            "value": "{{twilioSignature}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "MessageSid",
+              "value": "SM1234567890",
+              "type": "text"
+            },
+            {
+              "key": "Body",
+              "value": "STOP",
+              "type": "text"
+            },
+            {
+              "key": "From",
+              "value": "+15551234567",
+              "type": "text"
+            },
+            {
+              "key": "To",
+              "value": "+1REPLACE_WITH_DEMO_TWILIO_NUMBER",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/twilio/sms-inbound",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "twilio",
+            "sms-inbound"
           ]
         }
       }

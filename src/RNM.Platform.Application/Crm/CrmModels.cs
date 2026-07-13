@@ -11,7 +11,10 @@ public sealed record CrmContactLookupRequest(
 
 public sealed record CrmContactLookupResult(
     bool Found,
-    string? ProviderContactId);
+    string? ProviderContactId)
+{
+    public CrmContactRecord? Contact { get; init; }
+}
 
 public sealed record CrmContactUpsertRequest(
     string TenantId,
@@ -33,6 +36,8 @@ public sealed record CrmContactUpsertRequest(
     public DateTimeOffset? FollowUpAt { get; init; }
 
     public DateTimeOffset LastInteractionAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public bool AllowOptOutReversal { get; init; }
 }
 
 public sealed record CrmContactUpsertResult(
@@ -103,6 +108,18 @@ public sealed record CrmOperationResult(
     bool Succeeded,
     CrmFailureReason? FailureReason = null,
     string? Message = null);
+
+public sealed record CrmContactPhoneIndexBackfillRequest(
+    string TenantId,
+    string CorrelationId);
+
+public sealed record CrmContactPhoneIndexBackfillResult(
+    string TenantId,
+    string CorrelationId,
+    int ContactsScanned,
+    int Indexed,
+    int Skipped,
+    int Failed);
 
 public sealed record CrmContactRecord(
     string TenantId,
@@ -199,6 +216,39 @@ public sealed record CrmOptOutRequest(
     public string? Email { get; init; }
 }
 
+public sealed record CrmMarketingConsentRequest(
+    string TenantId,
+    string VerticalId,
+    string CorrelationId,
+    string ChannelScope,
+    bool Granted)
+{
+    public string Source { get; init; } = "InboundVoice";
+
+    public string? ProviderCallId { get; init; }
+
+    public string? PhoneNumber { get; init; }
+
+    public string? Email { get; init; }
+
+    public string? Name { get; init; }
+
+    public string? ZipCode { get; init; }
+
+    public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public bool IsPersonInitiatedInbound { get; init; }
+}
+
+public sealed record CrmMarketingConsentResult(
+    bool Succeeded,
+    string ConsentStatus,
+    string? ProviderContactId,
+    bool ContactUpdated,
+    string TimelineEventType,
+    CrmFailureReason? FailureReason = null,
+    string? Message = null);
+
 public sealed record CrmTimelineEventRequest(
     string TenantId,
     string CorrelationId,
@@ -289,7 +339,8 @@ public enum CrmFailureReason
     AdapterFailure = 6,
     MissingContactIdentifier = 7,
     ConsentOptedOut = 8,
-    ContactNotFound = 9
+    ContactNotFound = 9,
+    InvalidConsentScope = 10
 }
 
 public static class CrmLeadStatuses
@@ -305,11 +356,17 @@ public static class CrmLeadStatuses
 public static class CrmTimelineEventTypes
 {
     public const string LeadQualified = "lead.qualified";
+    public const string LeadImported = "lead.imported";
     public const string BookingCreated = "booking.created";
     public const string FollowUpRequired = "followup.required";
     public const string OutboundAttemptRecorded = "outbound.attempt_recorded";
     public const string LeadReactivated = "lead.reactivated";
     public const string ConsentOptedOut = "consent.opted_out";
+    public const string TransactionalConsentInboundBooking = "consent.transactional.inbound_booking";
+    public const string MarketingConsentInboundCallGranted = "consent.marketing.inbound_call_granted";
+    public const string MarketingConsentInboundCallDeclined = "consent.marketing.inbound_call_declined";
+    public const string MarketingConsentInboundCallBlockedOptedOut = "consent.marketing.inbound_call_blocked_opted_out";
+    public const string MarketingConsentReversedFromOptOut = "consent.marketing.reversed_from_optout";
     public const string SmsSent = "sms.sent";
     public const string EmailSent = "email.sent";
 }
@@ -326,6 +383,7 @@ public static class CrmContactAttributeNames
     public const string TargetPropertyAddress = "targetPropertyAddress";
     public const string AssignedAgent = "assignedAgent";
     public const string ConsentStatus = "consentStatus";
+    public const string ConsentOptedOutAt = "consentOptedOutAt";
 }
 
 public static class CrmOutboundLeadStatuses

@@ -100,8 +100,10 @@ Do not enable silent or indefinite live transfer behavior for this assistant. If
 Create a custom server/API tool named:
 
 ```text
-check_hvac_availability
+check_availability
 ```
+
+Configure new assistants with `check_availability`. M1 temporarily accepts the legacy `check_hvac_availability` alias during migration.
 
 Use this tool to check real calendar availability without booking the appointment. M1 is the source of truth for business hours, service availability, scheduling rules, and service area eligibility.
 
@@ -196,17 +198,19 @@ messageForAssistant
 Create a custom server/API tool named:
 
 ```text
-book_hvac_appointment
+book_appointment
 ```
 
-M1 acknowledges Vapi call lifecycle events quickly. Booking should run only after the caller has accepted one exact slot returned by `check_hvac_availability`.
+Configure new assistants with `book_appointment`. M1 temporarily accepts the legacy `book_hvac_appointment` alias during migration.
+
+M1 acknowledges Vapi call lifecycle events quickly. Booking should run only after the caller has accepted one exact slot returned by `check_availability`.
 
 After the caller accepts the exact slot, the assistant should call the booking tool immediately. If it speaks before the tool call starts, use only this short status phrase: "One moment while I confirm that appointment." Do not ask a question after that phrase. The assistant must not say the appointment is booked until M1 returns `bookingSucceeded=true`, and it must not report a problem or offer a retry unless M1 returns `bookingSucceeded=false`.
 
 Description:
 
 ```text
-Use only after the caller has accepted one exact slot returned by check_hvac_availability. This validates service area, creates or updates the CRM contact, re-checks slot availability, books the appointment, and sends confirmations. Copy selectedSlotId, selectedSlotStart, selectedSlotEnd, and selectedSlotLabel exactly from the accepted availability result. Do not invent, shorten, translate, reinterpret, or transform slot IDs, datetime values, labels, or timezone values. Set customerConfirmedSlot=true only after the caller clearly accepts the exact selectedSlotLabel. Do not claim the appointment is booked unless bookingSucceeded=true.
+Use only after the caller has accepted one exact slot returned by check_availability. This validates service area, creates or updates the CRM contact, re-checks slot availability, books the appointment, and sends confirmations. Copy selectedSlotId, selectedSlotStart, selectedSlotEnd, and selectedSlotLabel exactly from the accepted availability result. Do not invent, shorten, translate, reinterpret, or transform slot IDs, datetime values, labels, or timezone values. Set customerConfirmedSlot=true only after the caller clearly accepts the exact selectedSlotLabel. Do not claim the appointment is booked unless bookingSucceeded=true.
 ```
 
 Method:
@@ -280,19 +284,19 @@ Tool parameters:
     },
     "selectedSlotId": {
       "type": "string",
-      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotId or suggestedSlots item returned by check_hvac_availability. If only slotId is present, copy slotId exactly."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotId or suggestedSlots item returned by check_availability. If only slotId is present, copy slotId exactly."
     },
     "selectedSlotStart": {
       "type": "string",
-      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotStart or suggestedSlots item returned by check_hvac_availability. If only startsAt is present, copy startsAt exactly. Do not recalculate timezone."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotStart or suggestedSlots item returned by check_availability. If only startsAt is present, copy startsAt exactly. Do not recalculate timezone."
     },
     "selectedSlotEnd": {
       "type": "string",
-      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotEnd or suggestedSlots item returned by check_hvac_availability. If only endsAt is present, copy endsAt exactly. Do not recalculate timezone."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotEnd or suggestedSlots item returned by check_availability. If only endsAt is present, copy endsAt exactly. Do not recalculate timezone."
     },
     "selectedSlotLabel": {
       "type": "string",
-      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotLabel or suggestedSlots item returned by check_hvac_availability. If only label is present, copy label exactly. Do not shorten, translate, correct, or reinterpret the weekday, date, time, or timezone."
+      "description": "Copy exactly from the accepted firstAvailableSlot.selectedSlotLabel or suggestedSlots item returned by check_availability. If only label is present, copy label exactly. Do not shorten, translate, correct, or reinterpret the weekday, date, time, or timezone."
     },
     "customerConfirmedSlot": {
       "type": "boolean",
@@ -326,7 +330,7 @@ Availability tool result:
 {
   "results": [
     {
-      "name": "check_hvac_availability",
+      "name": "check_availability",
       "toolCallId": "<tool-call-id>",
       "result": "{\"accepted\":true,\"processed\":true,\"availabilityFound\":true,\"requestedWindowAvailable\":null,\"availabilityModeUsed\":\"earliest\",\"qualificationState\":\"Qualified\",\"serviceAreaState\":\"InServiceArea\",\"bookingState\":\"AvailabilityFound\",\"bookingFailureReason\":null,\"availableSlotCount\":1,\"timezone\":\"America/Chicago\",\"firstAvailableSlot\":{\"slotId\":\"slot-1\",\"startsAt\":\"2026-05-29T16:00:00.0000000-05:00\",\"endsAt\":\"2026-05-29T16:30:00.0000000-05:00\",\"label\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\"},\"selectedSlotId\":\"slot-1\",\"selectedSlotStart\":\"2026-05-29T16:00:00.0000000-05:00\",\"selectedSlotEnd\":\"2026-05-29T16:30:00.0000000-05:00\",\"selectedSlotLabel\":\"Friday, May 29, 2026 at 4:00 PM America/Chicago\",\"messageForAssistant\":\"The earliest available appointment is Friday, May 29, 2026 at 4:00 PM America/Chicago. Ask the caller if that works for them before booking.\"}"
     }
@@ -340,7 +344,7 @@ When Vapi sends a `toolCallList` webhook envelope, the RNM webhook returns Vapi'
 {
   "results": [
     {
-      "name": "book_hvac_appointment",
+      "name": "book_appointment",
       "toolCallId": "<tool-call-id>",
       "result": "{\"accepted\":true,\"processed\":true,\"outcome\":\"Completed\",\"bookingSucceeded\":true,\"crmSucceeded\":true,\"confirmationSucceeded\":true}"
     }
@@ -382,7 +386,7 @@ My AC is not cooling and this is urgent. I am at 123 Main Street, Addison, Texas
 Expected urgent behavior:
 
 ```text
-The assistant acknowledges urgency, collects required contact and service details, calls check_hvac_availability with earliest behavior, offers the first returned slot, and books only after the caller accepts that exact slot.
+The assistant acknowledges urgency, collects required contact and service details, calls check_availability with earliest behavior, offers the first returned slot, and books only after the caller accepts that exact slot.
 ```
 
 Use a non-urgent in-service-area example:
@@ -394,7 +398,7 @@ I need AC maintenance. This is not urgent. I am at 123 Main Street, Addison, Tex
 Expected non-urgent behavior:
 
 ```text
-The assistant asks or confirms urgency, treats unclear urgency as non-urgent, collects a preferred day/time window, calls check_hvac_availability with urgency=non_urgent and availabilityMode=preferred_window, and includes preferredTime.
+The assistant asks or confirms urgency, treats unclear urgency as non-urgent, collects a preferred day/time window, calls check_availability with urgency=non_urgent and availabilityMode=preferred_window, and includes preferredTime.
 ```
 
 Use another valid ZIP example:
