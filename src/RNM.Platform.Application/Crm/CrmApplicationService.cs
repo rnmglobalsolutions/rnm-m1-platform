@@ -7,6 +7,7 @@ namespace RNM.Platform.Application.Crm;
 public sealed class CrmApplicationService
 {
     private const int MaxDynamicTagValueLength = 48;
+    private const string MarketingConsentScope = "sms_and_outbound_calls";
 
     private static readonly HashSet<string> ContactAttributeFields =
         new(StringComparer.OrdinalIgnoreCase)
@@ -238,6 +239,11 @@ public sealed class CrmApplicationService
                 request,
                 cancellationToken)
             .ConfigureAwait(false);
+        await TryAddTimelineEventAsync(
+                CreateTransactionalConsentTimelineEvent(request, contactId, request.BookingDecision.ProviderBookingId),
+                request,
+                cancellationToken)
+            .ConfigureAwait(false);
         return synced;
     }
 
@@ -304,6 +310,225 @@ public sealed class CrmApplicationService
             .ConfigureAwait(false);
 
         return result;
+    }
+
+    public async Task<CrmMarketingConsentResult> RecordInboundMarketingConsentAsync(
+        CrmMarketingConsentRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.PhoneNumber) && string.IsNullOrWhiteSpace(request.Email))
+        {
+            await LogAsync(
+                    TelemetryEventNames.CrmSkipped,
+                    request.TenantId,
+                    request.CorrelationId,
+                    providerContactId: null,
+                    CrmFailureReason.MissingContactIdentifier,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return new CrmMarketingConsentResult(
+                Succeeded: false,
+                CrmConsentStatuses.Unknown,
+                ProviderContactId: null,
+                ContactUpdated: false,
+                TimelineEventType: string.Empty,
+                CrmFailureReason.MissingContactIdentifier);
+        }
+
+        var normalizedScope = string.IsNullOrWhiteSpace(request.ChannelScope)
+            ? MarketingConsentScope
+            : request.ChannelScope.Trim();
+        if (!string.Equals(normalizedScope, MarketingConsentScope, StringComparison.OrdinalIgnoreCase))
+        {
+            return await FailMarketingConsentAsync(
+                    request,
+                    null,
+                    CrmConsentStatuses.Unknown,
+                    string.Empty,
+                    CrmFailureReason.InvalidConsentScope,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        CrmContactLookupResult lookupResult;
+        try
+        {
+            lookupResult = await crmAdapter
+                .FindContactByPhoneOrEmailAsync(
+                    new CrmContactLookupRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.PhoneNumber,
+                        request.Email),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return await FailMarketingConsentAsync(
+                    request,
+                    null,
+                    CrmConsentStatuses.Unknown,
+                    string.Empty,
+                    CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var providerContactId = lookupResult.ProviderContactId;
+        var currentConsentStatus = lookupResult.Contact?.ConsentStatus ?? CrmConsentStatuses.Unknown;
+        if (lookupResult.Found && string.IsNullOrWhiteSpace(providerContactId))
+        {
+            return await FailMarketingConsentAsync(
+                    request,
+                    null,
+                    currentConsentStatus,
+                    string.Empty,
+                    CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!lookupResult.Found)
+        {
+            var ensureResult = await UpsertMarketingConsentContactAsync(
+                    request,
+                    providerContactId: null,
+                    consentStatus: CrmConsentStatuses.Unknown,
+                    allowOptOutReversal: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!ensureResult.Succeeded || string.IsNullOrWhiteSpace(ensureResult.ProviderContactId))
+            {
+                return await FailMarketingConsentAsync(
+                        request,
+                        ensureResult.ProviderContactId,
+                        CrmConsentStatuses.Unknown,
+                        string.Empty,
+                        ensureResult.FailureReason ?? CrmFailureReason.ContactUpsertFailed,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            providerContactId = ensureResult.ProviderContactId;
+        }
+
+        if (string.IsNullOrWhiteSpace(providerContactId))
+        {
+            return await FailMarketingConsentAsync(
+                    request,
+                    null,
+                    currentConsentStatus,
+                    string.Empty,
+                    CrmFailureReason.MissingProviderContactId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var isOptedOut = string.Equals(currentConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
+        var canReverseOptOut = isOptedOut && request.Granted && request.IsPersonInitiatedInbound;
+        var previousOptOutAt = TryGetContactAttribute(lookupResult.Contact, CrmContactAttributeNames.ConsentOptedOutAt);
+        var timelineEventType = request.Granted
+            ? isOptedOut
+                ? canReverseOptOut
+                    ? CrmTimelineEventTypes.MarketingConsentReversedFromOptOut
+                    : CrmTimelineEventTypes.MarketingConsentInboundCallBlockedOptedOut
+                : CrmTimelineEventTypes.MarketingConsentInboundCallGranted
+            : CrmTimelineEventTypes.MarketingConsentInboundCallDeclined;
+        var resultingConsentStatus = request.Granted && (!isOptedOut || canReverseOptOut)
+            ? CrmConsentStatuses.OptIn
+            : currentConsentStatus;
+
+        var timelineResult = await TryOperationAsync(
+                () => crmAdapter.AddTimelineEventAsync(
+                    CreateMarketingConsentTimelineEvent(
+                        request,
+                        providerContactId,
+                        timelineEventType,
+                        resultingConsentStatus,
+                        previousOptOutAt,
+                        normalizedScope),
+                    cancellationToken))
+            .ConfigureAwait(false);
+        if (!timelineResult.Succeeded)
+        {
+            await LogAsync(
+                    TelemetryEventNames.CrmTimelineEventFailed,
+                    request.TenantId,
+                    request.CorrelationId,
+                    providerContactId,
+                    timelineResult.FailureReason ?? CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return await FailMarketingConsentAsync(
+                    request,
+                    providerContactId,
+                    currentConsentStatus,
+                    timelineEventType,
+                    timelineResult.FailureReason ?? CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await LogAsync(
+                TelemetryEventNames.CrmTimelineEventAdded,
+                request.TenantId,
+                request.CorrelationId,
+                providerContactId,
+                null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!request.Granted || (isOptedOut && !canReverseOptOut))
+        {
+            return new CrmMarketingConsentResult(
+                Succeeded: true,
+                resultingConsentStatus,
+                providerContactId,
+                ContactUpdated: false,
+                timelineEventType);
+        }
+
+        var optInResult = await UpsertMarketingConsentContactAsync(
+                request,
+                providerContactId,
+                CrmConsentStatuses.OptIn,
+                allowOptOutReversal: canReverseOptOut,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!optInResult.Succeeded || string.IsNullOrWhiteSpace(optInResult.ProviderContactId))
+        {
+            return await FailMarketingConsentAsync(
+                    request,
+                    providerContactId,
+                    currentConsentStatus,
+                    timelineEventType,
+                    optInResult.FailureReason ?? CrmFailureReason.ContactUpsertFailed,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await LogAsync(
+                optInResult.Created ? TelemetryEventNames.CrmContactCreated : TelemetryEventNames.CrmContactUpdated,
+                request.TenantId,
+                request.CorrelationId,
+                optInResult.ProviderContactId,
+                null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return new CrmMarketingConsentResult(
+            Succeeded: true,
+            CrmConsentStatuses.OptIn,
+            optInResult.ProviderContactId,
+            ContactUpdated: true,
+            timelineEventType);
     }
 
     private static CrmContactLookupRequest CreateLookupRequest(
@@ -494,6 +719,170 @@ public sealed class CrmApplicationService
                 ["serviceType"] = request.ServiceType ?? GetFieldValue(request, "serviceNeed") ?? string.Empty,
                 ["bookingLabel"] = request.BookingDecision.SelectedSlot?.Label ?? string.Empty
             });
+    }
+
+    private static CrmTimelineEventRequest CreateTransactionalConsentTimelineEvent(
+        CrmPostBookingSyncRequest request,
+        string providerContactId,
+        string? providerBookingId)
+    {
+        return new CrmTimelineEventRequest(
+            request.TenantId,
+            request.CorrelationId,
+            providerContactId,
+            providerBookingId,
+            CrmTimelineEventTypes.TransactionalConsentInboundBooking,
+            request.Source,
+            "Transactional appointment messaging basis recorded for inbound booking.",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["basis"] = "inbound_booking",
+                ["scope"] = "transactional_appointment_messages",
+                ["marketingConsent"] = "not_granted",
+                ["bookingProvider"] = request.BookingProvider ?? string.Empty,
+                ["bookingLabel"] = request.BookingDecision.SelectedSlot?.Label ?? string.Empty
+            });
+    }
+
+    private static CrmTimelineEventRequest CreateMarketingConsentTimelineEvent(
+        CrmMarketingConsentRequest request,
+        string providerContactId,
+        string timelineEventType,
+        string resultingConsentStatus,
+        string? previousOptOutAt,
+        string channelScope)
+    {
+        var granted = timelineEventType == CrmTimelineEventTypes.MarketingConsentInboundCallGranted
+            || timelineEventType == CrmTimelineEventTypes.MarketingConsentReversedFromOptOut;
+        var summary = timelineEventType switch
+        {
+            CrmTimelineEventTypes.MarketingConsentInboundCallGranted => "Marketing follow-up consent granted during inbound call.",
+            CrmTimelineEventTypes.MarketingConsentReversedFromOptOut => "Marketing follow-up consent reversed from opt-out by explicit inbound-initiated consent.",
+            CrmTimelineEventTypes.MarketingConsentInboundCallBlockedOptedOut => "Marketing follow-up consent conflict blocked because contact is opted out.",
+            _ => "Marketing follow-up consent declined during inbound call."
+        };
+        var previousOptOutTimestamp = string.Empty;
+        if (request.Granted
+            && string.Equals(resultingConsentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase)
+            && timelineEventType == CrmTimelineEventTypes.MarketingConsentReversedFromOptOut)
+        {
+            previousOptOutTimestamp = string.IsNullOrWhiteSpace(previousOptOutAt) ? "unknown" : previousOptOutAt.Trim();
+        }
+
+        return new CrmTimelineEventRequest(
+            request.TenantId,
+            request.CorrelationId,
+            providerContactId,
+            ProviderBookingId: null,
+            timelineEventType,
+            request.Source,
+            summary,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["basis"] = "explicit_inbound_call_permission",
+                ["scope"] = channelScope,
+                ["granted"] = granted ? bool.TrueString : bool.FalseString,
+                ["requestedGranted"] = request.Granted ? bool.TrueString : bool.FalseString,
+                ["consentStatus"] = resultingConsentStatus,
+                ["previousConsentStatus"] = timelineEventType == CrmTimelineEventTypes.MarketingConsentReversedFromOptOut
+                    ? CrmConsentStatuses.OptedOut
+                    : string.Empty,
+                ["previousOptOutAt"] = previousOptOutTimestamp,
+                ["newConsentAt"] = request.CapturedAt.ToUniversalTime().ToString("O"),
+                ["inboundInitiated"] = request.IsPersonInitiatedInbound ? bool.TrueString : bool.FalseString,
+                ["explicitConsent"] = request.Granted ? bool.TrueString : bool.FalseString,
+                ["capturedAt"] = request.CapturedAt.ToUniversalTime().ToString("O"),
+                ["providerCallId"] = request.ProviderCallId ?? string.Empty
+            });
+    }
+
+    private async Task<CrmContactUpsertResult> UpsertMarketingConsentContactAsync(
+        CrmMarketingConsentRequest request,
+        string? providerContactId,
+        string consentStatus,
+        bool allowOptOutReversal,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await LogAsync(
+                    TelemetryEventNames.CrmUpsertRequested,
+                    request.TenantId,
+                    request.CorrelationId,
+                    providerContactId,
+                    null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return await crmAdapter
+                .UpsertContactAsync(
+                    new CrmContactUpsertRequest(
+                        request.TenantId,
+                        request.VerticalId,
+                        request.CorrelationId,
+                        providerContactId,
+                        request.PhoneNumber,
+                        request.Email,
+                        request.Name,
+                        request.ZipCode,
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [CrmContactAttributeNames.ConsentStatus] = consentStatus
+                        })
+                    {
+                        LeadStatus = CrmLeadStatuses.Qualified,
+                        NeedsFollowUp = false,
+                        LastInteractionAt = request.CapturedAt,
+                        AllowOptOutReversal = allowOptOutReversal
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return new CrmContactUpsertResult(
+                Succeeded: false,
+                Created: false,
+                ProviderContactId: providerContactId,
+                CrmFailureReason.AdapterFailure);
+        }
+    }
+
+    private static string? TryGetContactAttribute(CrmContactRecord? contact, string attributeName)
+    {
+        return contact?.Attributes.TryGetValue(attributeName, out var value) == true
+            ? value
+            : null;
+    }
+
+    private async Task<CrmMarketingConsentResult> FailMarketingConsentAsync(
+        CrmMarketingConsentRequest request,
+        string? providerContactId,
+        string consentStatus,
+        string timelineEventType,
+        CrmFailureReason reason,
+        CancellationToken cancellationToken)
+    {
+        await LogAsync(
+                TelemetryEventNames.CrmFailed,
+                request.TenantId,
+                request.CorrelationId,
+                providerContactId,
+                reason,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return new CrmMarketingConsentResult(
+            Succeeded: false,
+            consentStatus,
+            providerContactId,
+            ContactUpdated: false,
+            timelineEventType,
+            reason);
     }
 
     private async Task TryAddTimelineEventAsync(

@@ -9,6 +9,7 @@ using RNM.Platform.Api.Security;
 using RNM.Platform.Api.Voice;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Qualification;
@@ -20,8 +21,12 @@ namespace RNM.Platform.Api.Functions;
 
 public sealed class VapiInboundWebhookFunction
 {
-    private const string BookHvacAppointmentToolName = "book_hvac_appointment";
-    private const string CheckHvacAvailabilityToolName = "check_hvac_availability";
+    private const string BookAppointmentToolName = "book_appointment";
+    private const string LegacyBookHvacAppointmentToolName = "book_hvac_appointment";
+    private const string CheckAvailabilityToolName = "check_availability";
+    private const string LegacyCheckHvacAvailabilityToolName = "check_hvac_availability";
+    private const string RecordContactConsentToolName = "record_contact_consent";
+    private const string MarketingConsentScope = "sms_and_outbound_calls";
     private const int MaxAvailabilitySuggestions = 3;
     private static readonly string[] UrgentSignals =
     [
@@ -58,6 +63,7 @@ public sealed class VapiInboundWebhookFunction
     private readonly VapiWebhookMapper webhookMapper;
     private readonly IInboundCallEventProcessor inboundCallEventProcessor;
     private readonly IInboundBookingWorkflow inboundBookingWorkflow;
+    private readonly CrmApplicationService crmApplicationService;
     private readonly LimitedRequestBodyReader requestBodyReader;
     private readonly VapiWebhookOptions options;
 
@@ -73,6 +79,7 @@ public sealed class VapiInboundWebhookFunction
         VapiWebhookMapper webhookMapper,
         IInboundCallEventProcessor inboundCallEventProcessor,
         IInboundBookingWorkflow inboundBookingWorkflow,
+        CrmApplicationService crmApplicationService,
         LimitedRequestBodyReader requestBodyReader,
         VapiWebhookOptions options)
     {
@@ -87,6 +94,7 @@ public sealed class VapiInboundWebhookFunction
         this.webhookMapper = webhookMapper;
         this.inboundCallEventProcessor = inboundCallEventProcessor;
         this.inboundBookingWorkflow = inboundBookingWorkflow;
+        this.crmApplicationService = crmApplicationService;
         this.requestBodyReader = requestBodyReader;
         this.options = options;
     }
@@ -274,6 +282,7 @@ public sealed class VapiInboundWebhookFunction
             }
 
             var isAvailabilityToolCall = IsAvailabilityToolCall(inboundCallEvent.ActionRequest);
+            var isConsentToolCall = IsConsentToolCall(inboundCallEvent.ActionRequest);
             await LogToolCallReceivedAsync(
                     correlationId,
                     tenantContext.TenantId,
@@ -284,6 +293,82 @@ public sealed class VapiInboundWebhookFunction
                     isAvailabilityToolCall,
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            if (isConsentToolCall)
+            {
+                var consentResult = await crmApplicationService
+                    .RecordInboundMarketingConsentAsync(
+                        CreateMarketingConsentRequest(inboundCallEvent),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                var consentOutcome = consentResult.Succeeded ? "Completed" : "Failed";
+
+                await LogVoiceEventAsync(
+                        TelemetryEventNames.VoiceEventProcessed,
+                        correlationId,
+                        tenantContext.TenantId,
+                        parseResult.Envelope.RawEventType,
+                        inboundCallEvent.EventType.ToString(),
+                        consentOutcome,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                await LogWebhookAsync(
+                        consentResult.Succeeded ? TelemetryEventNames.ApiRequestCompleted : TelemetryEventNames.ApiRequestFailed,
+                        correlationId,
+                        null,
+                        tenantContext.TenantId,
+                        "vapi",
+                        consentOutcome,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                await LogConsentToolCallRespondedAsync(
+                        correlationId,
+                        tenantContext.TenantId,
+                        parseResult.Envelope.RawEventType,
+                        inboundCallEvent.EventType.ToString(),
+                        inboundCallEvent.ActionRequest,
+                        consentResult,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (parseResult.Envelope.ToolCall is not null)
+                {
+                    if (IsDirectApiRequestToolCall(parseResult.Envelope))
+                    {
+                        return WriteDirectConsentToolResult(
+                            request,
+                            consentResult.Succeeded ? HttpStatusCode.OK : HttpStatusCode.InternalServerError,
+                            correlationId,
+                            tenantContext.TenantId,
+                            inboundCallEvent.EventType.ToString(),
+                            consentOutcome,
+                            consentResult);
+                    }
+
+                    return WriteConsentToolResult(
+                        request,
+                        parseResult.Envelope.ToolCall.Name,
+                        parseResult.Envelope.ToolCall.ToolCallId,
+                        correlationId,
+                        tenantContext.TenantId,
+                        inboundCallEvent.EventType.ToString(),
+                        consentOutcome,
+                        consentResult);
+                }
+
+                return responseWriter.WriteJson(
+                    request,
+                    consentResult.Succeeded ? HttpStatusCode.Accepted : HttpStatusCode.InternalServerError,
+                    CreateConsentResponsePayload(
+                        correlationId,
+                        tenantContext.TenantId,
+                        inboundCallEvent.EventType.ToString(),
+                        consentOutcome,
+                        consentResult),
+                    correlationId);
+            }
 
             var workflowResult = await inboundBookingWorkflow
                 .ProcessAsync(
@@ -504,6 +589,27 @@ public sealed class VapiInboundWebhookFunction
             correlationId);
     }
 
+    private HttpResponseData WriteDirectConsentToolResult(
+        HttpRequestData request,
+        HttpStatusCode statusCode,
+        string correlationId,
+        string tenantId,
+        string eventType,
+        string outcome,
+        CrmMarketingConsentResult consentResult)
+    {
+        return responseWriter.WriteJson(
+            request,
+            statusCode,
+            CreateConsentResponsePayload(
+                correlationId,
+                tenantId,
+                eventType,
+                outcome,
+                consentResult),
+            correlationId);
+    }
+
     private HttpResponseData WriteToolResult(
         HttpRequestData request,
         string? toolName,
@@ -570,6 +676,41 @@ public sealed class VapiInboundWebhookFunction
             confirmationSucceeded = false,
             messageForAssistant = "This tool is not supported. Continue safely without exposing internal tool details."
         });
+
+        return responseWriter.WriteJson(
+            request,
+            HttpStatusCode.OK,
+            new
+            {
+                results = new[]
+                {
+                    new
+                    {
+                        name = toolName,
+                        toolCallId,
+                        result = toolResult
+                    }
+                }
+            },
+            correlationId);
+    }
+
+    private HttpResponseData WriteConsentToolResult(
+        HttpRequestData request,
+        string? toolName,
+        string? toolCallId,
+        string correlationId,
+        string tenantId,
+        string eventType,
+        string outcome,
+        CrmMarketingConsentResult consentResult)
+    {
+        var toolResult = JsonSerializer.Serialize(CreateConsentResponsePayload(
+            correlationId,
+            tenantId,
+            eventType,
+            outcome,
+            consentResult));
 
         return responseWriter.WriteJson(
             request,
@@ -672,6 +813,30 @@ public sealed class VapiInboundWebhookFunction
             selectedSlotLabel = firstAvailableSlot?.selectedSlotLabel,
             suggestedSlots,
             messageForAssistant = CreateAvailabilityMessage(workflowResult, availabilityFound, hasPreferredWindow, firstAvailableSlot?.label)
+        };
+    }
+
+    private static object CreateConsentResponsePayload(
+        string correlationId,
+        string tenantId,
+        string eventType,
+        string outcome,
+        CrmMarketingConsentResult consentResult)
+    {
+        return new
+        {
+            accepted = true,
+            processed = consentResult.Succeeded,
+            correlationId,
+            tenantId,
+            eventType,
+            outcome,
+            consentRecorded = consentResult.Succeeded,
+            consentStatus = consentResult.ConsentStatus,
+            contactUpdated = consentResult.ContactUpdated,
+            timelineEventType = consentResult.TimelineEventType,
+            failureReason = consentResult.FailureReason?.ToString(),
+            messageForAssistant = CreateConsentMessage(consentResult)
         };
     }
 
@@ -780,22 +945,70 @@ public sealed class VapiInboundWebhookFunction
         };
     }
 
+    private static string CreateConsentMessage(CrmMarketingConsentResult consentResult)
+    {
+        if (!consentResult.Succeeded)
+        {
+            return "M1 could not record the consent preference. Continue the booking flow and do not claim marketing consent was saved.";
+        }
+
+        return consentResult.TimelineEventType switch
+        {
+            CrmTimelineEventTypes.MarketingConsentInboundCallGranted => "Marketing follow-up consent was recorded. Continue naturally.",
+            CrmTimelineEventTypes.MarketingConsentReversedFromOptOut => "Marketing follow-up consent was explicitly restored from a prior opt-out during this inbound call. Continue naturally.",
+            CrmTimelineEventTypes.MarketingConsentInboundCallBlockedOptedOut => "The contact is opted out. Do not send marketing follow-up or outbound calls.",
+            _ => "The caller declined marketing follow-up consent. Continue naturally without marking the contact as opted in."
+        };
+    }
+
     private static bool IsSupportedToolCall(StructuredActionRequest? actionRequest)
     {
-        return string.Equals(actionRequest?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal)
-            || string.Equals(actionRequest?.Name, CheckHvacAvailabilityToolName, StringComparison.Ordinal);
+        return IsBookingToolCall(actionRequest)
+            || IsAvailabilityToolCall(actionRequest)
+            || string.Equals(actionRequest?.Name, RecordContactConsentToolName, StringComparison.Ordinal);
+    }
+
+    private static bool IsBookingToolCall(StructuredActionRequest? actionRequest)
+    {
+        return IsBookingToolName(actionRequest?.Name);
     }
 
     private static bool IsAvailabilityToolCall(StructuredActionRequest? actionRequest)
     {
-        return string.Equals(actionRequest?.Name, CheckHvacAvailabilityToolName, StringComparison.Ordinal);
+        return IsAvailabilityToolName(actionRequest?.Name);
+    }
+
+    private static bool IsConsentToolCall(StructuredActionRequest? actionRequest)
+    {
+        return string.Equals(actionRequest?.Name, RecordContactConsentToolName, StringComparison.Ordinal);
     }
 
     private static bool IsDirectApiRequestToolCall(VapiWebhookEnvelope envelope)
     {
         return string.Equals(envelope.RawEventType, "api-request", StringComparison.Ordinal)
-            && (string.Equals(envelope.ToolCall?.Name, BookHvacAppointmentToolName, StringComparison.Ordinal)
-                || string.Equals(envelope.ToolCall?.Name, CheckHvacAvailabilityToolName, StringComparison.Ordinal));
+            && (IsBookingToolName(envelope.ToolCall?.Name)
+                || IsAvailabilityToolName(envelope.ToolCall?.Name)
+                || string.Equals(envelope.ToolCall?.Name, RecordContactConsentToolName, StringComparison.Ordinal));
+    }
+
+    private static bool IsBookingToolName(string? toolName)
+    {
+        return string.Equals(toolName, BookAppointmentToolName, StringComparison.Ordinal)
+            || string.Equals(toolName, LegacyBookHvacAppointmentToolName, StringComparison.Ordinal);
+    }
+
+    private static bool IsAvailabilityToolName(string? toolName)
+    {
+        return string.Equals(toolName, CheckAvailabilityToolName, StringComparison.Ordinal)
+            || string.Equals(toolName, LegacyCheckHvacAvailabilityToolName, StringComparison.Ordinal);
+    }
+
+    private static string GetToolNameVariant(StructuredActionRequest? actionRequest)
+    {
+        return string.Equals(actionRequest?.Name, LegacyBookHvacAppointmentToolName, StringComparison.Ordinal)
+            || string.Equals(actionRequest?.Name, LegacyCheckHvacAvailabilityToolName, StringComparison.Ordinal)
+                ? "legacy"
+                : "current";
     }
 
     private static bool RequiresPreferredWindow(StructuredActionRequest? actionRequest)
@@ -866,6 +1079,28 @@ public sealed class VapiInboundWebhookFunction
             SelectedSlot: TryCreateConfirmedSelectedSlot(inboundCallEvent.ActionRequest),
             AutoSelectFirstAvailableSlot: false,
             RequirePreferredWindow: true);
+    }
+
+    private static CrmMarketingConsentRequest CreateMarketingConsentRequest(InboundCallEvent inboundCallEvent)
+    {
+        return new CrmMarketingConsentRequest(
+            inboundCallEvent.TenantId,
+            inboundCallEvent.VerticalId,
+            inboundCallEvent.CorrelationId,
+            GetActionArgument(inboundCallEvent.ActionRequest, "channelScope") ?? MarketingConsentScope,
+            GetActionArgumentBoolean(inboundCallEvent.ActionRequest, "granted"))
+        {
+            Source = "InboundVoice",
+            ProviderCallId = GetActionArgument(inboundCallEvent.ActionRequest, "capturedDuringCallId")
+                ?? inboundCallEvent.Session.ProviderCallId,
+            PhoneNumber = GetActionArgument(inboundCallEvent.ActionRequest, "phoneNumber")
+                ?? inboundCallEvent.Session.CallerPhoneNumber,
+            Email = GetActionArgument(inboundCallEvent.ActionRequest, "email"),
+            Name = GetActionArgument(inboundCallEvent.ActionRequest, "name"),
+            ZipCode = GetActionArgument(inboundCallEvent.ActionRequest, "zipCode"),
+            CapturedAt = inboundCallEvent.ReceivedAtUtc,
+            IsPersonInitiatedInbound = true
+        };
     }
 
     private static AvailableSlot? TryCreateConfirmedSelectedSlot(StructuredActionRequest? actionRequest)
@@ -1011,6 +1246,7 @@ public sealed class VapiInboundWebhookFunction
             .Add("providerEventType", providerEventType)
             .Add("platformEventType", platformEventType)
             .Add("toolName", actionRequest?.Name ?? "unknown")
+            .Add("toolNameVariant", GetToolNameVariant(actionRequest))
             .Add("directApiRequest", ToBooleanString(isDirectApiRequest))
             .Add("isAvailabilityToolCall", ToBooleanString(isAvailabilityToolCall))
             .Add("availabilityMode", NormalizeAvailabilityModeForTelemetry(actionRequest))
@@ -1041,6 +1277,7 @@ public sealed class VapiInboundWebhookFunction
             .Add("providerEventType", providerEventType)
             .Add("platformEventType", platformEventType)
             .Add("toolName", actionRequest?.Name ?? "unknown")
+            .Add("toolNameVariant", GetToolNameVariant(actionRequest))
             .Add("isAvailabilityToolCall", ToBooleanString(isAvailabilityToolCall))
             .Add("availabilityModeUsed", hasPreferredWindow ? "preferred_window" : "earliest")
             .Add("outcome", workflowResult.Outcome.ToString())
@@ -1052,6 +1289,34 @@ public sealed class VapiInboundWebhookFunction
             .AddIf(workflowResult.ConfirmationState is not null, "confirmationState", workflowResult.ConfirmationState?.ToString())
             .Add("availableSlotCount", workflowResult.AvailableSlots.Count.ToString(CultureInfo.InvariantCulture))
             .Add("selectedSlotReturned", ToBooleanString(workflowResult.AvailableSlots.Count > 0))
+            .ToDictionary();
+
+        return eventLogger.TryLogEventAsync(TelemetryEventNames.VoiceToolCallResponded, properties, cancellationToken);
+    }
+
+    private Task LogConsentToolCallRespondedAsync(
+        string correlationId,
+        string tenantId,
+        string providerEventType,
+        string platformEventType,
+        StructuredActionRequest? actionRequest,
+        CrmMarketingConsentResult consentResult,
+        CancellationToken cancellationToken)
+    {
+        var properties = new SafeTelemetryProperties()
+            .Add("correlationId", correlationId)
+            .Add("endpoint", "webhooks/vapi/inbound")
+            .Add("provider", "vapi")
+            .Add("tenantId", tenantId)
+            .Add("providerEventType", providerEventType)
+            .Add("platformEventType", platformEventType)
+            .Add("toolName", actionRequest?.Name ?? "unknown")
+            .Add("toolNameVariant", GetToolNameVariant(actionRequest))
+            .Add("outcome", consentResult.Succeeded ? "Completed" : "Failed")
+            .Add("consentStatus", consentResult.ConsentStatus)
+            .Add("contactUpdated", ToBooleanString(consentResult.ContactUpdated))
+            .AddIf(!string.IsNullOrWhiteSpace(consentResult.TimelineEventType), "timelineEventType", consentResult.TimelineEventType)
+            .AddIf(consentResult.FailureReason is not null, "failureReason", consentResult.FailureReason?.ToString())
             .ToDictionary();
 
         return eventLogger.TryLogEventAsync(TelemetryEventNames.VoiceToolCallResponded, properties, cancellationToken);

@@ -85,8 +85,10 @@ Supported consent values are:
 - `unknown`
 - `opted_out`
 
-`opted_out` is a hard stop for outbound interaction recording and next-lead
-selection. Opt-out can be recorded by provider contact ID, phone number, or email.
+Only `opt_in` contacts are eligible for platform-initiated outbound calls/SMS.
+`unknown` is treated as not contactable, and `opted_out` is a hard stop for
+outbound interaction recording and next-lead selection. Opt-out can be recorded
+by provider contact ID, phone number, or email.
 If a STOP/opt-out arrives before a contact exists, the native CRM creates a minimal
 contact row with `consentStatus=opted_out` so the signal is not lost.
 
@@ -104,13 +106,27 @@ Outbound call-list access patterns are tenant scoped and query only within
 - leads by campaign ID
 - next lead to call for a campaign
 
-`getNextLeadToCall` excludes `opted_out` contacts, respects the max outbound
+`getNextLeadToCall` only returns `opt_in` contacts, respects the max outbound
 attempt limit, and waits until `nextFollowUpAt` when that value is present.
 
-The phone/email secondary index table is intentionally deferred for the first pilot.
-Current lookup and outbound list sizes are expected to be small enough to query within
-the tenant partition. Add `RnmContactPhoneIndex` only when volume makes phone/email
-deduplication a measured bottleneck.
+### `RnmContactPhoneIndex`
+
+Partition key: `tenantId`
+
+Row key: normalized phone number in E.164 format.
+
+This table accelerates phone-based deduplication. The value stored on each row is
+`ContactId`, which points to the contact row key in `RnmContacts`.
+
+Rules:
+
+- contacts remain the source of truth
+- index writes are best effort and must not fail contact create/update
+- lookup uses the index first, then falls back to the existing tenant-scoped contact query
+- existing dedup results must not change
+- run `POST /api/tenants/{tenantId}/crm/phone-index/backfill` after deploy to index existing tenant data
+
+There is no email index yet. Email lookup continues to use the existing tenant-scoped contact query.
 
 ### `RnmBookings`
 

@@ -93,10 +93,168 @@ public sealed class CrmApplicationServiceTests
         Assert.Equal("Booked", booking.BookingState);
         Assert.Equal("Qualified", booking.QualificationState);
         Assert.Equal("InServiceArea", booking.ServiceAreaState);
-        Assert.Equal(2, adapter.TimelineEventCallCount);
-        Assert.Equal(CrmTimelineEventTypes.BookingCreated, adapter.LastTimelineEventRequest?.EventType);
+        Assert.Equal(3, adapter.TimelineEventCallCount);
+        Assert.Contains(adapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.BookingCreated);
+        Assert.Contains(adapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.TransactionalConsentInboundBooking);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmBookingLinked));
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmTimelineEventAdded));
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_RecordsTransactionalConsentBasisWithoutMarketingOptIn()
+    {
+        var adapter = new FakeCrmAdapter();
+        var service = CreateService(adapter);
+
+        var result = await service.SyncBookedLeadAsync(CreateRequest(), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var transactionalConsentEvent = Assert.Single(
+            adapter.TimelineEvents,
+            evt => evt.EventType == CrmTimelineEventTypes.TransactionalConsentInboundBooking);
+        Assert.Equal("contact-123", transactionalConsentEvent.ProviderContactId);
+        Assert.Equal("booking-123", transactionalConsentEvent.ProviderBookingId);
+        Assert.Equal("inbound_booking", transactionalConsentEvent.Metadata["basis"]);
+        Assert.Equal("transactional_appointment_messages", transactionalConsentEvent.Metadata["scope"]);
+        Assert.Equal("not_granted", transactionalConsentEvent.Metadata["marketingConsent"]);
+        Assert.DoesNotContain(
+            adapter.LastUpsertRequest?.Attributes ?? new Dictionary<string, string>(),
+            item => string.Equals(item.Key, CrmContactAttributeNames.ConsentStatus, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(item.Value, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task RecordInboundMarketingConsentAsync_Granted_SetsOptInAfterTimelineEvent()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            LookupResult = ExistingContact(CrmConsentStatuses.Unknown)
+        };
+        var service = CreateService(adapter);
+
+        var result = await service.RecordInboundMarketingConsentAsync(
+            CreateMarketingConsentRequest(granted: true),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.ContactUpdated);
+        Assert.Equal(CrmConsentStatuses.OptIn, result.ConsentStatus);
+        Assert.Equal(1, adapter.UpsertCallCount);
+        Assert.Equal(CrmConsentStatuses.OptIn, adapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        var consentEvent = Assert.Single(adapter.TimelineEvents);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentInboundCallGranted, consentEvent.EventType);
+        Assert.Equal("explicit_inbound_call_permission", consentEvent.Metadata["basis"]);
+        Assert.Equal("sms_and_outbound_calls", consentEvent.Metadata["scope"]);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["granted"]);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["requestedGranted"]);
+    }
+
+    [Fact]
+    public async Task RecordInboundMarketingConsentAsync_Declined_DoesNotSetOptIn()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            LookupResult = ExistingContact(CrmConsentStatuses.Unknown)
+        };
+        var service = CreateService(adapter);
+
+        var result = await service.RecordInboundMarketingConsentAsync(
+            CreateMarketingConsentRequest(granted: false),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.ContactUpdated);
+        Assert.Equal(CrmConsentStatuses.Unknown, result.ConsentStatus);
+        Assert.Equal(0, adapter.UpsertCallCount);
+        var consentEvent = Assert.Single(adapter.TimelineEvents);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentInboundCallDeclined, consentEvent.EventType);
+        Assert.Equal(bool.FalseString, consentEvent.Metadata["granted"]);
+        Assert.Equal(bool.FalseString, consentEvent.Metadata["requestedGranted"]);
+    }
+
+    [Fact]
+    public async Task RecordInboundMarketingConsentAsync_GrantedFromInbound_ReversesOptedOut()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            LookupResult = ExistingContact(
+                CrmConsentStatuses.OptedOut,
+                consentOptedOutAt: "2026-07-09T18:00:00.0000000+00:00")
+        };
+        var service = CreateService(adapter);
+
+        var result = await service.RecordInboundMarketingConsentAsync(
+            CreateMarketingConsentRequest(granted: true, isPersonInitiatedInbound: true),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.ContactUpdated);
+        Assert.Equal(CrmConsentStatuses.OptIn, result.ConsentStatus);
+        Assert.Equal(1, adapter.UpsertCallCount);
+        Assert.True(adapter.LastUpsertRequest?.AllowOptOutReversal);
+        Assert.Equal(CrmConsentStatuses.OptIn, adapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        var consentEvent = Assert.Single(adapter.TimelineEvents);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentReversedFromOptOut, consentEvent.EventType);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["granted"]);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["requestedGranted"]);
+        Assert.Equal(CrmConsentStatuses.OptIn, consentEvent.Metadata["consentStatus"]);
+        Assert.Equal(CrmConsentStatuses.OptedOut, consentEvent.Metadata["previousConsentStatus"]);
+        Assert.Equal("2026-07-09T18:00:00.0000000+00:00", consentEvent.Metadata["previousOptOutAt"]);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["inboundInitiated"]);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["explicitConsent"]);
+    }
+
+    [Fact]
+    public async Task RecordInboundMarketingConsentAsync_GrantedNotInbound_DoesNotReverseOptedOut()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            LookupResult = ExistingContact(CrmConsentStatuses.OptedOut)
+        };
+        var service = CreateService(adapter);
+
+        var result = await service.RecordInboundMarketingConsentAsync(
+            CreateMarketingConsentRequest(granted: true, isPersonInitiatedInbound: false),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.False(result.ContactUpdated);
+        Assert.Equal(CrmConsentStatuses.OptedOut, result.ConsentStatus);
+        Assert.Equal(0, adapter.UpsertCallCount);
+        var consentEvent = Assert.Single(adapter.TimelineEvents);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentInboundCallBlockedOptedOut, consentEvent.EventType);
+        Assert.Equal(bool.FalseString, consentEvent.Metadata["granted"]);
+        Assert.Equal(bool.TrueString, consentEvent.Metadata["requestedGranted"]);
+        Assert.Equal(CrmConsentStatuses.OptedOut, consentEvent.Metadata["consentStatus"]);
+        Assert.Equal(bool.FalseString, consentEvent.Metadata["inboundInitiated"]);
+    }
+
+    [Fact]
+    public async Task RecordInboundMarketingConsentAsync_UpsertFailureAfterReversalEvidence_ReturnsKnownOptedOutState()
+    {
+        var adapter = new FakeCrmAdapter
+        {
+            LookupResult = ExistingContact(CrmConsentStatuses.OptedOut),
+            UpsertResult = new CrmContactUpsertResult(
+                Succeeded: false,
+                Created: false,
+                ProviderContactId: "contact-123",
+                CrmFailureReason.ContactUpsertFailed)
+        };
+        var service = CreateService(adapter);
+
+        var result = await service.RecordInboundMarketingConsentAsync(
+            CreateMarketingConsentRequest(granted: true, isPersonInitiatedInbound: true),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.ContactUpdated);
+        Assert.Equal(CrmConsentStatuses.OptedOut, result.ConsentStatus);
+        Assert.Equal(CrmFailureReason.ContactUpsertFailed, result.FailureReason);
+        Assert.Equal(1, adapter.UpsertCallCount);
+        Assert.True(adapter.LastUpsertRequest?.AllowOptOutReversal);
+        var consentEvent = Assert.Single(adapter.TimelineEvents);
+        Assert.Equal(CrmTimelineEventTypes.MarketingConsentReversedFromOptOut, consentEvent.EventType);
     }
 
     [Fact]
@@ -112,7 +270,7 @@ public sealed class CrmApplicationServiceTests
         var result = await service.SyncBookedLeadAsync(CreateRequest(), CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(2, adapter.TimelineEventCallCount);
+        Assert.Equal(3, adapter.TimelineEventCallCount);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.CrmTimelineEventFailed));
     }
 
@@ -154,6 +312,7 @@ public sealed class CrmApplicationServiceTests
         Assert.Equal("123 Secret St, Addison, TX 75001", attributes["serviceAddress"]);
         Assert.Equal("non_urgent", attributes["urgency"]);
         Assert.Equal("Wednesday afternoon", attributes["preferredTime"]);
+        Assert.DoesNotContain(CrmContactAttributeNames.ConsentStatus, attributes.Keys);
         Assert.DoesNotContain("transcript", attributes.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -548,6 +707,53 @@ public sealed class CrmApplicationServiceTests
             ServiceAreaDecision.InServiceArea());
     }
 
+    private static CrmMarketingConsentRequest CreateMarketingConsentRequest(
+        bool granted,
+        bool isPersonInitiatedInbound = true)
+    {
+        return new CrmMarketingConsentRequest(
+            "tenant-a",
+            "vertical-a",
+            "corr-123",
+            "sms_and_outbound_calls",
+            granted)
+        {
+            PhoneNumber = "+15551234567",
+            Email = "lead@example.com",
+            Name = "Jane Lead",
+            ZipCode = "75001",
+            ProviderCallId = "call-123",
+            CapturedAt = new DateTimeOffset(2026, 7, 10, 18, 0, 0, TimeSpan.Zero),
+            IsPersonInitiatedInbound = isPersonInitiatedInbound
+        };
+    }
+
+    private static CrmContactLookupResult ExistingContact(
+        string consentStatus,
+        string? consentOptedOutAt = null)
+    {
+        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [CrmContactAttributeNames.ConsentStatus] = consentStatus
+        };
+        if (!string.IsNullOrWhiteSpace(consentOptedOutAt))
+        {
+            attributes[CrmContactAttributeNames.ConsentOptedOutAt] = consentOptedOutAt;
+        }
+
+        return new CrmContactLookupResult(true, "contact-123")
+        {
+            Contact = new CrmContactRecord(
+                "tenant-a",
+                "contact-123",
+                "+15551234567",
+                "lead@example.com",
+                "Jane Lead",
+                "75001",
+                attributes)
+        };
+    }
+
     private static BookingDecisionResult CreateBookedDecision()
     {
         var slot = new AvailableSlot(
@@ -631,6 +837,8 @@ public sealed class CrmApplicationServiceTests
 
         public CrmTimelineEventRequest? LastTimelineEventRequest { get; private set; }
 
+        public List<CrmTimelineEventRequest> TimelineEvents { get; } = [];
+
         public CrmFollowUpRequest? LastFollowUpRequest { get; private set; }
 
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
@@ -692,6 +900,7 @@ public sealed class CrmApplicationServiceTests
         {
             TimelineEventCallCount++;
             LastTimelineEventRequest = request;
+            TimelineEvents.Add(request);
             if (CancelOnTimeline)
             {
                 throw new OperationCanceledException();

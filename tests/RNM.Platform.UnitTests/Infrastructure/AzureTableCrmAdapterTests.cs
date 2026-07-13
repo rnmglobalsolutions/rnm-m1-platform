@@ -7,23 +7,23 @@ namespace RNM.Platform.UnitTests.Infrastructure;
 public sealed class AzureTableCrmAdapterTests
 {
     [Fact]
-    public void CanRecordOutboundInteraction_RejectsOptedOutContact()
+    public void CanRecordOutboundInteraction_AllowsOnlyOptInContact()
     {
-        var canRecord = AzureTableCrmAdapter.CanRecordOutboundInteraction(CrmConsentStatuses.OptedOut);
+        var canRecord = AzureTableCrmAdapter.CanRecordOutboundInteraction(CrmConsentStatuses.OptIn);
 
-        Assert.False(canRecord);
+        Assert.True(canRecord);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData(CrmConsentStatuses.Unknown)]
-    [InlineData(CrmConsentStatuses.OptIn)]
-    public void CanRecordOutboundInteraction_AllowsNonOptedOutContact(string? consentStatus)
+    [InlineData(CrmConsentStatuses.OptedOut)]
+    public void CanRecordOutboundInteraction_RejectsNonOptInContact(string? consentStatus)
     {
         var canRecord = AzureTableCrmAdapter.CanRecordOutboundInteraction(consentStatus);
 
-        Assert.True(canRecord);
+        Assert.False(canRecord);
     }
 
     [Fact]
@@ -37,17 +37,17 @@ public sealed class AzureTableCrmAdapterTests
             nextFollowUpAt: null);
         var overAttemptLimit = CreateLead(
             "over-limit",
-            consentStatus: CrmConsentStatuses.Unknown,
+            consentStatus: CrmConsentStatuses.OptIn,
             attempts: 3,
             nextFollowUpAt: null);
         var futureFollowUp = CreateLead(
             "future",
-            consentStatus: CrmConsentStatuses.Unknown,
+            consentStatus: CrmConsentStatuses.OptIn,
             attempts: 0,
             nextFollowUpAt: now.AddMinutes(1));
         var eligible = CreateLead(
             "eligible",
-            consentStatus: CrmConsentStatuses.Unknown,
+            consentStatus: CrmConsentStatuses.OptIn,
             attempts: 1,
             nextFollowUpAt: now.AddMinutes(-5));
 
@@ -57,6 +57,40 @@ public sealed class AzureTableCrmAdapterTests
             now);
 
         Assert.Same(eligible, selected);
+    }
+
+    [Theory]
+    [InlineData("3052445176", "+13052445176")]
+    [InlineData("(305) 244-5176", "+13052445176")]
+    [InlineData("+1 305 244 5176", "+13052445176")]
+    public void NormalizePhoneForIndex_ReusesE164Rules(string input, string expected)
+    {
+        var normalized = AzureTableCrmAdapter.NormalizePhoneForIndex(input);
+
+        Assert.Equal(expected, normalized);
+    }
+
+    [Fact]
+    public void NormalizePhoneForIndex_ReturnsNullForInvalidPhone()
+    {
+        var normalized = AzureTableCrmAdapter.NormalizePhoneForIndex("not a phone");
+
+        Assert.Null(normalized);
+    }
+
+    [Fact]
+    public void CreatePhoneIndexEntity_UsesTenantPartitionAndE164RowKey()
+    {
+        var entity = AzureTableCrmAdapter.CreatePhoneIndexEntity(
+            "tenant-a",
+            "+13052445176",
+            "contact-1",
+            "correlation-1");
+
+        Assert.Equal("tenant-a", entity.PartitionKey);
+        Assert.Equal("+13052445176", entity.RowKey);
+        Assert.Equal("contact-1", entity["ContactId"]);
+        Assert.Equal("correlation-1", entity["CorrelationId"]);
     }
 
     private static CrmContactRecord CreateLead(

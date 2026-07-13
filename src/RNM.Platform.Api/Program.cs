@@ -11,6 +11,7 @@ using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Inbound;
+using RNM.Platform.Application.LeadImport;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Outbound;
 using RNM.Platform.Application.Ports.Booking;
@@ -85,9 +86,12 @@ var host = new HostBuilder()
         services.AddSingleton<ConfirmationApplicationService>();
         services.AddSingleton<PilotReportingService>();
         services.AddSingleton<OutboundCampaignRunService>();
+        services.AddSingleton<LeadCsvImportService>();
         services.AddSingleton<IConfirmationRetryScheduler, AzureQueueConfirmationRetryScheduler>();
         services.AddSingleton<AzureTableCrmAdapter>();
         services.AddSingleton<IReportingReadAdapter, AzureTableReportingReadAdapter>();
+        services.AddSingleton<IContactPhoneIndexBackfillAdapter>(serviceProvider =>
+            serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
         services.AddSingleton<ICrmProviderAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
         services.AddHttpClient<GoogleCalendarBookingAdapter>(client =>

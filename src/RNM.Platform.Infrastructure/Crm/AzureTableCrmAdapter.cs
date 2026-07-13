@@ -4,16 +4,20 @@ using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
 using RNM.Platform.Application.Crm;
+using RNM.Platform.Application.LeadImport;
+using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Infrastructure.Providers;
 
 namespace RNM.Platform.Infrastructure.Crm;
 
-public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
+public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneIndexBackfillAdapter
 {
     private const string DefaultContactsTableName = "RnmContacts";
     private const string DefaultNotesTableName = "RnmContactNotes";
     private const string DefaultBookingsTableName = "RnmBookings";
     private const string DefaultTimelineTableName = "RnmTimelineEvents";
+    private const string DefaultPhoneIndexTableName = "RnmContactPhoneIndex";
     private const int MaxTableStringLength = 32000;
 
     private readonly string? connectionString;
@@ -21,9 +25,12 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     private readonly string notesTableName;
     private readonly string bookingsTableName;
     private readonly string timelineTableName;
+    private readonly string phoneIndexTableName;
+    private readonly IEventLogger? eventLogger;
 
-    public AzureTableCrmAdapter()
+    public AzureTableCrmAdapter(IEventLogger? eventLogger = null)
     {
+        this.eventLogger = eventLogger;
         connectionString = GetConnectionString();
         contactsTableName = GetSetting("RNM_CRM_CONTACTS_TABLE_NAME", DefaultContactsTableName);
         notesTableName = GetSetting("RNM_CRM_CONTACT_NOTES_TABLE_NAME", DefaultNotesTableName);
@@ -31,6 +38,7 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
             "RNM_CRM_BOOKINGS_TABLE_NAME",
             GetSetting("RNM_CRM_BOOKING_LINKS_TABLE_NAME", DefaultBookingsTableName));
         timelineTableName = GetSetting("RNM_CRM_TIMELINE_TABLE_NAME", DefaultTimelineTableName);
+        phoneIndexTableName = GetSetting("RNM_CRM_CONTACT_PHONE_INDEX_TABLE_NAME", DefaultPhoneIndexTableName);
     }
 
     public string ProviderName => ProviderNames.AzureTable;
@@ -47,6 +55,16 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         try
         {
             var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var indexedContact = await TryFindContactByPhoneIndexAsync(
+                    table,
+                    request,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (indexedContact is not null)
+            {
+                return indexedContact;
+            }
+
             var phone = Normalize(request.PhoneNumber);
             var email = Normalize(request.Email);
             if (string.IsNullOrWhiteSpace(phone) && string.IsNullOrWhiteSpace(email))
@@ -68,7 +86,10 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
             var filter = $"PartitionKey eq '{EscapeODataString(request.TenantId)}' and ({string.Join(" or ", filters)})";
             await foreach (var entity in table.QueryAsync<TableEntity>(filter, maxPerPage: 1, cancellationToken: cancellationToken))
             {
-                return new CrmContactLookupResult(true, entity.RowKey);
+                return new CrmContactLookupResult(true, entity.RowKey)
+                {
+                    Contact = MaterializeContact(entity)
+                };
             }
 
             return new CrmContactLookupResult(false, null);
@@ -99,7 +120,10 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
                 ? CreateContactRowKey(request)
                 : request.ProviderContactId;
 
-            var created = !await EntityExistsAsync(table, request.TenantId, rowKey, cancellationToken).ConfigureAwait(false);
+            var existingEntity = await TryGetContactEntityAsync(table, request.TenantId, rowKey, cancellationToken)
+                .ConfigureAwait(false);
+            var created = existingEntity is null;
+            var existingPhone = ReadString(existingEntity, "Phone");
             var entity = new TableEntity(request.TenantId, rowKey)
             {
                 ["VerticalId"] = request.VerticalId,
@@ -124,11 +148,23 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
             {
                 if (!string.IsNullOrWhiteSpace(attribute.Key) && attribute.Value is not null)
                 {
-                    entity[$"Attr_{SanitizePropertyName(attribute.Key)}"] = attribute.Value;
+                    var propertyName = $"Attr_{SanitizePropertyName(attribute.Key)}";
+                    entity[propertyName] = ShouldPreserveExistingOptOut(attribute.Key, attribute.Value, existingEntity, request.AllowOptOutReversal)
+                        ? CrmConsentStatuses.OptedOut
+                        : attribute.Value;
                 }
             }
 
             await table.UpsertEntityAsync(entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+            await TryUpdatePhoneIndexAsync(
+                    request.TenantId,
+                    rowKey,
+                    existingPhone,
+                    request.PhoneNumber,
+                    request.CorrelationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             return new CrmContactUpsertResult(true, created, rowKey);
         }
         catch (OperationCanceledException)
@@ -550,7 +586,6 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         {
             var table = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
             var providerContactId = await ResolveOptOutContactIdAsync(
-                    table,
                     request,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -561,16 +596,34 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
                     CrmFailureReason.MissingContactIdentifier);
             }
 
+            var existingEntity = await TryGetContactEntityAsync(
+                    table,
+                    request.TenantId,
+                    providerContactId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var existingPhone = ReadString(existingEntity, "Phone");
+            var optedOutAt = DateTimeOffset.UtcNow;
             var contact = new TableEntity(request.TenantId, providerContactId)
             {
                 [AttributePropertyName(CrmContactAttributeNames.ConsentStatus)] = CrmConsentStatuses.OptedOut,
-                ["UpdatedAt"] = DateTimeOffset.UtcNow,
+                [AttributePropertyName(CrmContactAttributeNames.ConsentOptedOutAt)] = optedOutAt.ToString("O"),
+                ["UpdatedAt"] = optedOutAt,
                 ["CorrelationId"] = request.CorrelationId
             };
             AddIfPresent(contact, "Phone", Normalize(request.PhoneNumber));
             AddIfPresent(contact, "Email", Normalize(request.Email));
 
             await table.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+            await TryUpdatePhoneIndexAsync(
+                    request.TenantId,
+                    providerContactId,
+                    existingPhone,
+                    request.PhoneNumber,
+                    request.CorrelationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             await TryAddTimelineEventAsync(
                     request.TenantId,
                     request.CorrelationId,
@@ -581,7 +634,8 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
                     {
                         ["source"] = request.Source,
                         ["reason"] = request.Reason ?? string.Empty,
-                        ["consentStatus"] = CrmConsentStatuses.OptedOut
+                        ["consentStatus"] = CrmConsentStatuses.OptedOut,
+                        ["optedOutAt"] = optedOutAt.ToString("O")
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -598,8 +652,101 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         }
     }
 
+    public async Task<CrmContactPhoneIndexBackfillResult> BackfillPhoneIndexAsync(
+        CrmContactPhoneIndexBackfillRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return new CrmContactPhoneIndexBackfillResult(
+                request.TenantId,
+                request.CorrelationId,
+                ContactsScanned: 0,
+                Indexed: 0,
+                Skipped: 0,
+                Failed: 1);
+        }
+
+        var scanned = 0;
+        var indexed = 0;
+        var skipped = 0;
+        var failed = 0;
+
+        try
+        {
+            var contactsTable = await GetTableClientAsync(contactsTableName, cancellationToken).ConfigureAwait(false);
+            var indexTable = await GetTableClientAsync(phoneIndexTableName, cancellationToken).ConfigureAwait(false);
+            var filter = $"PartitionKey eq '{EscapeODataString(request.TenantId)}'";
+
+            await foreach (var entity in contactsTable.QueryAsync<TableEntity>(
+                               filter,
+                               cancellationToken: cancellationToken))
+            {
+                scanned++;
+                var normalizedPhone = NormalizePhoneForIndex(ReadString(entity, "Phone"));
+                if (string.IsNullOrWhiteSpace(normalizedPhone))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                try
+                {
+                    await indexTable.UpsertEntityAsync(
+                            CreatePhoneIndexEntity(
+                                request.TenantId,
+                                normalizedPhone,
+                                entity.RowKey,
+                                request.CorrelationId),
+                            TableUpdateMode.Replace,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    indexed++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    failed++;
+                    await LogPhoneIndexFailureAsync(
+                            request.TenantId,
+                            request.CorrelationId,
+                            "backfill_write_failed",
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            failed++;
+            await LogPhoneIndexFailureAsync(
+                    request.TenantId,
+                    request.CorrelationId,
+                    "backfill_failed",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var result = new CrmContactPhoneIndexBackfillResult(
+            request.TenantId,
+            request.CorrelationId,
+            scanned,
+            indexed,
+            skipped,
+            failed);
+
+        await LogPhoneIndexBackfillAsync(result, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
     private async Task<string?> ResolveOptOutContactIdAsync(
-        TableClient contactsTable,
         CrmOptOutRequest request,
         CancellationToken cancellationToken)
     {
@@ -628,17 +775,156 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
             return null;
         }
 
-        var rowKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identifier))).ToLowerInvariant();
-        var entity = new TableEntity(request.TenantId, rowKey)
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identifier))).ToLowerInvariant();
+    }
+
+    private async Task<CrmContactLookupResult?> TryFindContactByPhoneIndexAsync(
+        TableClient contactsTable,
+        CrmContactLookupRequest request,
+        CancellationToken cancellationToken)
+    {
+        var phone = NormalizePhoneForIndex(request.PhoneNumber);
+        if (string.IsNullOrWhiteSpace(phone))
         {
-            ["Phone"] = SafeValue(Normalize(request.PhoneNumber)),
-            ["Email"] = SafeValue(Normalize(request.Email)),
-            ["CreatedAt"] = DateTimeOffset.UtcNow,
-            ["UpdatedAt"] = DateTimeOffset.UtcNow,
-            ["CorrelationId"] = request.CorrelationId
-        };
-        await contactsTable.UpsertEntityAsync(entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
-        return rowKey;
+            return null;
+        }
+
+        try
+        {
+            var indexTable = await GetTableClientAsync(phoneIndexTableName, cancellationToken).ConfigureAwait(false);
+            var indexEntity = await TryGetEntityAsync(
+                    indexTable,
+                    request.TenantId,
+                    phone,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var providerContactId = ReadString(indexEntity, "ContactId");
+            if (string.IsNullOrWhiteSpace(providerContactId))
+            {
+                return null;
+            }
+
+            var contactEntity = await TryGetContactEntityAsync(
+                    contactsTable,
+                    request.TenantId,
+                    providerContactId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (contactEntity is null)
+            {
+                await LogPhoneIndexFailureAsync(
+                        request.TenantId,
+                        request.CorrelationId,
+                        "stale_index_entry",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return null;
+            }
+
+            return new CrmContactLookupResult(true, contactEntity.RowKey)
+            {
+                Contact = MaterializeContact(contactEntity)
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            await LogPhoneIndexFailureAsync(
+                    request.TenantId,
+                    request.CorrelationId,
+                    "lookup_failed",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return null;
+        }
+    }
+
+    private async Task TryUpdatePhoneIndexAsync(
+        string tenantId,
+        string providerContactId,
+        string? previousPhone,
+        string? currentPhone,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var previousNormalizedPhone = NormalizePhoneForIndex(previousPhone);
+        var currentNormalizedPhone = NormalizePhoneForIndex(currentPhone);
+        if (string.Equals(previousNormalizedPhone, currentNormalizedPhone, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            var indexTable = await GetTableClientAsync(phoneIndexTableName, cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(previousNormalizedPhone))
+            {
+                await DeletePhoneIndexEntryIfExistsAsync(
+                        indexTable,
+                        tenantId,
+                        previousNormalizedPhone,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            if (!string.IsNullOrWhiteSpace(currentNormalizedPhone))
+            {
+                await indexTable.UpsertEntityAsync(
+                        CreatePhoneIndexEntity(
+                            tenantId,
+                            currentNormalizedPhone,
+                            providerContactId,
+                            correlationId),
+                        TableUpdateMode.Replace,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            await LogPhoneIndexUpdatedAsync(
+                    tenantId,
+                    correlationId,
+                    previousNormalizedPhone,
+                    currentNormalizedPhone,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            await LogPhoneIndexFailureAsync(
+                    tenantId,
+                    correlationId,
+                    "write_failed",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static async Task DeletePhoneIndexEntryIfExistsAsync(
+        TableClient table,
+        string tenantId,
+        string normalizedPhone,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await table.DeleteEntityAsync(
+                    tenantId,
+                    normalizedPhone,
+                    ETag.All,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (RequestFailedException exception) when (exception.Status is 404)
+        {
+            // Idempotent index maintenance: missing old rows are already repaired.
+        }
     }
 
     private async Task<CrmLeadQueryResult> QueryContactsByAttributeAsync(
@@ -681,6 +967,27 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
                 [],
                 CrmFailureReason.AdapterFailure,
                 "Azure Table CRM contact query failed.");
+        }
+    }
+
+    private static async Task<TableEntity?> TryGetEntityAsync(
+        TableClient table,
+        string partitionKey,
+        string rowKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await table.GetEntityAsync<TableEntity>(
+                    partitionKey,
+                    rowKey,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return response.Value;
+        }
+        catch (RequestFailedException exception) when (exception.Status is 404)
+        {
+            return null;
         }
     }
 
@@ -838,14 +1145,14 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     private static string AttributePropertyName(string attributeName) =>
         $"Attr_{SanitizePropertyName(attributeName)}";
 
-    private static string? GetAttribute(TableEntity entity, string attributeName) =>
+    private static string? GetAttribute(TableEntity? entity, string attributeName) =>
         ReadString(entity, AttributePropertyName(attributeName));
 
     private static int ReadIntAttribute(TableEntity entity, string attributeName) =>
         int.TryParse(GetAttribute(entity, attributeName), out var value) ? value : 0;
 
-    private static string? ReadString(TableEntity entity, string propertyName) =>
-        entity.TryGetValue(propertyName, out var value) ? value?.ToString() : null;
+    private static string? ReadString(TableEntity? entity, string propertyName) =>
+        entity is not null && entity.TryGetValue(propertyName, out var value) ? value?.ToString() : null;
 
     private static string MergeTags(string? existingTags, string newTag)
     {
@@ -857,7 +1164,46 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
     }
 
     internal static bool CanRecordOutboundInteraction(string? consentStatus) =>
-        !string.Equals(consentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
+        string.Equals(consentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase);
+
+    internal static string? NormalizePhoneForIndex(string? value) =>
+        LeadPhoneNormalizer.TryNormalizeToE164(value, out var normalized) ? normalized : null;
+
+    internal static TableEntity CreatePhoneIndexEntity(
+        string tenantId,
+        string normalizedPhoneE164,
+        string providerContactId,
+        string correlationId) =>
+        new(tenantId, normalizedPhoneE164)
+        {
+            ["ContactId"] = providerContactId,
+            ["UpdatedAt"] = DateTimeOffset.UtcNow,
+            ["CorrelationId"] = correlationId
+        };
+
+    private static bool ShouldPreserveExistingOptOut(
+        string attributeKey,
+        string incomingValue,
+        TableEntity? existingEntity,
+        bool allowOptOutReversal)
+    {
+        if (!string.Equals(attributeKey, CrmContactAttributeNames.ConsentStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(incomingValue, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (allowOptOutReversal
+            && string.Equals(incomingValue, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            GetAttribute(existingEntity, CrmContactAttributeNames.ConsentStatus),
+            CrmConsentStatuses.OptedOut,
+            StringComparison.OrdinalIgnoreCase);
+    }
 
     internal static CrmContactRecord? SelectNextLeadToCall(
         IEnumerable<CrmContactRecord> leads,
@@ -885,6 +1231,96 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter
         return string.IsNullOrWhiteSpace(value)
             ? null
             : value.Trim().ToLowerInvariant();
+    }
+
+    private async Task LogPhoneIndexUpdatedAsync(
+        string tenantId,
+        string correlationId,
+        string? previousPhone,
+        string? currentPhone,
+        CancellationToken cancellationToken)
+    {
+        if (eventLogger is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await eventLogger.LogEventAsync(
+                    TelemetryEventNames.CrmPhoneIndexUpdated,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", tenantId)
+                        .Add("correlationId", correlationId)
+                        .AddIf(!string.IsNullOrWhiteSpace(previousPhone), "previousPhoneIndexed", "true")
+                        .AddIf(!string.IsNullOrWhiteSpace(currentPhone), "currentPhoneIndexed", "true")
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Index telemetry must never affect the CRM source-of-truth write.
+        }
+    }
+
+    private async Task LogPhoneIndexFailureAsync(
+        string tenantId,
+        string correlationId,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        if (eventLogger is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await eventLogger.LogEventAsync(
+                    TelemetryEventNames.CrmPhoneIndexFailed,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", tenantId)
+                        .Add("correlationId", correlationId)
+                        .Add("reason", reason)
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Logging failures must not block contact writes or lookup fallback.
+        }
+    }
+
+    private async Task LogPhoneIndexBackfillAsync(
+        CrmContactPhoneIndexBackfillResult result,
+        CancellationToken cancellationToken)
+    {
+        if (eventLogger is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await eventLogger.LogEventAsync(
+                    TelemetryEventNames.CrmPhoneIndexBackfilled,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", result.TenantId)
+                        .Add("correlationId", result.CorrelationId)
+                        .Add("contactsScanned", result.ContactsScanned.ToString())
+                        .Add("indexed", result.Indexed.ToString())
+                        .Add("skipped", result.Skipped.ToString())
+                        .Add("failed", result.Failed.ToString())
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Backfill result has already been computed; telemetry is best effort.
+        }
     }
 
     private static string SafeValue(string? value) => value?.Trim() ?? string.Empty;

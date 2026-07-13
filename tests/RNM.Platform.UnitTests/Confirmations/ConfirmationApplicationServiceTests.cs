@@ -123,6 +123,95 @@ public sealed class ConfirmationApplicationServiceTests
     }
 
     [Fact]
+    public async Task SendBookingConfirmationAsync_SkipsCustomerChannels_WhenContactOptedOut()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var eventLogger = new RecordingConfirmationEventLogger();
+        var crmAdapter = new FakeCrmAdapter
+        {
+            LookupResult = new CrmContactLookupResult(true, "contact-123")
+            {
+                Contact = new CrmContactRecord(
+                    "tenant-a",
+                    "contact-123",
+                    "+15551234567",
+                    "lead@example.com",
+                    "Jane Lead",
+                    "75001",
+                    new Dictionary<string, string>
+                    {
+                        [CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.OptedOut
+                    })
+            }
+        };
+        var service = CreateService(
+            smsSender,
+            emailSender,
+            eventLogger: eventLogger,
+            crmAdapter: crmAdapter);
+
+        var result = await service.SendBookingConfirmationAsync(CreateRequest(), CancellationToken.None);
+
+        Assert.Equal(ConfirmationChannelStatus.Skipped, result.Sms.Status);
+        Assert.Equal(ConfirmationChannelStatus.Skipped, result.Email.Status);
+        Assert.Equal(ConfirmationFailureReason.ContactOptedOut, result.Sms.FailureReason);
+        Assert.Equal(ConfirmationFailureReason.ContactOptedOut, result.Email.FailureReason);
+        Assert.Equal(0, smsSender.SendCallCount);
+        Assert.Equal(0, emailSender.SendCallCount);
+        Assert.DoesNotContain(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.SmsSent);
+        Assert.DoesNotContain(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.EmailSent);
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.SmsConfirmationSkipped));
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.EmailConfirmationSkipped));
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_StillNotifiesBusiness_WhenCustomerContactOptedOut()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var crmAdapter = new FakeCrmAdapter
+        {
+            LookupResult = new CrmContactLookupResult(true, "contact-123")
+            {
+                Contact = new CrmContactRecord(
+                    "tenant-a",
+                    "contact-123",
+                    "+15551234567",
+                    "lead@example.com",
+                    "Jane Lead",
+                    "75001",
+                    new Dictionary<string, string>
+                    {
+                        [CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.OptedOut
+                    })
+            }
+        };
+        var service = CreateService(smsSender, emailSender, crmAdapter: crmAdapter);
+
+        var result = await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: new ConfirmationTemplateSet(
+                    "customer sms",
+                    "customer subject",
+                    "customer body",
+                    BusinessSmsBodyTemplate: "business sms",
+                    BusinessEmailSubjectTemplate: "business subject",
+                    BusinessEmailBodyTemplate: "business body"),
+                businessNotificationEmail: "office@example.com",
+                businessNotificationPhoneNumber: "+15557654321",
+                notifyBusinessBySms: true),
+            CancellationToken.None);
+
+        Assert.Equal(ConfirmationChannelStatus.Skipped, result.Sms.Status);
+        Assert.Equal(ConfirmationChannelStatus.Skipped, result.Email.Status);
+        Assert.True(result.BusinessSmsSent);
+        Assert.True(result.BusinessEmailSent);
+        Assert.Contains(smsSender.Requests, request => request.ToPhoneNumber == "+15557654321");
+        Assert.Contains(emailSender.Requests, request => request.ToEmail == "office@example.com");
+    }
+
+    [Fact]
     public async Task SendBookingConfirmationAsync_StillSucceeds_WhenSentTimelineWriteThrows()
     {
         var eventLogger = new RecordingConfirmationEventLogger();
@@ -549,12 +638,15 @@ public sealed class ConfirmationApplicationServiceTests
     {
         public bool ThrowOnTimeline { get; init; }
 
+        public CrmContactLookupResult LookupResult { get; init; } =
+            new(Found: false, ProviderContactId: null);
+
         public List<CrmTimelineEventRequest> TimelineEvents { get; } = [];
 
         public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
             CrmContactLookupRequest request,
             CancellationToken cancellationToken) =>
-            Task.FromResult(new CrmContactLookupResult(false, null));
+            Task.FromResult(LookupResult);
 
         public Task<CrmContactUpsertResult> UpsertContactAsync(
             CrmContactUpsertRequest request,
