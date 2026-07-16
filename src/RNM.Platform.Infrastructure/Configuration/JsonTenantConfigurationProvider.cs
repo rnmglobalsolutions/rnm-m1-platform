@@ -117,7 +117,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                         Communication?.ConfirmationTemplates?.BusinessEmailBodyTemplate),
                     Communication?.BusinessNotificationEmail,
                     Communication?.BusinessNotificationPhoneNumber,
-                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? true),
+                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? false,
+                    CreateBusinessSmsNotificationConfiguration(Communication)),
                 new ReportingConfiguration(
                     Reporting?.CloseRate,
                     Reporting?.AvgCommissionValue,
@@ -180,7 +181,40 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ConfirmationTemplateConfigurationDto? ConfirmationTemplates,
         string? BusinessNotificationEmail,
         string? BusinessNotificationPhoneNumber,
-        bool? NotifyBusinessBySmsForUrgentOnly);
+        bool? NotifyBusinessBySmsForUrgentOnly,
+        BusinessSmsNotificationConfigurationDto? BusinessSmsNotification);
+
+    private static BusinessSmsNotificationConfiguration CreateBusinessSmsNotificationConfiguration(
+        CommunicationConfigurationDto? communication)
+    {
+        if (communication?.BusinessSmsNotification is not null)
+        {
+            return new BusinessSmsNotificationConfiguration(
+                communication.BusinessSmsNotification.Mode ?? BusinessSmsNotificationConfiguration.AlwaysMode,
+                communication.BusinessSmsNotification.Condition is null
+                    ? null
+                    : new BusinessSmsNotificationCondition(
+                        communication.BusinessSmsNotification.Condition.Attribute ?? string.Empty,
+                        communication.BusinessSmsNotification.Condition.EqualsAny ?? []));
+        }
+
+        if (communication?.NotifyBusinessBySmsForUrgentOnly is true)
+        {
+            return BusinessSmsNotificationConfiguration.Conditional(
+                "urgency",
+                ["urgent", "emergency", "asap", "same-day", "today"]);
+        }
+
+        return BusinessSmsNotificationConfiguration.Always();
+    }
+
+    private sealed record BusinessSmsNotificationConfigurationDto(
+        string? Mode,
+        BusinessSmsNotificationConditionDto? Condition);
+
+    private sealed record BusinessSmsNotificationConditionDto(
+        string? Attribute,
+        IReadOnlyCollection<string>? EqualsAny);
 
     private sealed record ConfirmationTemplateConfigurationDto(
         string? SmsBodyTemplate,

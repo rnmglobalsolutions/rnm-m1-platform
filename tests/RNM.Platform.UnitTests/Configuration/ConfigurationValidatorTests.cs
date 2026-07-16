@@ -56,6 +56,49 @@ public sealed class ConfigurationValidatorTests
     }
 
     [Fact]
+    public void ValidateTenant_AllowsDynamicAttributeTemplateTokens()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                ConfirmationTemplates = validConfiguration.Communication.ConfirmationTemplates with
+                {
+                    SmsBodyTemplate = "Lead {{attr.intent}} {{attr.targetPropertyAddress}}"
+                }
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenDynamicAttributeTokenIsInvalid()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                ConfirmationTemplates = validConfiguration.Communication.ConfirmationTemplates with
+                {
+                    SmsBodyTemplate = "Lead {{attr.intent value}}"
+                }
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("unsupported template token", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateTenant_ReturnsErrors_WhenSmsConfirmationTemplateIsTooLong()
     {
         var validator = new ConfigurationValidator();
@@ -115,6 +158,46 @@ public sealed class ConfigurationValidatorTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Contains("businessEmailSubjectTemplate", StringComparison.Ordinal));
         Assert.Contains(result.Errors, error => error.Contains("businessEmailBodyTemplate", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsValid_WhenBusinessSmsNotificationIsConditional()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                BusinessSmsNotification = BusinessSmsNotificationConfiguration.Conditional(
+                    "leadStatus",
+                    ["qualified", "reactivated"])
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenConditionalBusinessSmsNotificationHasNoCondition()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                BusinessSmsNotification = new BusinessSmsNotificationConfiguration(
+                    BusinessSmsNotificationConfiguration.ConditionalMode)
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("businessSmsNotification.condition", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -36,7 +36,37 @@ public sealed record CommunicationConfiguration(
     ConfirmationTemplateConfiguration ConfirmationTemplates,
     string? BusinessNotificationEmail = null,
     string? BusinessNotificationPhoneNumber = null,
-    bool NotifyBusinessBySmsForUrgentOnly = true);
+    bool NotifyBusinessBySmsForUrgentOnly = false,
+    BusinessSmsNotificationConfiguration? BusinessSmsNotification = null)
+{
+    public BusinessSmsNotificationConfiguration EffectiveBusinessSmsNotification =>
+        BusinessSmsNotification
+        ?? (NotifyBusinessBySmsForUrgentOnly
+            ? BusinessSmsNotificationConfiguration.Conditional(
+                "urgency",
+                ["urgent", "emergency", "asap", "same-day", "today"])
+            : BusinessSmsNotificationConfiguration.Always());
+}
+
+public sealed record BusinessSmsNotificationConfiguration(
+    string Mode,
+    BusinessSmsNotificationCondition? Condition = null)
+{
+    public const string AlwaysMode = "always";
+
+    public const string ConditionalMode = "conditional";
+
+    public static BusinessSmsNotificationConfiguration Always() => new(AlwaysMode);
+
+    public static BusinessSmsNotificationConfiguration Conditional(
+        string attribute,
+        IReadOnlyCollection<string> equalsAny) =>
+        new(ConditionalMode, new BusinessSmsNotificationCondition(attribute, equalsAny));
+}
+
+public sealed record BusinessSmsNotificationCondition(
+    string Attribute,
+    IReadOnlyCollection<string> EqualsAny);
 
 public sealed record ConfirmationTemplateConfiguration(
     string SmsBodyTemplate,

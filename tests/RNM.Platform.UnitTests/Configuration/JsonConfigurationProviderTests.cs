@@ -1,4 +1,5 @@
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Infrastructure.Configuration;
 using Xunit;
 
@@ -69,6 +70,106 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         Assert.Equal("tenant-a-twilio-auth-token", configuration.SecretNames.TwilioAuthToken);
         Assert.Equal("+15550001000", configuration.Communication.SmsFromPhoneNumber);
         Assert.Equal("Configured SMS {{bookingDate}}", configuration.Communication.ConfirmationTemplates.SmsBodyTemplate);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_LoadsBusinessSmsNotificationRule()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            """
+            {
+              "tenantId": "tenant-a",
+              "verticalId": "vertical-a",
+              "businessName": "Tenant A",
+              "timeZone": "America/Chicago",
+              "serviceArea": { "zipCodes": ["75001"], "cities": [] },
+              "providers": {
+                "crmProvider": "GoHighLevel",
+                "bookingProvider": "GoHighLevelCalendar",
+                "smsProvider": "Twilio",
+                "emailProvider": "SendGrid"
+              },
+              "secretNames": {
+                "crmApiKey": "crm",
+                "bookingApiKey": "booking",
+                "voiceWebhookSecret": "vapi",
+                "twilioAccountSid": "sid",
+                "twilioAuthToken": "token",
+                "emailConnectionString": "email"
+              },
+              "communication": {
+                "smsFromPhoneNumber": "+15550001000",
+                "businessNotificationPhoneNumber": "+15557654321",
+                "businessSmsNotification": {
+                  "mode": "conditional",
+                  "condition": {
+                    "attribute": "leadStatus",
+                    "equalsAny": ["qualified", "reactivated"]
+                  }
+                },
+                "confirmationTemplates": {
+                  "smsBodyTemplate": "Configured SMS {{attr.intent}}",
+                  "businessSmsBodyTemplate": "Business SMS {{attr.leadStatus}}"
+                }
+              }
+            }
+            """);
+
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
+
+        Assert.Equal(BusinessSmsNotificationConfiguration.ConditionalMode, configuration.Communication.BusinessSmsNotification?.Mode);
+        Assert.Equal("leadStatus", configuration.Communication.BusinessSmsNotification?.Condition?.Attribute);
+        Assert.Equal(["qualified", "reactivated"], configuration.Communication.BusinessSmsNotification?.Condition?.EqualsAny);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_MapsLegacyUrgentOnlyBusinessSmsFlagToConditionalRule()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            """
+            {
+              "tenantId": "tenant-a",
+              "verticalId": "vertical-a",
+              "businessName": "Tenant A",
+              "timeZone": "America/Chicago",
+              "serviceArea": { "zipCodes": ["75001"], "cities": [] },
+              "providers": {
+                "crmProvider": "GoHighLevel",
+                "bookingProvider": "GoHighLevelCalendar",
+                "smsProvider": "Twilio",
+                "emailProvider": "SendGrid"
+              },
+              "secretNames": {
+                "crmApiKey": "crm",
+                "bookingApiKey": "booking",
+                "voiceWebhookSecret": "vapi",
+                "twilioAccountSid": "sid",
+                "twilioAuthToken": "token",
+                "emailConnectionString": "email"
+              },
+              "communication": {
+                "smsFromPhoneNumber": "+15550001000",
+                "businessNotificationPhoneNumber": "+15557654321",
+                "notifyBusinessBySmsForUrgentOnly": true,
+                "confirmationTemplates": {
+                  "smsBodyTemplate": "Configured SMS {{bookingDate}}",
+                  "businessSmsBodyTemplate": "Business SMS {{urgency}}"
+                }
+              }
+            }
+            """);
+
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
+
+        Assert.Equal(BusinessSmsNotificationConfiguration.ConditionalMode, configuration.Communication.BusinessSmsNotification?.Mode);
+        Assert.Equal("urgency", configuration.Communication.BusinessSmsNotification?.Condition?.Attribute);
+        Assert.Contains("urgent", configuration.Communication.BusinessSmsNotification?.Condition?.EqualsAny ?? []);
     }
 
     [Fact]

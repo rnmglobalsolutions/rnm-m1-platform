@@ -22,7 +22,9 @@ public sealed record BookingConfirmationRequest(
     string? Urgency = null,
     string? BusinessNotificationEmail = null,
     string? BusinessNotificationPhoneNumber = null,
-    bool NotifyBusinessBySms = false);
+    bool NotifyBusinessBySms = false,
+    string? BusinessName = null,
+    IReadOnlyDictionary<string, string>? ContactAttributes = null);
 
 public sealed record ConfirmationTemplateSet(
     string SmsBodyTemplate,

@@ -12,6 +12,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
     {
         "tenantId",
         "verticalId",
+        "businessName",
         "correlationId",
         "customerName",
         "customerPhoneNumber",
@@ -129,6 +130,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
                 MaxEmailBodyTemplateLength);
         }
 
+        ValidateBusinessSmsNotification(errors, tenantConfiguration.Communication.BusinessSmsNotification);
         ValidateReporting(errors, tenantConfiguration.Reporting);
         ValidateVoice(errors, tenantConfiguration.Voice);
 
@@ -206,7 +208,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             }
 
             var token = template[(tokenStart + 2)..tokenEnd].Trim();
-            if (!AllowedConfirmationTokens.Contains(token))
+            if (!IsSupportedConfirmationToken(token))
             {
                 errors.Add($"{fieldName} contains unsupported template token '{token}'.");
             }
@@ -247,6 +249,60 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (reporting.Baseline?.AppointmentsPerWeek is < 0)
         {
             errors.Add("reporting.baseline.appointmentsPerWeek must be zero or greater.");
+        }
+    }
+
+    private static bool IsSupportedConfirmationToken(string token)
+    {
+        if (AllowedConfirmationTokens.Contains(token))
+        {
+            return true;
+        }
+
+        if (!token.StartsWith("attr.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var attributeName = token["attr.".Length..];
+        return attributeName.Length > 0
+            && attributeName.Any(char.IsLetterOrDigit)
+            && attributeName.All(character =>
+                char.IsLetterOrDigit(character)
+                || character is '_' or '-' or '.');
+    }
+
+    private static void ValidateBusinessSmsNotification(
+        ICollection<string> errors,
+        BusinessSmsNotificationConfiguration? configuration)
+    {
+        if (configuration is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(configuration.Mode, BusinessSmsNotificationConfiguration.AlwaysMode, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(configuration.Mode, BusinessSmsNotificationConfiguration.ConditionalMode, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add("communication.businessSmsNotification.mode must be always or conditional.");
+            return;
+        }
+
+        if (!string.Equals(configuration.Mode, BusinessSmsNotificationConfiguration.ConditionalMode, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (configuration.Condition is null)
+        {
+            errors.Add("communication.businessSmsNotification.condition is required for conditional mode.");
+            return;
+        }
+
+        AddRequired(errors, configuration.Condition.Attribute, "communication.businessSmsNotification.condition.attribute");
+        if (configuration.Condition.EqualsAny is null || configuration.Condition.EqualsAny.Count == 0)
+        {
+            errors.Add("communication.businessSmsNotification.condition.equalsAny must include at least one value.");
         }
     }
 
