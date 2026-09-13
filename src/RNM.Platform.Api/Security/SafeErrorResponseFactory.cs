@@ -44,6 +44,14 @@ public sealed class SafeErrorResponseFactory
             SafeCorrelationId(correlationId));
     }
 
+    public SafeErrorResponse CreateRateLimited(string correlationId)
+    {
+        return new SafeErrorResponse(
+            "rate_limited",
+            "Too many requests.",
+            SafeCorrelationId(correlationId));
+    }
+
     private static string SafeCorrelationId(string correlationId)
     {
         return CorrelationId.FromStringOrNew(correlationId).Value;

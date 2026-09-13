@@ -12,7 +12,8 @@ public sealed record TenantConfiguration(
     SecretNameConfiguration SecretNames,
     CommunicationConfiguration Communication,
     ReportingConfiguration? Reporting = null,
-    VoiceConfiguration? Voice = null);
+    VoiceConfiguration? Voice = null,
+    ClassAutomationConfiguration? Classes = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,
@@ -122,3 +123,18 @@ public sealed record TcpaWindowConfiguration(
 
     public int EffectiveEndHour => EndHour ?? 21;
 }
+
+public sealed record ClassAutomationConfiguration(
+    ClassNotificationTemplateConfiguration? RegistrationTemplates = null,
+    ClassNotificationTemplateConfiguration? ReminderTemplates = null,
+    IReadOnlyCollection<int>? ReminderOffsetsMinutes = null,
+    IReadOnlyCollection<string>? AllowedRegistrationOrigins = null)
+{
+    public IReadOnlyCollection<int> EffectiveReminderOffsetsMinutes =>
+        ReminderOffsetsMinutes is { Count: > 0 } ? ReminderOffsetsMinutes : [1440, 60];
+}
+
+public sealed record ClassNotificationTemplateConfiguration(
+    string? SmsBodyTemplate = null,
+    string? EmailSubjectTemplate = null,
+    string? EmailBodyTemplate = null);

@@ -7,6 +7,7 @@ using RNM.Platform.Api.Security;
 using RNM.Platform.Api.Voice;
 using RNM.Platform.Api.Runtime;
 using RNM.Platform.Application.Booking;
+using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Crm;
@@ -15,6 +16,7 @@ using RNM.Platform.Application.LeadImport;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Outbound;
 using RNM.Platform.Application.Ports.Booking;
+using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
 using RNM.Platform.Application.Ports.Outbound;
@@ -23,6 +25,7 @@ using RNM.Platform.Application.Qualification;
 using RNM.Platform.Application.Reporting;
 using RNM.Platform.Application.Tenancy;
 using RNM.Platform.Infrastructure.Booking;
+using RNM.Platform.Infrastructure.Classes;
 using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.Crm;
 using RNM.Platform.Infrastructure.Messaging;
@@ -84,6 +87,10 @@ var host = new HostBuilder()
         services.AddSingleton<BookingApplicationService>();
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
+        services.AddSingleton<ClassNotificationService>();
+        services.AddSingleton<ClassRegistrationService>();
+        services.AddSingleton<ClassReminderService>();
+        services.AddSingleton<ClassReportService>();
         services.AddSingleton<PilotReportingService>();
         services.AddSingleton<OutboundCampaignRunService>();
         services.AddSingleton<LeadCsvImportService>();
@@ -92,6 +99,7 @@ var host = new HostBuilder()
         services.AddSingleton<IReportingReadAdapter, AzureTableReportingReadAdapter>();
         services.AddSingleton<IContactPhoneIndexBackfillAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
+        services.AddSingleton<IClassSessionStore, AzureTableClassSessionStore>();
         services.AddSingleton<ICrmProviderAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
         services.AddHttpClient<GoogleCalendarBookingAdapter>(client =>

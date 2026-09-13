@@ -31,6 +31,27 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         "bookingTime"
     };
 
+    private static readonly HashSet<string> AllowedClassTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tenantId",
+        "verticalId",
+        "businessName",
+        "correlationId",
+        "sessionId",
+        "registrationId",
+        "campaignId",
+        "classTitle",
+        "classStart",
+        "classEnd",
+        "classDate",
+        "classTime",
+        "timeZone",
+        "zoomUrl",
+        "customerName",
+        "customerPhoneNumber",
+        "customerEmail"
+    };
+
     public ConfigurationValidationResult ValidateTenant(TenantConfiguration tenantConfiguration)
     {
         var errors = new List<string>();
@@ -134,6 +155,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         ValidateBusinessSmsNotification(errors, tenantConfiguration.Communication.BusinessSmsNotification);
         ValidateReporting(errors, tenantConfiguration.Reporting);
         ValidateVoice(errors, tenantConfiguration.Voice);
+        ValidateClasses(errors, tenantConfiguration.Classes);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -273,6 +295,31 @@ public sealed class ConfigurationValidator : IConfigurationValidator
                 || character is '_' or '-' or '.');
     }
 
+    private static bool IsSupportedClassToken(string token)
+    {
+        if (AllowedClassTokens.Contains(token))
+        {
+            return true;
+        }
+
+        return IsSupportedAttributeToken(token);
+    }
+
+    private static bool IsSupportedAttributeToken(string token)
+    {
+        if (!token.StartsWith("attr.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var attributeName = token["attr.".Length..];
+        return attributeName.Length > 0
+            && attributeName.Any(char.IsLetterOrDigit)
+            && attributeName.All(character =>
+                char.IsLetterOrDigit(character)
+                || character is '_' or '-' or '.');
+    }
+
     private static void ValidateBusinessSmsNotification(
         ICollection<string> errors,
         BusinessSmsNotificationConfiguration? configuration)
@@ -350,6 +397,99 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (startHour is not null && endHour is not null && startHour >= endHour)
         {
             errors.Add("voice.outbound.tcpaWindow.startHour must be before endHour.");
+        }
+    }
+
+    private static void ValidateClasses(
+        ICollection<string> errors,
+        ClassAutomationConfiguration? classes)
+    {
+        if (classes is null)
+        {
+            return;
+        }
+
+        ValidateClassTemplate(
+            errors,
+            classes.RegistrationTemplates?.SmsBodyTemplate,
+            "classes.registrationTemplates.smsBodyTemplate",
+            MaxSmsTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.RegistrationTemplates?.EmailSubjectTemplate,
+            "classes.registrationTemplates.emailSubjectTemplate",
+            MaxEmailSubjectTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.RegistrationTemplates?.EmailBodyTemplate,
+            "classes.registrationTemplates.emailBodyTemplate",
+            MaxEmailBodyTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.ReminderTemplates?.SmsBodyTemplate,
+            "classes.reminderTemplates.smsBodyTemplate",
+            MaxSmsTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.ReminderTemplates?.EmailSubjectTemplate,
+            "classes.reminderTemplates.emailSubjectTemplate",
+            MaxEmailSubjectTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.ReminderTemplates?.EmailBodyTemplate,
+            "classes.reminderTemplates.emailBodyTemplate",
+            MaxEmailBodyTemplateLength);
+
+        if (classes.ReminderOffsetsMinutes?.Any(value => value <= 0) is true)
+        {
+            errors.Add("classes.reminderOffsetsMinutes must contain positive minute values.");
+        }
+
+        if (classes.ReminderOffsetsMinutes?.Count > 5)
+        {
+            errors.Add("classes.reminderOffsetsMinutes must contain five values or fewer.");
+        }
+    }
+
+    private static void ValidateClassTemplate(
+        ICollection<string> errors,
+        string? template,
+        string fieldName,
+        int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return;
+        }
+
+        if (template.Length > maxLength)
+        {
+            errors.Add($"{fieldName} must be {maxLength} characters or fewer.");
+        }
+
+        var searchIndex = 0;
+        while (searchIndex < template.Length)
+        {
+            var tokenStart = template.IndexOf("{{", searchIndex, StringComparison.Ordinal);
+            if (tokenStart < 0)
+            {
+                return;
+            }
+
+            var tokenEnd = template.IndexOf("}}", tokenStart + 2, StringComparison.Ordinal);
+            if (tokenEnd < 0)
+            {
+                errors.Add($"{fieldName} contains an unterminated template token.");
+                return;
+            }
+
+            var token = template[(tokenStart + 2)..tokenEnd].Trim();
+            if (!IsSupportedClassToken(token))
+            {
+                errors.Add($"{fieldName} contains unsupported template token '{token}'.");
+            }
+
+            searchIndex = tokenEnd + 2;
         }
     }
 

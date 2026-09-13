@@ -40,5 +40,22 @@
       "businessEmailSubjectTemplate": "New appointment: {{customerName}} - {{bookingDate}} {{bookingTime}}",
       "businessEmailBodyTemplate": "New appointment booked\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nMeet: {{onlineMeetingUrl}}\nNeed: {{serviceType}}\nIntent: {{attr.intent}}\nProperty: {{attr.targetPropertyAddress}}\nSource: {{attr.leadSource}}\n\nTracking\nBooking ID: {{providerBookingId}}\nCorrelation ID: {{correlationId}}"
     }
+  },
+  "classes": {
+    "allowedRegistrationOrigins": [
+      "https://rnmglobalsolutions.com",
+      "https://www.rnmglobalsolutions.com"
+    ],
+    "reminderOffsetsMinutes": [1440, 60],
+    "registrationTemplates": {
+      "smsBodyTemplate": "You're registered for {{classTitle}}\n{{classDate}} {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "You're registered: {{classTitle}}",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nYou're registered for {{classTitle}}.\n\nDate: {{classDate}}\nTime: {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\n\nReference: {{registrationId}}"
+    },
+    "reminderTemplates": {
+      "smsBodyTemplate": "Reminder: {{classTitle}} starts {{classDate}} {{classTime}} {{timeZone}}.\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "Reminder: {{classTitle}}",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nReminder: {{classTitle}} is coming up.\n\nDate: {{classDate}}\nTime: {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\n\nReference: {{registrationId}}"
+    }
   }
 }

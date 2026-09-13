@@ -367,6 +367,9 @@ public static class CrmTimelineEventTypes
     public const string MarketingConsentInboundCallDeclined = "consent.marketing.inbound_call_declined";
     public const string MarketingConsentInboundCallBlockedOptedOut = "consent.marketing.inbound_call_blocked_opted_out";
     public const string MarketingConsentReversedFromOptOut = "consent.marketing.reversed_from_optout";
+    public const string MarketingConsentWebRegistrationGranted = "consent.marketing.web_registration_granted";
+    public const string MarketingConsentWebRegistrationDeclined = "consent.marketing.web_registration_declined";
+    public const string MarketingConsentWebRegistrationBlockedOptedOut = "consent.marketing.web_registration_blocked_opted_out";
     public const string SmsSent = "sms.sent";
     public const string EmailSent = "email.sent";
 }
@@ -384,6 +387,9 @@ public static class CrmContactAttributeNames
     public const string AssignedAgent = "assignedAgent";
     public const string ConsentStatus = "consentStatus";
     public const string ConsentOptedOutAt = "consentOptedOutAt";
+    public const string SourceSessionId = "sourceSessionId";
+    public const string SourceRegistrationId = "sourceRegistrationId";
+    public const string SourceFunnel = "sourceFunnel";
 }
 
 public static class CrmOutboundLeadStatuses

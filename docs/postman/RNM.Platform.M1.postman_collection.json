@@ -22,6 +22,10 @@
       "value": "pilot-campaign"
     },
     {
+      "key": "classSessionId",
+      "value": "financial-masterclass-001"
+    },
+    {
       "key": "internalApiKey",
       "value": ""
     },
@@ -621,6 +625,148 @@
             "webhooks",
             "twilio",
             "sms-inbound"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Session Upsert",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Financial Education Master Class\",\n  \"startsAt\": \"2026-07-15T23:00:00Z\",\n  \"endsAt\": \"2026-07-16T00:00:00Z\",\n  \"timeZone\": \"America/Chicago\",\n  \"zoomUrl\": \"https://zoom.us/j/REPLACE_ME\",\n  \"capacity\": 100,\n  \"campaignId\": \"{{campaignId}}\",\n  \"attributes\": {\n    \"topic\": \"financial_education\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/sessions/{{classSessionId}}",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "sessions",
+            "{{classSessionId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Registration Create",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerName\": \"Jane Lead\",\n  \"customerPhoneNumber\": \"+15551234567\",\n  \"customerEmail\": \"jane@example.com\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"source\": \"WebRegistration\",\n  \"marketingConsentGranted\": true,\n  \"attributes\": {\n    \"intent\": \"masterclass\",\n    \"estimatedValue\": \"unknown\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/{{classSessionId}}/registrations",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "{{classSessionId}}",
+            "registrations"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Reminders Manual Run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/reminders/run?maxItems=25",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "reminders",
+            "run"
+          ],
+          "query": [
+            {
+              "key": "maxItems",
+              "value": "25"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Report",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/{{classSessionId}}/report",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "{{classSessionId}}",
+            "report"
           ]
         }
       }

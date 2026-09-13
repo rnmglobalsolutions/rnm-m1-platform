@@ -10,6 +10,7 @@ Import `docs/postman/RNM.Platform.M1.postman_collection.json` into Postman and c
 | `contactFunctionHost` | Contact Function App host, for example `https://<contact-app>.azurewebsites.net` |
 | `tenantId` | Tenant route id, for example `sample-hvac-tenant` |
 | `campaignId` | Outbound campaign id used by CRM v0.5 lead records |
+| `classSessionId` | Shared masterclass session id, for example `financial-masterclass-001` |
 | `internalApiKey` | Internal API key used by protected test endpoints |
 | `vapiWebhookSecret` | Vapi webhook secret for bearer-token testing |
 | `twilioSignature` | Twilio-generated request signature |
@@ -64,6 +65,102 @@ to=2026-07-07T23:59:59Z
 ```
 
 Expected success is `200 OK` with speed-to-contact, funnel, projected revenue, activity summary, baseline comparison, and summary text.
+
+## PUT/POST `/api/tenants/{tenantId}/classes/sessions/{classSessionId}`
+
+Protected endpoint to create or update a shared masterclass session. This does not create a Zoom meeting. Create the meeting in Zoom manually, then store the Zoom URL here.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+Content-Type: application/json
+```
+
+Sample body:
+
+```json
+{
+  "title": "Financial Education Master Class",
+  "startsAt": "2026-07-15T23:00:00Z",
+  "endsAt": "2026-07-16T00:00:00Z",
+  "timeZone": "America/Chicago",
+  "zoomUrl": "https://zoom.us/j/REPLACE_ME",
+  "capacity": 100,
+  "campaignId": "financial-education-july",
+  "attributes": {
+    "topic": "financial_education"
+  }
+}
+```
+
+Expected success is `200 OK` with `succeeded: true` and the stored session.
+
+## POST `/api/tenants/{tenantId}/classes/{classSessionId}/registrations`
+
+Creates or updates the CRM contact, captures web registration consent without reversing prior opt-outs, registers the contact into the shared class session, sends confirmation SMS/email, and schedules configured reminders.
+
+This endpoint can be called with `x-rnm-api-key` for internal/Postman testing. For browser/funnel use, configure `classes.allowedRegistrationOrigins` in the tenant config and send the matching `Origin` header.
+
+Headers for internal testing:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+Content-Type: application/json
+```
+
+Sample body:
+
+```json
+{
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "financial-education-july",
+  "source": "WebRegistration",
+  "marketingConsentGranted": true,
+  "attributes": {
+    "intent": "masterclass"
+  }
+}
+```
+
+Expected success is `200 OK` with `succeeded: true`, the session, registration, and channel results. SMS is sent only when consent is `opt_in`. Email confirmation is transactional for the registration.
+
+## POST `/api/tenants/{tenantId}/classes/reminders/run?maxItems=25`
+
+Protected manual reminder runner. Useful for testing or operational recovery. The deployed timer also runs every five minutes for tenants listed in `RNM_ACTIVE_TENANTS`.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Optional query parameters:
+
+```text
+maxItems=25
+dueAt=2026-07-15T22:00:00Z
+```
+
+Expected success is `200 OK` with scanned/sent/skipped/failed counts.
+
+## GET `/api/tenants/{tenantId}/classes/{classSessionId}/report`
+
+Protected class report endpoint. It returns only real stored counts for this class session.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Expected success is `200 OK` with registrations, confirmation counts, reminders sent, opted-out registrations, and a plain summary.
 
 ## POST `/api/tenants/{tenantId}/webhooks/vapi/inbound`
 

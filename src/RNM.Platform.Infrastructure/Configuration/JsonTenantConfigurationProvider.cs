@@ -78,7 +78,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         SecretNameConfigurationDto? SecretNames,
         CommunicationConfigurationDto? Communication,
         ReportingConfigurationDto? Reporting,
-        VoiceConfigurationDto? Voice)
+        VoiceConfigurationDto? Voice,
+        ClassAutomationConfigurationDto? Classes)
     {
         public TenantConfiguration ToDomain()
         {
@@ -149,7 +150,24 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                     ? null
                                     : new TcpaWindowConfiguration(
                                         Voice.Outbound.TcpaWindow.StartHour,
-                                        Voice.Outbound.TcpaWindow.EndHour))));
+                                        Voice.Outbound.TcpaWindow.EndHour))),
+                Classes is null
+                    ? null
+                    : new ClassAutomationConfiguration(
+                        Classes.RegistrationTemplates is null
+                            ? null
+                            : new ClassNotificationTemplateConfiguration(
+                                Classes.RegistrationTemplates.SmsBodyTemplate,
+                                Classes.RegistrationTemplates.EmailSubjectTemplate,
+                                Classes.RegistrationTemplates.EmailBodyTemplate),
+                        Classes.ReminderTemplates is null
+                            ? null
+                            : new ClassNotificationTemplateConfiguration(
+                                Classes.ReminderTemplates.SmsBodyTemplate,
+                                Classes.ReminderTemplates.EmailSubjectTemplate,
+                                Classes.ReminderTemplates.EmailBodyTemplate),
+                        Classes.ReminderOffsetsMinutes,
+                        Classes.AllowedRegistrationOrigins));
         }
     }
 
@@ -254,4 +272,15 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private sealed record TcpaWindowConfigurationDto(
         int? StartHour,
         int? EndHour);
+
+    private sealed record ClassAutomationConfigurationDto(
+        ClassNotificationTemplateConfigurationDto? RegistrationTemplates,
+        ClassNotificationTemplateConfigurationDto? ReminderTemplates,
+        IReadOnlyCollection<int>? ReminderOffsetsMinutes,
+        IReadOnlyCollection<string>? AllowedRegistrationOrigins);
+
+    private sealed record ClassNotificationTemplateConfigurationDto(
+        string? SmsBodyTemplate,
+        string? EmailSubjectTemplate,
+        string? EmailBodyTemplate);
 }
