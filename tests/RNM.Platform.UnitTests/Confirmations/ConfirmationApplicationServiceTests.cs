@@ -364,6 +364,30 @@ public sealed class ConfirmationApplicationServiceTests
     }
 
     [Fact]
+    public async Task SendBookingConfirmationAsync_RendersOnlineMeetingUrlToken()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var service = CreateService(smsSender, emailSender);
+        var request = CreateRequest(
+            templates: new ConfirmationTemplateSet(
+                "Meet {{onlineMeetingUrl}}",
+                "Appointment details",
+                "Join here: {{onlineMeetingUrl}}"),
+            bookingDecision: CreateBookedDecision() with
+            {
+                OnlineMeetingUrl = "https://meet.google.com/abc-defg-hij"
+            });
+
+        var result = await service.SendBookingConfirmationAsync(request, CancellationToken.None);
+
+        Assert.True(result.SmsSent);
+        Assert.True(result.EmailSent);
+        Assert.Equal("Meet https://meet.google.com/abc-defg-hij", smsSender.LastRequest?.Body);
+        Assert.Equal("Join here: https://meet.google.com/abc-defg-hij", emailSender.LastRequest?.Body);
+    }
+
+    [Fact]
     public async Task SendBookingConfirmationAsync_PrefersFreshRequestAttributes_WhenCrmAttributesDiffer()
     {
         var smsSender = new FakeSmsSender();

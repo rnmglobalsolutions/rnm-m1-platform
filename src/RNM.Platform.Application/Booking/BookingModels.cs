@@ -42,7 +42,8 @@ public sealed record CreateBookingResult(
     bool Succeeded,
     string? ProviderBookingId,
     BookingFailureReason? FailureReason = null,
-    string? Message = null);
+    string? Message = null,
+    string? OnlineMeetingUrl = null);
 
 public enum BookingFailureReason
 {
@@ -75,7 +76,8 @@ public sealed record BookingDecisionResult(
     IReadOnlyCollection<AvailableSlot> AvailableSlots,
     AvailableSlot? SelectedSlot,
     string? ProviderBookingId,
-    string? FailureMessage = null)
+    string? FailureMessage = null,
+    string? OnlineMeetingUrl = null)
 {
     public bool IsBooked => State is BookingDecisionState.Booked;
 }

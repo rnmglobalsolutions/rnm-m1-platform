@@ -1,0 +1,44 @@
+{
+  "tenantId": "kenny-commercial-real-estate",
+  "verticalId": "commercial-real-estate",
+  "businessName": "Kenny Commercial Real Estate",
+  "timeZone": "America/Chicago",
+  "serviceArea": {
+    "zipCodes": ["78040", "78041", "78043", "78045", "78046"],
+    "cities": ["Laredo"],
+    "referralMessage": "Kenny's team can review the property location and follow up with next steps."
+  },
+  "providers": {
+    "crmProvider": "AzureTable",
+    "bookingProvider": "GoogleCalendar",
+    "smsProvider": "Twilio",
+    "emailProvider": "SendGrid"
+  },
+  "secretNames": {
+    "crmApiKey": "tenant-kenny-crm-credentials",
+    "bookingApiKey": "tenant-kenny-google-calendar-credentials",
+    "crmCredentials": "tenant-kenny-crm-credentials",
+    "bookingCredentials": "tenant-kenny-google-calendar-credentials",
+    "voiceWebhookSecret": "tenant-kenny-vapi-webhook-secret",
+    "twilioAccountSid": "tenant-kenny-twilio-account-sid",
+    "twilioAuthToken": "tenant-kenny-twilio-auth-token",
+    "emailConnectionString": "tenant-kenny-email-connection"
+  },
+  "communication": {
+    "smsFromPhoneNumber": "+1XXXXXXXXXX",
+    "emailFromAddress": "info@rnmglobalsolutions.com",
+    "businessNotificationEmail": "info@rnmglobalsolutions.com",
+    "businessNotificationPhoneNumber": "+1XXXXXXXXXX",
+    "businessSmsNotification": {
+      "mode": "always"
+    },
+    "confirmationTemplates": {
+      "smsBodyTemplate": "Appointment confirmed\n{{bookingDate}} {{bookingTime}}\nWith: {{businessName}}\nMeet: {{onlineMeetingUrl}}\nRef: {{correlationId}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "Appointment confirmed for {{bookingDate}}",
+      "emailBodyTemplate": "{{businessName}}\nAppointment confirmed\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nMeet: {{onlineMeetingUrl}}\nNeed: {{serviceType}}\nIntent: {{attr.intent}}\nProperty: {{attr.targetPropertyAddress}}\nReference: {{correlationId}}",
+      "businessSmsBodyTemplate": "New appointment\n{{bookingDate}} {{bookingTime}}\n{{customerName}}\n{{customerPhoneNumber}}\n{{serviceType}}\n{{attr.intent}}\nMeet: {{onlineMeetingUrl}}\nRef: {{correlationId}}",
+      "businessEmailSubjectTemplate": "New appointment: {{customerName}} - {{bookingDate}} {{bookingTime}}",
+      "businessEmailBodyTemplate": "New appointment booked\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nMeet: {{onlineMeetingUrl}}\nNeed: {{serviceType}}\nIntent: {{attr.intent}}\nProperty: {{attr.targetPropertyAddress}}\nSource: {{attr.leadSource}}\n\nTracking\nBooking ID: {{providerBookingId}}\nCorrelation ID: {{correlationId}}"
+    }
+  }
+}

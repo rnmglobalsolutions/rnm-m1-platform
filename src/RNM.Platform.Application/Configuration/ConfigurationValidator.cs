@@ -23,6 +23,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         "zipCode",
         "urgency",
         "providerBookingId",
+        "onlineMeetingUrl",
         "bookingLabel",
         "bookingStart",
         "bookingEnd",

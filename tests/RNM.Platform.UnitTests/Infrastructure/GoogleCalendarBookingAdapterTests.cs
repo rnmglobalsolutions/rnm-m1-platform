@@ -340,7 +340,19 @@ public sealed class GoogleCalendarBookingAdapterTests
     {
         var handler = new QueueHttpMessageHandler([
             JsonResponse("""{"calendars":{"primary":{"busy":[]}}}"""),
-            JsonResponse("""{"id":"event-123"}""")
+            JsonResponse("""
+            {
+              "id": "event-123",
+              "hangoutLink": "https://meet.google.com/abc-defg-hij",
+              "conferenceData": {
+                "createRequest": {
+                  "status": {
+                    "statusCode": "success"
+                  }
+                }
+              }
+            }
+            """)
         ]);
         var adapter = CreateAdapter(CreateCredentialsJson(), handler);
 
@@ -348,9 +360,12 @@ public sealed class GoogleCalendarBookingAdapterTests
 
         Assert.True(result.Succeeded);
         Assert.Equal("event-123", result.ProviderBookingId);
+        Assert.Equal("https://meet.google.com/abc-defg-hij", result.OnlineMeetingUrl);
         Assert.Equal(2, handler.Requests.Count);
         Assert.Equal("/calendar/v3/freeBusy", handler.Requests[0].RequestUri?.AbsolutePath);
         Assert.EndsWith("/calendar/v3/calendars/primary/events", handler.Requests[1].RequestUri?.AbsolutePath);
+        Assert.Contains("conferenceDataVersion=1", handler.Requests[1].RequestUri?.Query);
+        Assert.Contains("sendUpdates=none", handler.Requests[1].RequestUri?.Query);
         var eventPayload = handler.RequestBodies[1];
         using var document = JsonDocument.Parse(eventPayload);
         Assert.Equal("2026-05-11T10:00:00-05:00", document.RootElement.GetProperty("start").GetProperty("dateTime").GetString());
@@ -367,7 +382,71 @@ public sealed class GoogleCalendarBookingAdapterTests
         Assert.Contains("Preferred time: Afternoon", description);
         Assert.Contains("Phone: +15551234567", description);
         Assert.Contains("Email: lead@example.com", description);
-        Assert.False(document.RootElement.TryGetProperty("conferenceData", out _));
+        var conferenceData = document.RootElement.GetProperty("conferenceData");
+        var createRequest = conferenceData.GetProperty("createRequest");
+        Assert.False(string.IsNullOrWhiteSpace(createRequest.GetProperty("requestId").GetString()));
+        Assert.Equal(
+            "hangoutsMeet",
+            createRequest.GetProperty("conferenceSolutionKey").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task CreateBookingAsync_UsesVideoEntryPoint_WhenHangoutLinkIsMissing()
+    {
+        var handler = new QueueHttpMessageHandler([
+            JsonResponse("""{"calendars":{"primary":{"busy":[]}}}"""),
+            JsonResponse("""
+            {
+              "id": "event-123",
+              "conferenceData": {
+                "createRequest": {
+                  "status": {
+                    "statusCode": "success"
+                  }
+                },
+                "entryPoints": [
+                  {
+                    "entryPointType": "video",
+                    "uri": "https://meet.google.com/xyz-abcd-efg"
+                  }
+                ]
+              }
+            }
+            """)
+        ]);
+        var adapter = CreateAdapter(CreateCredentialsJson(), handler);
+
+        var result = await adapter.CreateBookingAsync(CreateBookingRequest(), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("https://meet.google.com/xyz-abcd-efg", result.OnlineMeetingUrl);
+    }
+
+    [Fact]
+    public async Task CreateBookingAsync_ReturnsFailure_WhenConferenceCreationDoesNotSucceed()
+    {
+        var handler = new QueueHttpMessageHandler([
+            JsonResponse("""{"calendars":{"primary":{"busy":[]}}}"""),
+            JsonResponse("""
+            {
+              "id": "event-123",
+              "conferenceData": {
+                "createRequest": {
+                  "status": {
+                    "statusCode": "failure"
+                  }
+                }
+              }
+            }
+            """)
+        ]);
+        var adapter = CreateAdapter(CreateCredentialsJson(), handler);
+
+        var result = await adapter.CreateBookingAsync(CreateBookingRequest(), CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(BookingFailureReason.AdapterFailure, result.FailureReason);
+        Assert.Contains("conference creation did not succeed", result.Message);
     }
 
     [Fact]
@@ -375,7 +454,19 @@ public sealed class GoogleCalendarBookingAdapterTests
     {
         var handler = new QueueHttpMessageHandler([
             JsonResponse("""{"calendars":{"primary":{"busy":[]}}}"""),
-            JsonResponse("""{"id":"event-123"}""")
+            JsonResponse("""
+            {
+              "id": "event-123",
+              "hangoutLink": "https://meet.google.com/abc-defg-hij",
+              "conferenceData": {
+                "createRequest": {
+                  "status": {
+                    "statusCode": "success"
+                  }
+                }
+              }
+            }
+            """)
         ]);
         var adapter = CreateAdapter(CreateCredentialsJson(), handler);
 

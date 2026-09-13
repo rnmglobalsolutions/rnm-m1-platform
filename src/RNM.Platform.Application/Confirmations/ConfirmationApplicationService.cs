@@ -444,6 +444,7 @@ public sealed class ConfirmationApplicationService
             ["zipCode"] = request.ZipCode ?? string.Empty,
             ["urgency"] = request.Urgency ?? string.Empty,
             ["providerBookingId"] = request.BookingDecision.ProviderBookingId ?? string.Empty,
+            ["onlineMeetingUrl"] = request.BookingDecision.OnlineMeetingUrl ?? string.Empty,
             ["bookingLabel"] = request.BookingDecision.SelectedSlot?.Label ?? string.Empty,
             ["bookingStart"] = startsAt?.ToString("O") ?? string.Empty,
             ["bookingEnd"] = endsAt?.ToString("O") ?? string.Empty,

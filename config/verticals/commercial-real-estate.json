@@ -1,0 +1,28 @@
+{
+  "verticalId": "commercial-real-estate",
+  "displayName": "Commercial Real Estate",
+  "qualificationFields": [
+    "name",
+    "phoneNumber",
+    "email",
+    "serviceNeed",
+    "propertyType",
+    "serviceAddress",
+    "intent",
+    "targetPropertyAddress",
+    "preferredTime"
+  ],
+  "supportedCallTypes": [
+    "BuyerInquiry",
+    "SellerInquiry",
+    "TenantInquiry",
+    "InvestorInquiry",
+    "PropertyTour",
+    "Consultation",
+    "GeneralInquiry"
+  ],
+  "serviceAreaFieldAliases": {
+    "zipCodeFields": ["zipCode", "zip", "postalCode", "serviceZipCode"],
+    "addressFields": ["serviceAddress", "targetPropertyAddress"]
+  }
+}

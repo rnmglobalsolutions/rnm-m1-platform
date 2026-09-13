@@ -150,10 +150,11 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                     "Google Calendar slot is no longer available.");
             }
 
-            var payload = CreateEventPayload(request, credentials.TimeZone);
+            var conferenceRequestId = CreateConferenceRequestId(request);
+            var payload = CreateEventPayload(request, credentials.TimeZone, conferenceRequestId);
             using var message = new HttpRequestMessage(
                 HttpMethod.Post,
-                $"calendars/{Uri.EscapeDataString(credentials.CalendarId)}/events?sendUpdates=none");
+                $"calendars/{Uri.EscapeDataString(credentials.CalendarId)}/events?conferenceDataVersion=1&sendUpdates=none");
             message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             message.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
 
@@ -165,9 +166,18 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var eventId = TryReadString(json, "id");
-            return string.IsNullOrWhiteSpace(eventId)
-                ? FailedBooking("Google Calendar event response did not include an event id.")
-                : new CreateBookingResult(true, eventId);
+            if (string.IsNullOrWhiteSpace(eventId))
+            {
+                return FailedBooking("Google Calendar event response did not include an event id.");
+            }
+
+            var meetResult = TryReadMeetLink(json);
+            if (!meetResult.Succeeded)
+            {
+                return FailedBooking(meetResult.Message ?? "Google Calendar event response did not include a Google Meet link.");
+            }
+
+            return new CreateBookingResult(true, eventId, OnlineMeetingUrl: meetResult.MeetUrl);
         }
         catch (OperationCanceledException)
         {
@@ -327,7 +337,10 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         return slots.Take(24).ToArray();
     }
 
-    private static object CreateEventPayload(CreateBookingRequest request, string timeZone)
+    private static object CreateEventPayload(
+        CreateBookingRequest request,
+        string timeZone,
+        string conferenceRequestId)
     {
         var zone = ResolveTimeZone(timeZone);
         var localStartsAt = TimeZoneInfo.ConvertTime(request.Slot.StartsAt, zone);
@@ -394,6 +407,17 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
             start = new { dateTime = localStartsAt, timeZone },
             end = new { dateTime = localEndsAt, timeZone },
             attendees,
+            conferenceData = new
+            {
+                createRequest = new
+                {
+                    requestId = conferenceRequestId,
+                    conferenceSolutionKey = new
+                    {
+                        type = "hangoutsMeet"
+                    }
+                }
+            },
             extendedProperties = new
             {
                 privateData = new
@@ -405,6 +429,14 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
                 }
             }
         };
+    }
+
+    private static string CreateConferenceRequestId(CreateBookingRequest request)
+    {
+        var correlationId = string.IsNullOrWhiteSpace(request.CorrelationId)
+            ? "booking"
+            : request.CorrelationId.Trim();
+        return $"{correlationId}-{Guid.NewGuid():N}";
     }
 
     private static IReadOnlyCollection<BusyTime> ParseBusyTimes(string json, string calendarId)
@@ -713,6 +745,79 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
         }
     }
 
+    private static MeetLinkResult TryReadMeetLink(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            var status = TryReadConferenceStatus(root);
+            if (!string.IsNullOrWhiteSpace(status)
+                && !string.Equals(status, "success", StringComparison.OrdinalIgnoreCase))
+            {
+                return MeetLinkResult.Failed($"Google Calendar conference creation did not succeed. Status: {status}.");
+            }
+
+            var hangoutLink = ReadString(root, "hangoutLink");
+            if (!string.IsNullOrWhiteSpace(hangoutLink))
+            {
+                return MeetLinkResult.Success(hangoutLink);
+            }
+
+            var entryPointLink = TryReadVideoEntryPoint(root);
+            return string.IsNullOrWhiteSpace(entryPointLink)
+                ? MeetLinkResult.Failed("Google Calendar event response did not include a Google Meet link.")
+                : MeetLinkResult.Success(entryPointLink);
+        }
+        catch (JsonException)
+        {
+            return MeetLinkResult.Failed("Google Calendar event response did not include a valid Google Meet link payload.");
+        }
+    }
+
+    private static string? TryReadConferenceStatus(JsonElement root)
+    {
+        if (root.ValueKind is not JsonValueKind.Object
+            || !root.TryGetProperty("conferenceData", out var conferenceData)
+            || conferenceData.ValueKind is not JsonValueKind.Object
+            || !conferenceData.TryGetProperty("createRequest", out var createRequest)
+            || createRequest.ValueKind is not JsonValueKind.Object
+            || !createRequest.TryGetProperty("status", out var status)
+            || status.ValueKind is not JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return ReadString(status, "statusCode");
+    }
+
+    private static string? TryReadVideoEntryPoint(JsonElement root)
+    {
+        if (root.ValueKind is not JsonValueKind.Object
+            || !root.TryGetProperty("conferenceData", out var conferenceData)
+            || conferenceData.ValueKind is not JsonValueKind.Object
+            || !conferenceData.TryGetProperty("entryPoints", out var entryPoints)
+            || entryPoints.ValueKind is not JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var entryPoint in entryPoints.EnumerateArray())
+        {
+            if (entryPoint.ValueKind is JsonValueKind.Object
+                && string.Equals(ReadString(entryPoint, "entryPointType"), "video", StringComparison.OrdinalIgnoreCase))
+            {
+                var uri = ReadString(entryPoint, "uri");
+                if (!string.IsNullOrWhiteSpace(uri))
+                {
+                    return uri;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static string? ReadString(JsonElement element, string propertyName)
     {
         return element.ValueKind is JsonValueKind.Object
@@ -730,6 +835,13 @@ public sealed class GoogleCalendarBookingAdapter : IBookingProviderAdapter
 
     private static CreateBookingResult FailedBooking(string message) =>
         new(false, null, BookingFailureReason.AdapterFailure, message);
+
+    private sealed record MeetLinkResult(bool Succeeded, string? MeetUrl, string? Message)
+    {
+        public static MeetLinkResult Success(string meetUrl) => new(true, meetUrl, null);
+
+        public static MeetLinkResult Failed(string message) => new(false, null, message);
+    }
 
     private sealed record PreferredTimeWindow(TimeSpan? StartsAt, TimeSpan? EndsAt)
     {
