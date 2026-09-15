@@ -1,4 +1,5 @@
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Crm;
@@ -14,6 +15,7 @@ public sealed class OutboundCampaignRunService
     private readonly ICrmAdapter crmAdapter;
     private readonly IOutboundCallAdapter outboundCallAdapter;
     private readonly IEventLogger eventLogger;
+    private readonly ISendWindowPolicy sendWindowPolicy;
     private readonly Func<DateTimeOffset> utcNowProvider;
     private readonly Func<TimeSpan, CancellationToken, Task> delay;
 
@@ -21,12 +23,14 @@ public sealed class OutboundCampaignRunService
         ITenantConfigurationProvider tenantConfigurationProvider,
         ICrmAdapter crmAdapter,
         IOutboundCallAdapter outboundCallAdapter,
-        IEventLogger eventLogger)
+        IEventLogger eventLogger,
+        ISendWindowPolicy sendWindowPolicy)
         : this(
             tenantConfigurationProvider,
             crmAdapter,
             outboundCallAdapter,
             eventLogger,
+            sendWindowPolicy,
             () => DateTimeOffset.UtcNow,
             Task.Delay)
     {
@@ -39,11 +43,31 @@ public sealed class OutboundCampaignRunService
         IEventLogger eventLogger,
         Func<DateTimeOffset> utcNowProvider,
         Func<TimeSpan, CancellationToken, Task> delay)
+        : this(
+            tenantConfigurationProvider,
+            crmAdapter,
+            outboundCallAdapter,
+            eventLogger,
+            new SendWindowPolicy(),
+            utcNowProvider,
+            delay)
+    {
+    }
+
+    internal OutboundCampaignRunService(
+        ITenantConfigurationProvider tenantConfigurationProvider,
+        ICrmAdapter crmAdapter,
+        IOutboundCallAdapter outboundCallAdapter,
+        IEventLogger eventLogger,
+        ISendWindowPolicy sendWindowPolicy,
+        Func<DateTimeOffset> utcNowProvider,
+        Func<TimeSpan, CancellationToken, Task> delay)
     {
         this.tenantConfigurationProvider = tenantConfigurationProvider;
         this.crmAdapter = crmAdapter;
         this.outboundCallAdapter = outboundCallAdapter;
         this.eventLogger = eventLogger;
+        this.sendWindowPolicy = sendWindowPolicy;
         this.utcNowProvider = utcNowProvider;
         this.delay = delay;
     }
@@ -149,24 +173,24 @@ public sealed class OutboundCampaignRunService
                 continue;
             }
 
-            var timezone = ResolveLeadTimezone(lead, tenantConfiguration.TimeZone);
-            if (!IsWithinTcpaWindow(utcNowProvider(), timezone.TimeZoneId, tcpaWindow, out var localHour))
+            var sendWindow = sendWindowPolicy.Evaluate(lead, tenantConfiguration.TimeZone, tcpaWindow, utcNowProvider());
+            if (!sendWindow.IsAllowed)
             {
                 skippedLeadCount++;
                 items.Add(new OutboundCampaignRunItem(
                     lead.ProviderContactId,
                     "skipped_outside_tcpa_window",
-                    TimeZoneBasis: timezone.Basis,
-                    TimeZone: timezone.TimeZoneId));
+                    TimeZoneBasis: sendWindow.TimeZoneBasis,
+                    TimeZone: sendWindow.TimeZoneId));
                 await LogLeadOutcomeAsync(
                         TelemetryEventNames.OutboundCallSkipped,
                         request,
                         lead.ProviderContactId,
                         "skipped_outside_tcpa_window",
                         cancellationToken,
-                        timezoneBasis: timezone.Basis,
-                        timezone: timezone.TimeZoneId,
-                        localHour: localHour.ToString())
+                        timezoneBasis: sendWindow.TimeZoneBasis,
+                        timezone: sendWindow.TimeZoneId,
+                        localHour: sendWindow.LocalHour.ToString())
                     .ConfigureAwait(false);
                 continue;
             }
@@ -184,8 +208,8 @@ public sealed class OutboundCampaignRunService
                     lead.ProviderContactId,
                     "requested",
                     cancellationToken,
-                    timezoneBasis: timezone.Basis,
-                    timezone: timezone.TimeZoneId)
+                    timezoneBasis: sendWindow.TimeZoneBasis,
+                    timezone: sendWindow.TimeZoneId)
                 .ConfigureAwait(false);
 
             var startResult = await outboundCallAdapter
@@ -208,8 +232,8 @@ public sealed class OutboundCampaignRunService
                     "call_started",
                     startResult.ProviderCallId,
                     startResult.Status,
-                    timezone.Basis,
-                    timezone.TimeZoneId));
+                    sendWindow.TimeZoneBasis,
+                    sendWindow.TimeZoneId));
                 await LogLeadOutcomeAsync(
                         TelemetryEventNames.OutboundCallStarted,
                         request,
@@ -218,8 +242,8 @@ public sealed class OutboundCampaignRunService
                         cancellationToken,
                         providerCallId: startResult.ProviderCallId,
                         status: startResult.Status,
-                        timezoneBasis: timezone.Basis,
-                        timezone: timezone.TimeZoneId)
+                        timezoneBasis: sendWindow.TimeZoneBasis,
+                        timezone: sendWindow.TimeZoneId)
                     .ConfigureAwait(false);
             }
             else
@@ -229,8 +253,8 @@ public sealed class OutboundCampaignRunService
                     lead.ProviderContactId,
                     "call_start_failed",
                     Status: startResult.Status,
-                    TimeZoneBasis: timezone.Basis,
-                    TimeZone: timezone.TimeZoneId,
+                    TimeZoneBasis: sendWindow.TimeZoneBasis,
+                    TimeZone: sendWindow.TimeZoneId,
                     Retryable: startResult.Retryable));
                 await LogLeadOutcomeAsync(
                         TelemetryEventNames.OutboundCallFailed,
@@ -308,59 +332,6 @@ public sealed class OutboundCampaignRunService
 
     private static bool IsOptedOut(CrmContactRecord lead) =>
         string.Equals(lead.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
-
-    private static LeadTimezoneResolution ResolveLeadTimezone(CrmContactRecord lead, string tenantTimeZone)
-    {
-        var leadTimezone = FirstNonEmptyAttribute(lead, "timeZone", "timezone", "leadTimeZone", "leadTimezone");
-        return string.IsNullOrWhiteSpace(leadTimezone)
-            ? new LeadTimezoneResolution(tenantTimeZone, "tenant")
-            : IsValidTimeZone(leadTimezone)
-                ? new LeadTimezoneResolution(leadTimezone, "lead")
-                : new LeadTimezoneResolution(tenantTimeZone, "tenant");
-    }
-
-    private static string? FirstNonEmptyAttribute(CrmContactRecord lead, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (lead.Attributes.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-        }
-
-        return null;
-    }
-
-    private static bool IsWithinTcpaWindow(
-        DateTimeOffset utcNow,
-        string timezone,
-        TcpaWindowConfiguration tcpaWindow,
-        out int localHour)
-    {
-        var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
-        var localTime = TimeZoneInfo.ConvertTime(utcNow, timeZoneInfo);
-        localHour = localTime.Hour;
-        return localTime.Hour >= tcpaWindow.EffectiveStartHour
-            && localTime.Hour < tcpaWindow.EffectiveEndHour;
-    }
-
-    private static bool IsValidTimeZone(string timeZoneId)
-    {
-        try
-        {
-            TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-            return true;
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return false;
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return false;
-        }
-    }
 
     private static string BuildCallbackWebhookUrl(
         string callbackWebhookBaseUrl,

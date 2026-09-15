@@ -28,7 +28,8 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         "bookingStart",
         "bookingEnd",
         "bookingDate",
-        "bookingTime"
+        "bookingTime",
+        "timeZone"
     };
 
     private static readonly HashSet<string> AllowedClassTokens = new(StringComparer.OrdinalIgnoreCase)
@@ -153,6 +154,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         }
 
         ValidateBusinessSmsNotification(errors, tenantConfiguration.Communication.BusinessSmsNotification);
+        ValidateAppointmentReminders(errors, tenantConfiguration.Communication.AppointmentReminders);
         ValidateReporting(errors, tenantConfiguration.Reporting);
         ValidateVoice(errors, tenantConfiguration.Voice);
         ValidateClasses(errors, tenantConfiguration.Classes);
@@ -272,6 +274,47 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (reporting.Baseline?.AppointmentsPerWeek is < 0)
         {
             errors.Add("reporting.baseline.appointmentsPerWeek must be zero or greater.");
+        }
+    }
+
+    private static void ValidateAppointmentReminders(
+        ICollection<string> errors,
+        AppointmentReminderConfiguration? appointmentReminders)
+    {
+        if (appointmentReminders is null)
+        {
+            return;
+        }
+
+        ValidateConfirmationTemplate(
+            errors,
+            appointmentReminders.Templates?.SmsBodyTemplate,
+            "communication.appointmentReminders.templates.smsBodyTemplate",
+            MaxSmsTemplateLength);
+        ValidateConfirmationTemplate(
+            errors,
+            appointmentReminders.Templates?.EmailSubjectTemplate,
+            "communication.appointmentReminders.templates.emailSubjectTemplate",
+            MaxEmailSubjectTemplateLength);
+        ValidateConfirmationTemplate(
+            errors,
+            appointmentReminders.Templates?.EmailBodyTemplate,
+            "communication.appointmentReminders.templates.emailBodyTemplate",
+            MaxEmailBodyTemplateLength);
+
+        if (appointmentReminders.ReminderOffsetsMinutes?.Any(value => value <= 0) is true)
+        {
+            errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain positive minute values.");
+        }
+
+        if (appointmentReminders.ReminderOffsetsMinutes?.Count > 5)
+        {
+            errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain five values or fewer.");
+        }
+
+        if (appointmentReminders.ReminderStalenessCutoffMinutes is < 1)
+        {
+            errors.Add("communication.appointmentReminders.reminderStalenessCutoffMinutes must be one or greater.");
         }
     }
 
@@ -448,6 +491,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (classes.ReminderOffsetsMinutes?.Count > 5)
         {
             errors.Add("classes.reminderOffsetsMinutes must contain five values or fewer.");
+        }
+
+        if (classes.ReminderStalenessCutoffMinutes is < 1)
+        {
+            errors.Add("classes.reminderStalenessCutoffMinutes must be one or greater.");
         }
     }
 

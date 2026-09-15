@@ -97,7 +97,9 @@ public enum ConfirmationFailureReason
     MissingBusinessSmsTemplate = 11,
     MissingBusinessEmailTemplate = 12,
     ContactOptedOut = 13,
-    MarketingConsentNotGranted = 14
+    MarketingConsentNotGranted = 14,
+    OutsideSendWindow = 15,
+    ReminderStale = 16
 }
 
 public sealed record SmsMessageRequest(

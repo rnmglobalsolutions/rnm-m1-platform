@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Azure;
 using Azure.Data.Tables;
 using RNM.Platform.Application.Classes;
@@ -252,6 +254,8 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
             var rowKey = CreateReminderRowKey(dueAt, request.Registration.RegistrationId, offsetMinutes);
             var entity = new TableEntity(request.TenantId, rowKey)
             {
+                ["TargetType"] = ReminderTargetTypes.ClassSession,
+                ["TargetId"] = request.Session.SessionId,
                 ["RegistrationId"] = request.Registration.RegistrationId,
                 ["SessionId"] = request.Session.SessionId,
                 ["ProviderContactId"] = request.Registration.ProviderContactId,
@@ -262,6 +266,61 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
                 ["UpdatedAt"] = DateTimeOffset.UtcNow,
                 ["CorrelationId"] = request.CorrelationId
             };
+
+            await table.UpsertEntityAsync(entity, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task ScheduleAppointmentRemindersAsync(
+        AppointmentReminderScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("Azure Table connection string is missing.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ProviderContactId)
+            || string.IsNullOrWhiteSpace(request.ProviderBookingId)
+            || request.StartsAt <= DateTimeOffset.UtcNow)
+        {
+            return;
+        }
+
+        var table = await GetTableClientAsync(reminderDueTableName, cancellationToken).ConfigureAwait(false);
+        foreach (var offsetMinutes in request.ReminderOffsetsMinutes.Distinct().Where(value => value > 0))
+        {
+            var dueAt = request.StartsAt.AddMinutes(-offsetMinutes);
+            if (dueAt <= DateTimeOffset.UtcNow)
+            {
+                continue;
+            }
+
+            var rowKey = CreateReminderRowKey(dueAt, CreateReminderTargetRowKeyComponent(request.ProviderBookingId), offsetMinutes);
+            var entity = new TableEntity(request.TenantId, rowKey)
+            {
+                ["TargetType"] = ReminderTargetTypes.Appointment,
+                ["TargetId"] = request.ProviderBookingId,
+                ["RegistrationId"] = string.Empty,
+                ["SessionId"] = string.Empty,
+                ["ProviderContactId"] = request.ProviderContactId,
+                ["ProviderBookingId"] = request.ProviderBookingId,
+                ["CustomerName"] = SafeValue(request.CustomerName),
+                ["CustomerPhoneNumber"] = SafeValue(request.CustomerPhoneNumber),
+                ["CustomerEmail"] = SafeValue(request.CustomerEmail),
+                ["BookingLabel"] = SafeValue(request.BookingLabel),
+                ["TimeZone"] = SafeValue(request.TimeZone),
+                ["OnlineMeetingUrl"] = SafeTableString(request.OnlineMeetingUrl),
+                ["ReminderKind"] = $"{offsetMinutes}m_before",
+                ["DueAt"] = dueAt,
+                ["Status"] = ClassReminderStatuses.Pending,
+                ["AttributesJson"] = SerializeMetadata(request.Attributes),
+                ["CreatedAt"] = DateTimeOffset.UtcNow,
+                ["UpdatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = request.CorrelationId
+            };
+            AddIfPresent(entity, "StartsAt", request.StartsAt);
+            AddIfPresent(entity, "EndsAt", request.EndsAt);
 
             await table.UpsertEntityAsync(entity, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
         }
@@ -459,13 +518,29 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
             ReadString(entity, "ReminderKind") ?? string.Empty,
             ReadDateTimeOffset(entity, "DueAt") ?? DateTimeOffset.MinValue,
             ReadString(entity, "Status") ?? string.Empty,
-            ReadString(entity, "CorrelationId") ?? string.Empty);
+            ReadString(entity, "CorrelationId") ?? string.Empty)
+        {
+            TargetType = ReadString(entity, "TargetType") ?? ReminderTargetTypes.ClassSession,
+            TargetId = ReadString(entity, "TargetId") ?? ReadString(entity, "SessionId") ?? string.Empty,
+            CustomerName = ReadString(entity, "CustomerName"),
+            CustomerPhoneNumber = ReadString(entity, "CustomerPhoneNumber"),
+            CustomerEmail = ReadString(entity, "CustomerEmail"),
+            BookingLabel = ReadString(entity, "BookingLabel"),
+            StartsAt = ReadDateTimeOffset(entity, "StartsAt"),
+            EndsAt = ReadDateTimeOffset(entity, "EndsAt"),
+            TimeZone = ReadString(entity, "TimeZone"),
+            OnlineMeetingUrl = ReadString(entity, "OnlineMeetingUrl"),
+            Attributes = ReadMetadata(entity)
+        };
 
     private static string CreateReminderRowKey(
         DateTimeOffset dueAt,
         string registrationId,
         int offsetMinutes) =>
         $"{dueAt.UtcDateTime.Ticks:D20}|{offsetMinutes:D5}|{registrationId}";
+
+    private static string CreateReminderTargetRowKeyComponent(string targetId) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(targetId))).ToLowerInvariant();
 
     private static ClassSessionUpsertResult FailedSession(ClassFailureReason reason, string message) =>
         new(false, null, reason, message);

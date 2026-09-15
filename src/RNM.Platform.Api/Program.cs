@@ -8,6 +8,7 @@ using RNM.Platform.Api.Voice;
 using RNM.Platform.Api.Runtime;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Classes;
+using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Crm;
@@ -87,6 +88,7 @@ var host = new HostBuilder()
         services.AddSingleton<BookingApplicationService>();
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
+        services.AddSingleton<ISendWindowPolicy, SendWindowPolicy>();
         services.AddSingleton<ClassNotificationService>();
         services.AddSingleton<ClassRegistrationService>();
         services.AddSingleton<ClassReminderService>();

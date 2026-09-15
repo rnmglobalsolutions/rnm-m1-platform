@@ -43,6 +43,15 @@
       "businessSmsBodyTemplate": "New HVAC booking\n{{bookingDate}} {{bookingTime}}\n{{customerName}}\n{{customerPhoneNumber}}\n{{serviceType}}\n{{serviceAddress}}\nRef: {{correlationId}}",
       "businessEmailSubjectTemplate": "New HVAC booking: {{serviceType}} - {{bookingDate}} {{bookingTime}}",
       "businessEmailBodyTemplate": "New HVAC appointment booked\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nProperty type: {{propertyType}}\nUrgency: {{urgency}}\nService address: {{serviceAddress}}\nZIP code: {{zipCode}}\n\nTracking\nBooking ID: {{providerBookingId}}\nCorrelation ID: {{correlationId}}"
+    },
+    "appointmentReminders": {
+      "reminderOffsetsMinutes": [1440, 60],
+      "reminderStalenessCutoffMinutes": 60,
+      "templates": {
+        "smsBodyTemplate": "Reminder: RNM appt {{bookingDate}} {{bookingTime}} {{timeZone}}.\nService: {{serviceType}}\n{{onlineMeetingUrl}}\nReply STOP to opt out.",
+        "emailSubjectTemplate": "Reminder: RNM appointment {{bookingDate}}",
+        "emailBodyTemplate": "RNM Global Solutions\nAppointment reminder\n\nDate: {{bookingDate}}\nTime: {{bookingTime}} {{timeZone}}\nService: {{serviceType}}\nAddress: {{serviceAddress}}\nMeet: {{onlineMeetingUrl}}\nReference: {{correlationId}}"
+      }
     }
   }
 }

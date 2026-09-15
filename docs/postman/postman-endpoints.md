@@ -68,7 +68,7 @@ Expected success is `200 OK` with speed-to-contact, funnel, projected revenue, a
 
 ## PUT/POST `/api/tenants/{tenantId}/classes/sessions/{classSessionId}`
 
-Protected endpoint to create or update a shared masterclass session. This does not create a Zoom meeting. Create the meeting in Zoom manually, then store the Zoom URL here.
+Protected endpoint to create or update a shared masterclass session for the `rnm-insurance-agents` tenant. This does not create a Zoom meeting. Create the meeting in Zoom manually, then store the Zoom URL here.
 
 Headers:
 
@@ -101,7 +101,7 @@ Expected success is `200 OK` with `succeeded: true` and the stored session.
 
 Creates or updates the CRM contact, captures web registration consent without reversing prior opt-outs, registers the contact into the shared class session, sends confirmation SMS/email, and schedules configured reminders.
 
-This endpoint can be called with `x-rnm-api-key` for internal/Postman testing. For browser/funnel use, configure `classes.allowedRegistrationOrigins` in the tenant config and send the matching `Origin` header.
+This endpoint can be called with `x-rnm-api-key` for internal/Postman testing and server-side sources such as Meta lead handling or ManyChat. For browser/funnel use, configure `classes.allowedRegistrationOrigins` in the tenant config and send the matching `Origin` header. This masterclass flow does not use Vapi inbound.
 
 Headers for internal testing:
 

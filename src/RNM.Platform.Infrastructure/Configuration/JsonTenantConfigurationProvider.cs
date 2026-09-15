@@ -119,7 +119,21 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                     Communication?.BusinessNotificationEmail,
                     Communication?.BusinessNotificationPhoneNumber,
                     Communication?.NotifyBusinessBySmsForUrgentOnly ?? false,
-                    CreateBusinessSmsNotificationConfiguration(Communication)),
+                    CreateBusinessSmsNotificationConfiguration(Communication),
+                    Communication?.AppointmentReminders is null
+                        ? null
+                        : new AppointmentReminderConfiguration(
+                            Communication.AppointmentReminders.Templates is null
+                                ? null
+                                : new ConfirmationTemplateConfiguration(
+                                    Communication.AppointmentReminders.Templates.SmsBodyTemplate ?? string.Empty,
+                                    Communication.AppointmentReminders.Templates.EmailSubjectTemplate,
+                                    Communication.AppointmentReminders.Templates.EmailBodyTemplate,
+                                    Communication.AppointmentReminders.Templates.BusinessSmsBodyTemplate,
+                                    Communication.AppointmentReminders.Templates.BusinessEmailSubjectTemplate,
+                                    Communication.AppointmentReminders.Templates.BusinessEmailBodyTemplate),
+                            Communication.AppointmentReminders.ReminderOffsetsMinutes,
+                            Communication.AppointmentReminders.ReminderStalenessCutoffMinutes)),
                 new ReportingConfiguration(
                     Reporting?.CloseRate,
                     Reporting?.AvgCommissionValue,
@@ -167,7 +181,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                 Classes.ReminderTemplates.EmailSubjectTemplate,
                                 Classes.ReminderTemplates.EmailBodyTemplate),
                         Classes.ReminderOffsetsMinutes,
-                        Classes.AllowedRegistrationOrigins));
+                        Classes.AllowedRegistrationOrigins,
+                        Classes.ReminderStalenessCutoffMinutes));
         }
     }
 
@@ -200,7 +215,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? BusinessNotificationEmail,
         string? BusinessNotificationPhoneNumber,
         bool? NotifyBusinessBySmsForUrgentOnly,
-        BusinessSmsNotificationConfigurationDto? BusinessSmsNotification);
+        BusinessSmsNotificationConfigurationDto? BusinessSmsNotification,
+        AppointmentReminderConfigurationDto? AppointmentReminders);
 
     private static BusinessSmsNotificationConfiguration CreateBusinessSmsNotificationConfiguration(
         CommunicationConfigurationDto? communication)
@@ -233,6 +249,11 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private sealed record BusinessSmsNotificationConditionDto(
         string? Attribute,
         IReadOnlyCollection<string>? EqualsAny);
+
+    private sealed record AppointmentReminderConfigurationDto(
+        ConfirmationTemplateConfigurationDto? Templates,
+        IReadOnlyCollection<int>? ReminderOffsetsMinutes,
+        int? ReminderStalenessCutoffMinutes);
 
     private sealed record ConfirmationTemplateConfigurationDto(
         string? SmsBodyTemplate,
@@ -277,7 +298,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ClassNotificationTemplateConfigurationDto? RegistrationTemplates,
         ClassNotificationTemplateConfigurationDto? ReminderTemplates,
         IReadOnlyCollection<int>? ReminderOffsetsMinutes,
-        IReadOnlyCollection<string>? AllowedRegistrationOrigins);
+        IReadOnlyCollection<string>? AllowedRegistrationOrigins,
+        int? ReminderStalenessCutoffMinutes);
 
     private sealed record ClassNotificationTemplateConfigurationDto(
         string? SmsBodyTemplate,

@@ -31,18 +31,38 @@ Add a `classes` section to the tenant config:
 Set `RNM_ACTIVE_TENANTS` in the Function App when reminder automation should run:
 
 ```text
-RNM_ACTIVE_TENANTS=kenny-commercial-real-estate
+RNM_ACTIVE_TENANTS=rnm-insurance-agents
 ```
 
 Multiple tenants are comma-separated.
+
+The same timer and due-work table also process appointment reminders. Configure
+appointment reminders under `communication.appointmentReminders`; do not create a
+second runner.
+
+```json
+{
+  "communication": {
+    "appointmentReminders": {
+      "reminderOffsetsMinutes": [1440, 60],
+      "reminderStalenessCutoffMinutes": 60,
+      "templates": {
+        "smsBodyTemplate": "Reminder: {{businessName}} appointment {{bookingDate}} {{bookingTime}} {{timeZone}}.\nMeet: {{onlineMeetingUrl}}\nReply STOP to opt out.",
+        "emailSubjectTemplate": "Reminder: appointment with {{businessName}}",
+        "emailBodyTemplate": "Hi {{customerName}},\n\nThis is a reminder for your appointment with {{businessName}}.\n\nDate: {{bookingDate}}\nTime: {{bookingTime}} {{timeZone}}\nMeet: {{onlineMeetingUrl}}\n\nReference: {{correlationId}}"
+      }
+    }
+  }
+}
+```
 
 ## Flow
 
 1. Create the Zoom meeting manually.
 2. Copy the Zoom join URL.
 3. Create or update the class session in M1.
-4. Register leads through the public registration endpoint or through an
-   internal Postman request.
+4. Register leads through the public registration endpoint, a funnel form, Meta
+   lead handling, ManyChat, or an internal Postman request.
 5. Confirm the lead received email and, if consent was granted, SMS.
 6. Let the timer process reminders every five minutes, or run reminders manually.
 7. Check the class report.
@@ -75,7 +95,9 @@ Content-Type: application/json
 ```
 
 Browser/funnel requests must come from an origin configured in
-`classes.allowedRegistrationOrigins`. Internal tests can use `x-rnm-api-key`.
+`classes.allowedRegistrationOrigins`. Server-side sources such as Meta lead
+handling or ManyChat should call the same endpoint with `x-rnm-api-key`.
+Internal tests can also use `x-rnm-api-key`.
 The public path is intended for a trusted funnel page and is additionally
 protected by a small per-instance rate limit. Treat it as a pilot-safe public
 entry point, not as strong authentication; add stronger bot protection before
@@ -107,6 +129,23 @@ high-volume public campaigns.
 ## Reminder Processing
 
 The timer runs every five minutes and processes tenants from `RNM_ACTIVE_TENANTS`.
+Class and appointment reminder SMS use the shared send-window policy before
+dispatch. The policy checks lead timezone attributes in this order: `timeZone`,
+`timezone`, `leadTimeZone`, `leadTimezone`; if none is present or valid, it
+falls back to the tenant timezone. The default send window is 8:00 AM inclusive
+to 9:00 PM exclusive unless the tenant TCPA window overrides it. If SMS is
+outside the send window, M1 skips SMS, records `outside_send_window`, and still
+sends reminder email when allowed.
+
+Stale reminders are skipped. Configure `classes.reminderStalenessCutoffMinutes`
+per tenant when needed; the default is 60 minutes. M1 also skips reminders for
+classes that have already started.
+
+For appointments, configure `communication.appointmentReminders.reminderStalenessCutoffMinutes`.
+M1 skips appointment reminder rows when the appointment has already started.
+Booking cancellation/reschedule invalidation is not implemented yet; if an
+appointment is changed outside M1, pending reminder rows are not automatically
+invalidated.
 
 Manual run:
 
@@ -167,7 +206,7 @@ dotnet test RNM.Platform.sln --configuration Release
 Debe pasar todo. La última vez quedó en:
 
 ```text
-354 unit tests passed
+370 unit tests passed
 1 integration test passed
 0 failed
 ```
@@ -194,13 +233,14 @@ En el tenant que vas a usar, confirma que existe:
 }
 ```
 
-Para reminders automáticos, en Azure Function App agrega:
+Para reminders automáticos de masterclass, en Azure Function App agrega:
 
 ```text
-RNM_ACTIVE_TENANTS=kenny-commercial-real-estate
+RNM_ACTIVE_TENANTS=rnm-insurance-agents
 ```
 
-o el tenant real que estés probando.
+o el tenant real de masterclass que estés probando. Kenny Commercial Real Estate
+no debe usarse para masterclasses.
 
 **3. Crea la reunión en Zoom manualmente**
 En Zoom crea la masterclass y copia el join link.

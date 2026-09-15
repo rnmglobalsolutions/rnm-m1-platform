@@ -38,7 +38,8 @@ public sealed record CommunicationConfiguration(
     string? BusinessNotificationEmail = null,
     string? BusinessNotificationPhoneNumber = null,
     bool NotifyBusinessBySmsForUrgentOnly = false,
-    BusinessSmsNotificationConfiguration? BusinessSmsNotification = null)
+    BusinessSmsNotificationConfiguration? BusinessSmsNotification = null,
+    AppointmentReminderConfiguration? AppointmentReminders = null)
 {
     public BusinessSmsNotificationConfiguration EffectiveBusinessSmsNotification =>
         BusinessSmsNotification
@@ -47,6 +48,9 @@ public sealed record CommunicationConfiguration(
                 "urgency",
                 ["urgent", "emergency", "asap", "same-day", "today"])
             : BusinessSmsNotificationConfiguration.Always());
+
+    public AppointmentReminderConfiguration EffectiveAppointmentReminders =>
+        AppointmentReminders ?? new AppointmentReminderConfiguration();
 }
 
 public sealed record BusinessSmsNotificationConfiguration(
@@ -76,6 +80,18 @@ public sealed record ConfirmationTemplateConfiguration(
     string? BusinessSmsBodyTemplate = null,
     string? BusinessEmailSubjectTemplate = null,
     string? BusinessEmailBodyTemplate = null);
+
+public sealed record AppointmentReminderConfiguration(
+    ConfirmationTemplateConfiguration? Templates = null,
+    IReadOnlyCollection<int>? ReminderOffsetsMinutes = null,
+    int? ReminderStalenessCutoffMinutes = null)
+{
+    public IReadOnlyCollection<int> EffectiveReminderOffsetsMinutes =>
+        ReminderOffsetsMinutes is { Count: > 0 } ? ReminderOffsetsMinutes : [1440, 60];
+
+    public int EffectiveReminderStalenessCutoffMinutes =>
+        ReminderStalenessCutoffMinutes ?? 60;
+}
 
 public sealed record ReportingConfiguration(
     decimal? CloseRate = null,
@@ -128,10 +144,14 @@ public sealed record ClassAutomationConfiguration(
     ClassNotificationTemplateConfiguration? RegistrationTemplates = null,
     ClassNotificationTemplateConfiguration? ReminderTemplates = null,
     IReadOnlyCollection<int>? ReminderOffsetsMinutes = null,
-    IReadOnlyCollection<string>? AllowedRegistrationOrigins = null)
+    IReadOnlyCollection<string>? AllowedRegistrationOrigins = null,
+    int? ReminderStalenessCutoffMinutes = null)
 {
     public IReadOnlyCollection<int> EffectiveReminderOffsetsMinutes =>
         ReminderOffsetsMinutes is { Count: > 0 } ? ReminderOffsetsMinutes : [1440, 60];
+
+    public int EffectiveReminderStalenessCutoffMinutes =>
+        ReminderStalenessCutoffMinutes ?? 60;
 }
 
 public sealed record ClassNotificationTemplateConfiguration(

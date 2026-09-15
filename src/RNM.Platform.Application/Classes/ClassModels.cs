@@ -1,4 +1,5 @@
 using RNM.Platform.Application.Confirmations;
+using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Classes;
 
@@ -94,7 +95,53 @@ public sealed record ClassReminderRecord(
     string ReminderKind,
     DateTimeOffset DueAt,
     string Status,
-    string CorrelationId);
+    string CorrelationId)
+{
+    public string TargetType { get; init; } = ReminderTargetTypes.ClassSession;
+
+    public string TargetId { get; init; } = string.Empty;
+
+    public string? CustomerName { get; init; }
+
+    public string? CustomerPhoneNumber { get; init; }
+
+    public string? CustomerEmail { get; init; }
+
+    public string? BookingLabel { get; init; }
+
+    public DateTimeOffset? StartsAt { get; init; }
+
+    public DateTimeOffset? EndsAt { get; init; }
+
+    public string? TimeZone { get; init; }
+
+    public string? OnlineMeetingUrl { get; init; }
+
+    public IReadOnlyDictionary<string, string> Attributes { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    public string EffectiveTargetType =>
+        string.IsNullOrWhiteSpace(TargetType) ? ReminderTargetTypes.ClassSession : TargetType;
+
+    public string EffectiveTargetId =>
+        string.IsNullOrWhiteSpace(TargetId) ? SessionId : TargetId;
+}
+
+public sealed record AppointmentReminderScheduleRequest(
+    string TenantId,
+    string CorrelationId,
+    string ProviderContactId,
+    string ProviderBookingId,
+    string? CustomerName,
+    string? CustomerPhoneNumber,
+    string? CustomerEmail,
+    string? BookingLabel,
+    DateTimeOffset StartsAt,
+    DateTimeOffset? EndsAt,
+    string TimeZone,
+    string? OnlineMeetingUrl,
+    IReadOnlyCollection<int> ReminderOffsetsMinutes,
+    IReadOnlyDictionary<string, string> Attributes);
 
 public sealed record ClassReminderRunRequest(
     string TenantId,
@@ -148,7 +195,36 @@ public sealed record ClassNotificationRequest(
     ClassSessionRecord Session,
     ClassRegistrationRecord Registration,
     ClassNotificationTemplateSet Templates,
-    ClassNotificationKind Kind);
+    ClassNotificationKind Kind)
+{
+    public ConfirmationFailureReason? SmsSuppressionReason { get; init; }
+}
+
+public sealed record AppointmentReminderNotificationRequest(
+    string TenantId,
+    string CorrelationId,
+    string ProviderContactId,
+    string ProviderBookingId,
+    string BusinessName,
+    string? CustomerName,
+    string? CustomerPhoneNumber,
+    string? CustomerEmail,
+    string? ServiceType,
+    string? PropertyType,
+    string? ServiceAddress,
+    string? ZipCode,
+    string? Urgency,
+    string? BookingLabel,
+    DateTimeOffset StartsAt,
+    DateTimeOffset? EndsAt,
+    string TimeZone,
+    string? OnlineMeetingUrl,
+    ConfirmationTemplateConfiguration? Templates,
+    string ConsentStatus,
+    IReadOnlyDictionary<string, string> Attributes)
+{
+    public ConfirmationFailureReason? SmsSuppressionReason { get; init; }
+}
 
 public sealed record ClassNotificationTemplateSet(
     string? SmsBodyTemplate,
@@ -185,6 +261,12 @@ public static class ClassReminderStatuses
     public const string Sent = "sent";
     public const string Skipped = "skipped";
     public const string Failed = "failed";
+}
+
+public static class ReminderTargetTypes
+{
+    public const string ClassSession = "class_session";
+    public const string Appointment = "appointment";
 }
 
 public static class ClassTimelineEventTypes

@@ -138,6 +138,53 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
         return Task.CompletedTask;
     }
 
+    public Task ScheduleAppointmentRemindersAsync(
+        AppointmentReminderScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.StartsAt <= DateTimeOffset.UtcNow)
+        {
+            return Task.CompletedTask;
+        }
+
+        foreach (var offset in request.ReminderOffsetsMinutes)
+        {
+            var dueAt = request.StartsAt.AddMinutes(-offset);
+            if (dueAt <= DateTimeOffset.UtcNow)
+            {
+                continue;
+            }
+
+            var reminder = new ClassReminderRecord(
+                request.TenantId,
+                $"appointment-reminder-{offset}-{request.ProviderBookingId}",
+                RegistrationId: string.Empty,
+                SessionId: string.Empty,
+                request.ProviderContactId,
+                $"{offset}m_before",
+                dueAt,
+                ClassReminderStatuses.Pending,
+                request.CorrelationId)
+            {
+                TargetType = ReminderTargetTypes.Appointment,
+                TargetId = request.ProviderBookingId,
+                CustomerName = request.CustomerName,
+                CustomerPhoneNumber = request.CustomerPhoneNumber,
+                CustomerEmail = request.CustomerEmail,
+                BookingLabel = request.BookingLabel,
+                StartsAt = request.StartsAt,
+                EndsAt = request.EndsAt,
+                TimeZone = request.TimeZone,
+                OnlineMeetingUrl = request.OnlineMeetingUrl,
+                Attributes = request.Attributes
+            };
+            reminders[reminder.RowKey] = reminder;
+            ScheduledReminders.Add(reminder);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task<IReadOnlyCollection<ClassReminderRecord>> GetDueRemindersAsync(
         string tenantId,
         DateTimeOffset dueAt,
@@ -324,7 +371,14 @@ internal sealed class FakeTenantConfigurationProvider : ITenantConfigurationProv
             new CommunicationConfiguration(
                 "+15550001111",
                 "info@example.com",
-                new ConfirmationTemplateConfiguration("booking sms")),
+                new ConfirmationTemplateConfiguration("booking sms"),
+                AppointmentReminders: new AppointmentReminderConfiguration(
+                    new ConfirmationTemplateConfiguration(
+                        "Appt reminder: {{businessName}} {{bookingDate}} {{bookingTime}} {{timeZone}} {{onlineMeetingUrl}}",
+                        "Appt reminder {{bookingDate}}",
+                        "Hi {{customerName}}, appointment at {{bookingDate}} {{bookingTime}} {{timeZone}} {{onlineMeetingUrl}}"),
+                    [1440, 60],
+                    60)),
             Classes: Classes));
     }
 }

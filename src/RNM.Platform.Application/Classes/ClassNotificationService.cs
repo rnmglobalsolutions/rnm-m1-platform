@@ -39,10 +39,24 @@ public sealed class ClassNotificationService
         return (sms, email);
     }
 
+    public async Task<(ConfirmationChannelResult? Sms, ConfirmationChannelResult? Email)> SendAppointmentReminderAsync(
+        AppointmentReminderNotificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var sms = await SendAppointmentReminderSmsAsync(request, cancellationToken).ConfigureAwait(false);
+        var email = await SendAppointmentReminderEmailAsync(request, cancellationToken).ConfigureAwait(false);
+        return (sms, email);
+    }
+
     private async Task<ConfirmationChannelResult?> SendSmsAsync(
         ClassNotificationRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.SmsSuppressionReason is { } suppressionReason)
+        {
+            return Skipped(ConfirmationChannel.Sms, suppressionReason);
+        }
+
         if (string.IsNullOrWhiteSpace(request.Templates.SmsBodyTemplate))
         {
             return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingSmsTemplate);
@@ -134,6 +148,114 @@ public sealed class ClassNotificationService
         }
     }
 
+    private async Task<ConfirmationChannelResult?> SendAppointmentReminderSmsAsync(
+        AppointmentReminderNotificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.SmsSuppressionReason is { } suppressionReason)
+        {
+            return Skipped(ConfirmationChannel.Sms, suppressionReason);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Templates?.SmsBodyTemplate))
+        {
+            return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingSmsTemplate);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CustomerPhoneNumber))
+        {
+            return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingPhoneNumber);
+        }
+
+        if (string.Equals(request.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        {
+            return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.ContactOptedOut);
+        }
+
+        var body = RenderAppointmentTemplate(request.Templates.SmsBodyTemplate, request);
+        try
+        {
+            var result = await smsSender
+                .SendSmsAsync(
+                    new SmsMessageRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.CustomerPhoneNumber,
+                        body),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var channelResult = result.Succeeded
+                ? Sent(ConfirmationChannel.Sms, result.ProviderMessageId)
+                : Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
+            if (channelResult.Status is ConfirmationChannelStatus.Sent)
+            {
+                await RecordAppointmentNotificationTimelineAsync(request, channelResult, "sms", cancellationToken).ConfigureAwait(false);
+            }
+
+            return channelResult;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogAppointmentReminderFailureAsync(request, "sms", ConfirmationFailureReason.SmsSenderException.ToString(), cancellationToken)
+                .ConfigureAwait(false);
+            return Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);
+        }
+    }
+
+    private async Task<ConfirmationChannelResult?> SendAppointmentReminderEmailAsync(
+        AppointmentReminderNotificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Templates?.EmailSubjectTemplate)
+            || string.IsNullOrWhiteSpace(request.Templates.EmailBodyTemplate))
+        {
+            return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingEmailTemplate);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CustomerEmail))
+        {
+            return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingEmail);
+        }
+
+        if (string.Equals(request.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        {
+            return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.ContactOptedOut);
+        }
+
+        var subject = RenderAppointmentTemplate(request.Templates.EmailSubjectTemplate, request);
+        var body = RenderAppointmentTemplate(request.Templates.EmailBodyTemplate, request);
+        try
+        {
+            var result = await emailSender
+                .SendEmailAsync(
+                    new EmailMessageRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.CustomerEmail,
+                        subject,
+                        body),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var channelResult = result.Succeeded
+                ? Sent(ConfirmationChannel.Email, result.ProviderMessageId)
+                : Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSendFailed);
+            if (channelResult.Status is ConfirmationChannelStatus.Sent)
+            {
+                await RecordAppointmentNotificationTimelineAsync(request, channelResult, "email", cancellationToken).ConfigureAwait(false);
+            }
+
+            return channelResult;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogAppointmentReminderFailureAsync(request, "email", ConfirmationFailureReason.EmailSenderException.ToString(), cancellationToken)
+                .ConfigureAwait(false);
+            return Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSenderException);
+        }
+    }
+
     private static string RenderTemplate(
         string template,
         ClassNotificationRequest request)
@@ -171,6 +293,54 @@ public sealed class ClassNotificationService
             {
                 var attributeName = token["attr.".Length..].Trim();
                 return !string.IsNullOrWhiteSpace(attributeName) && attributes.TryGetValue(attributeName, out var value)
+                    ? value
+                    : string.Empty;
+            }
+
+            return tokens.TryGetValue(token, out var tokenValue) ? tokenValue : string.Empty;
+        });
+    }
+
+    private static string RenderAppointmentTemplate(
+        string template,
+        AppointmentReminderNotificationRequest request)
+    {
+        var zone = ResolveTimeZone(request.TimeZone);
+        var startsAt = TimeZoneInfo.ConvertTime(request.StartsAt, zone);
+        var endsAt = request.EndsAt.HasValue
+            ? TimeZoneInfo.ConvertTime(request.EndsAt.Value, zone)
+            : (DateTimeOffset?)null;
+
+        var tokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["tenantId"] = request.TenantId,
+            ["businessName"] = request.BusinessName,
+            ["correlationId"] = request.CorrelationId,
+            ["customerName"] = request.CustomerName ?? string.Empty,
+            ["customerPhoneNumber"] = request.CustomerPhoneNumber ?? string.Empty,
+            ["customerEmail"] = request.CustomerEmail ?? string.Empty,
+            ["serviceType"] = request.ServiceType ?? string.Empty,
+            ["propertyType"] = request.PropertyType ?? string.Empty,
+            ["serviceAddress"] = request.ServiceAddress ?? string.Empty,
+            ["zipCode"] = request.ZipCode ?? string.Empty,
+            ["urgency"] = request.Urgency ?? string.Empty,
+            ["providerBookingId"] = request.ProviderBookingId,
+            ["onlineMeetingUrl"] = request.OnlineMeetingUrl ?? string.Empty,
+            ["bookingLabel"] = request.BookingLabel ?? string.Empty,
+            ["bookingStart"] = startsAt.ToString("O"),
+            ["bookingEnd"] = endsAt?.ToString("O") ?? string.Empty,
+            ["bookingDate"] = startsAt.ToString("yyyy-MM-dd"),
+            ["bookingTime"] = startsAt.ToString("HH:mm"),
+            ["timeZone"] = request.TimeZone
+        };
+
+        return TemplateTokenRegex.Replace(template, match =>
+        {
+            var token = match.Groups["token"].Value.Trim();
+            if (token.StartsWith("attr.", StringComparison.OrdinalIgnoreCase))
+            {
+                var attributeName = token["attr.".Length..].Trim();
+                return !string.IsNullOrWhiteSpace(attributeName) && request.Attributes.TryGetValue(attributeName, out var value)
                     ? value
                     : string.Empty;
             }
@@ -228,6 +398,44 @@ public sealed class ClassNotificationService
         }
     }
 
+    private async Task RecordAppointmentNotificationTimelineAsync(
+        AppointmentReminderNotificationRequest request,
+        ConfirmationChannelResult result,
+        string channel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var timelineResult = await crmAdapter
+                .AddTimelineEventAsync(
+                    new CrmTimelineEventRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.ProviderContactId,
+                        request.ProviderBookingId,
+                        CrmTimelineEventTypes.AppointmentReminderSent,
+                        "AppointmentReminder",
+                        $"{channel} appointment reminder sent.",
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["channel"] = channel,
+                            ["providerBookingId"] = request.ProviderBookingId,
+                            ["providerMessageId"] = result.ProviderMessageId ?? string.Empty
+                        }),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!timelineResult.Succeeded)
+            {
+                await LogAppointmentReminderFailureAsync(request, channel, "timeline_write_failed", cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogAppointmentReminderFailureAsync(request, channel, "timeline_exception", cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task LogNotificationFailureAsync(
         ClassNotificationRequest request,
         string channel,
@@ -246,6 +454,33 @@ public sealed class ClassNotificationService
                         .Add("correlationId", request.CorrelationId)
                         .Add("sessionId", request.Session.SessionId)
                         .Add("registrationId", request.Registration.RegistrationId)
+                        .Add("channel", channel)
+                        .Add("failureReason", reason)
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Notification telemetry is best-effort.
+        }
+    }
+
+    private async Task LogAppointmentReminderFailureAsync(
+        AppointmentReminderNotificationRequest request,
+        string channel,
+        string? reason,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await eventLogger
+                .LogEventAsync(
+                    TelemetryEventNames.ClassReminderFailed,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", request.TenantId)
+                        .Add("correlationId", request.CorrelationId)
+                        .Add("providerBookingId", request.ProviderBookingId)
                         .Add("channel", channel)
                         .Add("failureReason", reason)
                         .ToDictionary(),

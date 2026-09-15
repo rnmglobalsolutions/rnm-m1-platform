@@ -91,6 +91,8 @@ public sealed record CrmBookingLinkRequest(
 
     public string? BookingLabel { get; init; }
 
+    public string? OnlineMeetingUrl { get; init; }
+
     public DateTimeOffset? StartsAt { get; init; }
 
     public DateTimeOffset? EndsAt { get; init; }
@@ -358,6 +360,10 @@ public static class CrmTimelineEventTypes
     public const string LeadQualified = "lead.qualified";
     public const string LeadImported = "lead.imported";
     public const string BookingCreated = "booking.created";
+    public const string AppointmentReminderScheduled = "appointment.reminder.scheduled";
+    public const string AppointmentReminderSent = "appointment.reminder.sent";
+    public const string AppointmentReminderSkipped = "appointment.reminder.skipped";
+    public const string AppointmentReminderFailed = "appointment.reminder.failed";
     public const string FollowUpRequired = "followup.required";
     public const string OutboundAttemptRecorded = "outbound.attempt_recorded";
     public const string LeadReactivated = "lead.reactivated";

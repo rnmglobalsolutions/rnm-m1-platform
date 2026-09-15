@@ -41,6 +41,10 @@ public interface IClassSessionStore
         ClassReminderScheduleRequest request,
         CancellationToken cancellationToken);
 
+    Task ScheduleAppointmentRemindersAsync(
+        AppointmentReminderScheduleRequest request,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyCollection<ClassReminderRecord>> GetDueRemindersAsync(
         string tenantId,
         DateTimeOffset dueAt,

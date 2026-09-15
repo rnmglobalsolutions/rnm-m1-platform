@@ -1,0 +1,63 @@
+{
+  "tenantId": "rnm-insurance-agents",
+  "verticalId": "insurance-agents",
+  "businessName": "RNM Insurance Agent Network",
+  "timeZone": "America/Chicago",
+  "serviceArea": {
+    "zipCodes": [],
+    "cities": ["United States"],
+    "referralMessage": "RNM can review the request and follow up with next steps."
+  },
+  "providers": {
+    "crmProvider": "AzureTable",
+    "bookingProvider": "GoogleCalendar",
+    "smsProvider": "Twilio",
+    "emailProvider": "SendGrid"
+  },
+  "secretNames": {
+    "crmApiKey": "tenant-rnm-insurance-agents-crm-credentials",
+    "bookingApiKey": "tenant-rnm-insurance-agents-google-calendar-credentials",
+    "crmCredentials": "tenant-rnm-insurance-agents-crm-credentials",
+    "bookingCredentials": "tenant-rnm-insurance-agents-google-calendar-credentials",
+    "voiceWebhookSecret": "tenant-rnm-insurance-agents-vapi-webhook-secret",
+    "twilioAccountSid": "tenant-rnm-insurance-agents-twilio-account-sid",
+    "twilioAuthToken": "tenant-rnm-insurance-agents-twilio-auth-token",
+    "emailConnectionString": "tenant-rnm-insurance-agents-email-connection"
+  },
+  "communication": {
+    "smsFromPhoneNumber": "+1XXXXXXXXXX",
+    "emailFromAddress": "info@rnmglobalsolutions.com",
+    "businessNotificationEmail": "info@rnmglobalsolutions.com",
+    "businessNotificationPhoneNumber": "+1XXXXXXXXXX",
+    "businessSmsNotification": {
+      "mode": "always"
+    },
+    "confirmationTemplates": {
+      "smsBodyTemplate": "RNM received your information. Our team will follow up soon. Reply STOP to opt out.",
+      "emailSubjectTemplate": "RNM received your information",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nRNM received your information.\n\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nReference: {{correlationId}}",
+      "businessSmsBodyTemplate": "New RNM lead\n{{customerName}}\n{{customerPhoneNumber}}\n{{customerEmail}}\nRef: {{correlationId}}",
+      "businessEmailSubjectTemplate": "New RNM lead: {{customerName}}",
+      "businessEmailBodyTemplate": "New RNM lead received\n\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nReference: {{correlationId}}"
+    }
+  },
+  "classes": {
+    "allowedRegistrationOrigins": [
+      "https://rnmglobalsolutions.com",
+      "https://www.rnmglobalsolutions.com",
+      "https://insurance.rnmglobalsolutions.com"
+    ],
+    "reminderOffsetsMinutes": [1440, 60],
+    "reminderStalenessCutoffMinutes": 60,
+    "registrationTemplates": {
+      "smsBodyTemplate": "You're registered for {{classTitle}}\n{{classDate}} {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "You're registered: {{classTitle}}",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nYou're registered for {{classTitle}}.\n\nDate: {{classDate}}\nTime: {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\n\nReference: {{registrationId}}"
+    },
+    "reminderTemplates": {
+      "smsBodyTemplate": "Reminder: {{classTitle}} starts {{classDate}} {{classTime}} {{timeZone}}.\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "Reminder: {{classTitle}}",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nReminder: {{classTitle}} is coming up.\n\nDate: {{classDate}}\nTime: {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\n\nReference: {{registrationId}}"
+    }
+  }
+}

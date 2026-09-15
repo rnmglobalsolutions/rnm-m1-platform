@@ -449,7 +449,8 @@ public sealed class ConfirmationApplicationService
             ["bookingStart"] = startsAt?.ToString("O") ?? string.Empty,
             ["bookingEnd"] = endsAt?.ToString("O") ?? string.Empty,
             ["bookingDate"] = startsAt?.ToString("yyyy-MM-dd") ?? string.Empty,
-            ["bookingTime"] = startsAt?.ToString("HH:mm") ?? string.Empty
+            ["bookingTime"] = startsAt?.ToString("HH:mm") ?? string.Empty,
+            ["timeZone"] = request.TimeZone
         };
 
         return TemplateTokenRegex.Replace(template, match =>
