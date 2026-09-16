@@ -12,6 +12,7 @@ using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Crm;
+using RNM.Platform.Application.FollowUps;
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.LeadImport;
 using RNM.Platform.Application.Observability;
@@ -19,6 +20,7 @@ using RNM.Platform.Application.Outbound;
 using RNM.Platform.Application.Ports.Booking;
 using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Crm;
+using RNM.Platform.Application.Ports.FollowUps;
 using RNM.Platform.Application.Ports.Messaging;
 using RNM.Platform.Application.Ports.Outbound;
 using RNM.Platform.Application.Ports.Reporting;
@@ -29,6 +31,7 @@ using RNM.Platform.Infrastructure.Booking;
 using RNM.Platform.Infrastructure.Classes;
 using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.Crm;
+using RNM.Platform.Infrastructure.FollowUps;
 using RNM.Platform.Infrastructure.Messaging;
 using RNM.Platform.Infrastructure.Observability;
 using RNM.Platform.Infrastructure.Outbound;
@@ -93,6 +96,8 @@ var host = new HostBuilder()
         services.AddSingleton<ClassRegistrationService>();
         services.AddSingleton<ClassReminderService>();
         services.AddSingleton<ClassReportService>();
+        services.AddSingleton<FollowUpSchedulingService>();
+        services.AddSingleton<FollowUpRunService>();
         services.AddSingleton<PilotReportingService>();
         services.AddSingleton<OutboundCampaignRunService>();
         services.AddSingleton<LeadCsvImportService>();
@@ -102,6 +107,7 @@ var host = new HostBuilder()
         services.AddSingleton<IContactPhoneIndexBackfillAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
         services.AddSingleton<IClassSessionStore, AzureTableClassSessionStore>();
+        services.AddSingleton<IFollowUpStore, AzureTableFollowUpStore>();
         services.AddSingleton<ICrmProviderAdapter>(serviceProvider =>
             serviceProvider.GetRequiredService<AzureTableCrmAdapter>());
         services.AddHttpClient<GoogleCalendarBookingAdapter>(client =>

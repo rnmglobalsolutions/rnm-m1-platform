@@ -1,11 +1,13 @@
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Crm;
+using RNM.Platform.Application.FollowUps;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Qualification;
 using RNM.Platform.UnitTests.Classes;
+using RNM.Platform.UnitTests.FollowUps;
 using Xunit;
 
 namespace RNM.Platform.UnitTests.Crm;
@@ -718,16 +720,46 @@ public sealed class CrmApplicationServiceTests
         Assert.DoesNotContain("GoHighLevel", typeof(CrmContactUpsertRequest).FullName);
     }
 
+    [Fact]
+    public async Task MarkFollowUpRequiredAsync_SchedulesConfiguredFollowUpAutomation()
+    {
+        var adapter = new FakeCrmAdapter();
+        var followUpStore = new RecordingFollowUpStore();
+        var scheduler = new FollowUpSchedulingService(
+            new FollowUpTenantProvider(),
+            followUpStore,
+            adapter,
+            new RecordingCrmEventLogger());
+        var service = CreateService(adapter: adapter, followUpSchedulingService: scheduler);
+
+        var result = await service.MarkFollowUpRequiredAsync(
+            new CrmFollowUpRequest("tenant-a", "corr-123", "contact-123", "No booking")
+            {
+                CustomerName = "Jane Lead",
+                CustomerPhoneNumber = "+15551234567",
+                CustomerEmail = "lead@example.com",
+                LastInteractionAt = new DateTimeOffset(2026, 7, 10, 14, 0, 0, TimeSpan.Zero)
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var followUp = Assert.Single(followUpStore.FollowUps.Values);
+        Assert.Equal("contact-123", followUp.ProviderContactId);
+        Assert.Equal(FollowUpTriggers.LeadFollowUpRequired, followUp.TriggerEventType);
+    }
+
     private static CrmApplicationService CreateService(
         FakeCrmAdapter? adapter = null,
         RecordingCrmEventLogger? eventLogger = null,
-        IClassSessionStore? classSessionStore = null)
+        IClassSessionStore? classSessionStore = null,
+        FollowUpSchedulingService? followUpSchedulingService = null)
     {
         return new CrmApplicationService(
             adapter ?? new FakeCrmAdapter(),
             eventLogger ?? new RecordingCrmEventLogger(),
             classSessionStore is null ? null : new FakeTenantConfigurationProvider(),
-            classSessionStore);
+            classSessionStore,
+            followUpSchedulingService);
     }
 
     private static CrmSyncRequest CreateRequest(

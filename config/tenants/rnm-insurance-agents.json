@@ -41,6 +41,39 @@
       "businessEmailBodyTemplate": "New RNM lead received\n\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nReference: {{correlationId}}"
     }
   },
+  "followUps": {
+    "enabled": true,
+    "stalenessCutoffMinutes": 120,
+    "maxFollowUpsPerContactPerDay": 2,
+    "sequences": [
+      {
+        "id": "lead-needs-follow-up",
+        "trigger": "followup.required",
+        "steps": [
+          {
+            "delayMinutes": 30,
+            "channel": "sms",
+            "smsBodyTemplate": "Hi {{customerName}}, this is RNM. We received your request and can help with next steps. Reply here when you can. Reply STOP to opt out."
+          },
+          {
+            "delayMinutes": 1440,
+            "channel": "email",
+            "emailSubjectTemplate": "Following up on your RNM request",
+            "emailBodyTemplate": "Hi {{customerName}},\n\nWe received your request and wanted to follow up with next steps.\n\nReference: {{correlationId}}\n\nReply to this email when you are ready."
+          }
+        ],
+        "stopWhen": [
+          {
+            "attribute": "leadStatus",
+            "equalsAny": ["Booked", "AppointmentScheduled", "appointment_booked", "reactivated"]
+          },
+          {
+            "consentStatus": "opted_out"
+          }
+        ]
+      }
+    ]
+  },
   "classes": {
     "allowedRegistrationOrigins": [
       "https://rnmglobalsolutions.com",

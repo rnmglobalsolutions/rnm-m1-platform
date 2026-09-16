@@ -79,7 +79,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         CommunicationConfigurationDto? Communication,
         ReportingConfigurationDto? Reporting,
         VoiceConfigurationDto? Voice,
-        ClassAutomationConfigurationDto? Classes)
+        ClassAutomationConfigurationDto? Classes,
+        FollowUpAutomationConfigurationDto? FollowUps)
     {
         public TenantConfiguration ToDomain()
         {
@@ -182,7 +183,33 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                 Classes.ReminderTemplates.EmailBodyTemplate),
                         Classes.ReminderOffsetsMinutes,
                         Classes.AllowedRegistrationOrigins,
-                        Classes.ReminderStalenessCutoffMinutes));
+                        Classes.ReminderStalenessCutoffMinutes),
+                FollowUps is null
+                    ? null
+                    : new FollowUpAutomationConfiguration(
+                        FollowUps.Enabled,
+                        FollowUps.StalenessCutoffMinutes,
+                        FollowUps.MaxFollowUpsPerContactPerDay,
+                        FollowUps.Sequences?.Select(sequence =>
+                                new FollowUpSequenceConfiguration(
+                                    sequence.Id ?? string.Empty,
+                                    sequence.Trigger ?? string.Empty,
+                                    sequence.Steps?.Select(step =>
+                                            new FollowUpStepConfiguration(
+                                                step.DelayMinutes ?? 0,
+                                                step.Channel ?? string.Empty,
+                                                step.SmsBodyTemplate,
+                                                step.EmailSubjectTemplate,
+                                                step.EmailBodyTemplate,
+                                                step.RequiresConsent))
+                                        .ToArray(),
+                                    sequence.StopWhen?.Select(condition =>
+                                            new FollowUpStopConditionConfiguration(
+                                                condition.Attribute,
+                                                condition.EqualsAny,
+                                                condition.ConsentStatus))
+                                        .ToArray()))
+                            .ToArray()));
         }
     }
 
@@ -305,4 +332,29 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? SmsBodyTemplate,
         string? EmailSubjectTemplate,
         string? EmailBodyTemplate);
+
+    private sealed record FollowUpAutomationConfigurationDto(
+        bool? Enabled,
+        int? StalenessCutoffMinutes,
+        int? MaxFollowUpsPerContactPerDay,
+        IReadOnlyCollection<FollowUpSequenceConfigurationDto>? Sequences);
+
+    private sealed record FollowUpSequenceConfigurationDto(
+        string? Id,
+        string? Trigger,
+        IReadOnlyCollection<FollowUpStepConfigurationDto>? Steps,
+        IReadOnlyCollection<FollowUpStopConditionConfigurationDto>? StopWhen);
+
+    private sealed record FollowUpStepConfigurationDto(
+        int? DelayMinutes,
+        string? Channel,
+        string? SmsBodyTemplate,
+        string? EmailSubjectTemplate,
+        string? EmailBodyTemplate,
+        string? RequiresConsent);
+
+    private sealed record FollowUpStopConditionConfigurationDto(
+        string? Attribute,
+        IReadOnlyCollection<string>? EqualsAny,
+        string? ConsentStatus);
 }

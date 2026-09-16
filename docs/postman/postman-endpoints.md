@@ -149,6 +149,30 @@ dueAt=2026-07-15T22:00:00Z
 
 Expected success is `200 OK` with scanned/sent/skipped/failed counts.
 
+## POST `/api/tenants/{tenantId}/followups/run?maxItems=25`
+
+Protected manual follow-up runner. Useful for testing configured tenant follow-up
+sequences without waiting for the deployed timer. The timer also runs follow-ups
+every five minutes for tenants listed in `RNM_ACTIVE_TENANTS`.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Optional query parameters:
+
+```text
+maxItems=25
+dueAt=2026-07-15T22:00:00Z
+```
+
+Expected success is `200 OK` with scanned/sent/skipped/failed counts. SMS
+follow-ups require `opt_in` consent and the shared send window. Email follow-ups
+also require `opt_in` consent for this marketing follow-up automation.
+
 ## GET `/api/tenants/{tenantId}/classes/{classSessionId}/report`
 
 Protected class report endpoint. It returns only real stored counts for this class session.

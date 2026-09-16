@@ -209,7 +209,13 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                             tenantId,
                             correlationId,
                             contactResult.ProviderContactId,
-                            CreateBookingFollowUpReason(bookingResult)),
+                            CreateBookingFollowUpReason(bookingResult))
+                        {
+                            CustomerName = GetFieldValue(qualificationResult, "name"),
+                            CustomerPhoneNumber = qualificationResult.LeadData.CallerPhoneNumber,
+                            CustomerEmail = GetFieldValue(qualificationResult, "email"),
+                            Attributes = CreateContactAttributes(qualificationResult, serviceType, urgency)
+                        },
                         cancellationToken)
                     .ConfigureAwait(false);
 

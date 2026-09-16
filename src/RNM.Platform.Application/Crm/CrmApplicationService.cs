@@ -1,5 +1,6 @@
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.FollowUps;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Crm;
@@ -36,17 +37,20 @@ public sealed class CrmApplicationService
     private readonly IEventLogger eventLogger;
     private readonly ITenantConfigurationProvider? tenantConfigurationProvider;
     private readonly IClassSessionStore? classSessionStore;
+    private readonly FollowUpSchedulingService? followUpSchedulingService;
 
     public CrmApplicationService(
         ICrmAdapter crmAdapter,
         IEventLogger eventLogger,
         ITenantConfigurationProvider? tenantConfigurationProvider = null,
-        IClassSessionStore? classSessionStore = null)
+        IClassSessionStore? classSessionStore = null,
+        FollowUpSchedulingService? followUpSchedulingService = null)
     {
         this.crmAdapter = crmAdapter;
         this.eventLogger = eventLogger;
         this.tenantConfigurationProvider = tenantConfigurationProvider;
         this.classSessionStore = classSessionStore;
+        this.followUpSchedulingService = followUpSchedulingService;
     }
 
     public async Task<CrmSyncResult> SyncBookedLeadAsync(
@@ -319,6 +323,8 @@ public sealed class CrmApplicationService
                 request.ProviderContactId,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        await TryScheduleFollowUpAutomationAsync(request, cancellationToken).ConfigureAwait(false);
 
         return result;
     }
@@ -767,6 +773,52 @@ public sealed class CrmApplicationService
                     request.TenantId,
                     request.CorrelationId,
                     providerContactId,
+                    CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task TryScheduleFollowUpAutomationAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (followUpSchedulingService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await followUpSchedulingService
+                .ScheduleAsync(
+                    new FollowUpScheduleRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.ProviderContactId,
+                        FollowUpTriggers.LeadFollowUpRequired,
+                        request.Reason)
+                    {
+                        CustomerName = request.CustomerName,
+                        CustomerPhoneNumber = request.CustomerPhoneNumber,
+                        CustomerEmail = request.CustomerEmail,
+                        Attributes = request.Attributes,
+                        TriggeredAt = request.LastInteractionAt
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            await LogAsync(
+                    TelemetryEventNames.FollowUpSendFailed,
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.ProviderContactId,
                     CrmFailureReason.AdapterFailure,
                     cancellationToken)
                 .ConfigureAwait(false);

@@ -147,6 +147,11 @@ Booking cancellation/reschedule invalidation is not implemented yet; if an
 appointment is changed outside M1, pending reminder rows are not automatically
 invalidated.
 
+The same timer also processes tenant follow-up automation from `followUps`.
+Follow-ups are stored in `RnmFollowUpDue` and are tenant-scoped. This is
+SMS/email automation only. It does not place outbound calls and it is not a
+full nurture engine.
+
 Manual run:
 
 ```http
@@ -159,6 +164,19 @@ Optional:
 ```text
 dueAt=2026-07-15T22:00:00Z
 ```
+
+Manual follow-up run:
+
+```http
+POST /api/tenants/{tenantId}/followups/run?maxItems=25
+x-rnm-api-key: <internal-api-key>
+```
+
+Follow-up SMS requires `opt_in` consent and must be inside the shared send
+window. Follow-up email also requires `opt_in` because these are marketing
+follow-ups, not class registration transaction emails. Configure sequences under
+`followUps.sequences`; each sequence is triggered by an event such as
+`followup.required`.
 
 ## Reporting
 

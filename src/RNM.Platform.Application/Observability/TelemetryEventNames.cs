@@ -84,4 +84,8 @@ public static class TelemetryEventNames
     public const string ClassReminderFailed = "class.reminder.failed";
     public const string ClassReportRequested = "class.report.requested";
     public const string ClassReportCompleted = "class.report.completed";
+    public const string FollowUpScheduled = "followup.scheduled";
+    public const string FollowUpRunRequested = "followup.run.requested";
+    public const string FollowUpRunCompleted = "followup.run.completed";
+    public const string FollowUpSendFailed = "followup.send.failed";
 }

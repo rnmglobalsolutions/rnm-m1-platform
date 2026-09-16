@@ -6,6 +6,7 @@ using RNM.Platform.Api.Runtime;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.FollowUps;
 using RNM.Platform.SharedKernel.Correlation;
 
 namespace RNM.Platform.Api.Functions;
@@ -15,6 +16,7 @@ public sealed class ClassReminderFunction
     private const string ApiKeyHeaderName = "x-rnm-api-key";
     private const string ActiveTenantsEnvironmentVariable = "RNM_ACTIVE_TENANTS";
     private readonly ClassReminderService classReminderService;
+    private readonly FollowUpRunService followUpRunService;
     private readonly ApiKeyRequestValidator apiKeyRequestValidator;
     private readonly RnmRuntimeConfiguration runtimeConfiguration;
     private readonly SafeErrorResponseFactory safeErrorResponseFactory;
@@ -23,6 +25,7 @@ public sealed class ClassReminderFunction
 
     public ClassReminderFunction(
         ClassReminderService classReminderService,
+        FollowUpRunService followUpRunService,
         ApiKeyRequestValidator apiKeyRequestValidator,
         RnmRuntimeConfiguration runtimeConfiguration,
         SafeErrorResponseFactory safeErrorResponseFactory,
@@ -30,11 +33,59 @@ public sealed class ClassReminderFunction
         CorrelationContextFactory correlationContextFactory)
     {
         this.classReminderService = classReminderService;
+        this.followUpRunService = followUpRunService;
         this.apiKeyRequestValidator = apiKeyRequestValidator;
         this.runtimeConfiguration = runtimeConfiguration;
         this.safeErrorResponseFactory = safeErrorResponseFactory;
         this.responseWriter = responseWriter;
         this.correlationContextFactory = correlationContextFactory;
+    }
+
+    [Function("FollowUpManualRun")]
+    public async Task<HttpResponseData> RunFollowUpsManualAsync(
+        [HttpTrigger(
+            AuthorizationLevel.Anonymous,
+            "post",
+            Route = "tenants/{tenantId}/followups/run")]
+        HttpRequestData request,
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = correlationContextFactory.FromRequest(request).Value;
+        if (!IsAuthorized(request))
+        {
+            return responseWriter.WriteSafeError(
+                request,
+                HttpStatusCode.Unauthorized,
+                safeErrorResponseFactory.CreateUnauthorized(correlationId));
+        }
+
+        try
+        {
+            var query = ParseQuery(request.Url.Query);
+            var maxItems = int.TryParse(query.GetValueOrDefault("maxItems"), out var parsedMaxItems)
+                ? parsedMaxItems
+                : 25;
+            var dueAt = DateTimeOffset.TryParse(query.GetValueOrDefault("dueAt"), out var parsedDueAt)
+                ? parsedDueAt
+                : DateTimeOffset.UtcNow;
+            var result = await followUpRunService
+                .RunAsync(
+                    new FollowUpRunRequest(tenantId, correlationId, dueAt)
+                    {
+                        MaxItems = maxItems
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return responseWriter.WriteJson(request, HttpStatusCode.OK, result, correlationId);
+        }
+        catch (ConfigurationException)
+        {
+            return responseWriter.WriteSafeError(
+                request,
+                HttpStatusCode.BadRequest,
+                safeErrorResponseFactory.CreateBadRequest(correlationId));
+        }
     }
 
     [Function("ClassReminderManualRun")]
@@ -100,6 +151,11 @@ public sealed class ClassReminderFunction
                         new ClassReminderRunRequest(tenantId, correlationId, DateTimeOffset.UtcNow),
                         cancellationToken)
                     .ConfigureAwait(false);
+                await followUpRunService
+                    .RunAsync(
+                        new FollowUpRunRequest(tenantId, correlationId, DateTimeOffset.UtcNow),
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (ConfigurationException)
             {
@@ -143,4 +199,3 @@ public sealed class ClassReminderFunction
                 StringComparer.OrdinalIgnoreCase);
     }
 }
-

@@ -742,6 +742,41 @@
       }
     },
     {
+      "name": "Follow Ups Manual Run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/followups/run?maxItems=25",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "followups",
+            "run"
+          ],
+          "query": [
+            {
+              "key": "maxItems",
+              "value": "25"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "Class Report",
       "request": {
         "method": "GET",

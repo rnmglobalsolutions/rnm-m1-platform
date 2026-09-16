@@ -7,6 +7,8 @@ public sealed class ConfigurationValidator : IConfigurationValidator
     private const int MaxSmsTemplateLength = 320;
     private const int MaxEmailSubjectTemplateLength = 120;
     private const int MaxEmailBodyTemplateLength = 2000;
+    private const string SmsFollowUpChannel = "sms";
+    private const string EmailFollowUpChannel = "email";
 
     private static readonly HashSet<string> AllowedConfirmationTokens = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -51,6 +53,22 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         "customerName",
         "customerPhoneNumber",
         "customerEmail"
+    };
+
+    private static readonly HashSet<string> AllowedFollowUpTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tenantId",
+        "businessName",
+        "correlationId",
+        "providerContactId",
+        "customerName",
+        "customerPhoneNumber",
+        "customerEmail",
+        "sequenceId",
+        "stepIndex",
+        "triggerEventType",
+        "reason",
+        "campaignId"
     };
 
     public ConfigurationValidationResult ValidateTenant(TenantConfiguration tenantConfiguration)
@@ -158,6 +176,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         ValidateReporting(errors, tenantConfiguration.Reporting);
         ValidateVoice(errors, tenantConfiguration.Voice);
         ValidateClasses(errors, tenantConfiguration.Classes);
+        ValidateFollowUps(errors, tenantConfiguration.FollowUps);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -539,6 +558,154 @@ public sealed class ConfigurationValidator : IConfigurationValidator
 
             searchIndex = tokenEnd + 2;
         }
+    }
+
+    private static void ValidateFollowUps(
+        ICollection<string> errors,
+        FollowUpAutomationConfiguration? followUps)
+    {
+        if (followUps is null)
+        {
+            return;
+        }
+
+        if (followUps.StalenessCutoffMinutes is < 1)
+        {
+            errors.Add("followUps.stalenessCutoffMinutes must be one or greater.");
+        }
+
+        if (followUps.MaxFollowUpsPerContactPerDay is < 1 or > 10)
+        {
+            errors.Add("followUps.maxFollowUpsPerContactPerDay must be between 1 and 10.");
+        }
+
+        if (followUps.Enabled is true && followUps.EffectiveSequences.Count == 0)
+        {
+            errors.Add("followUps.sequences must include at least one sequence when follow-ups are enabled.");
+        }
+
+        if (followUps.EffectiveSequences.Count > 10)
+        {
+            errors.Add("followUps.sequences must contain ten sequences or fewer.");
+        }
+
+        foreach (var sequence in followUps.EffectiveSequences)
+        {
+            AddRequired(errors, sequence.Id, "followUps.sequences.id");
+            AddRequired(errors, sequence.Trigger, "followUps.sequences.trigger");
+            if (sequence.EffectiveSteps.Count == 0)
+            {
+                errors.Add($"followUps.sequences[{sequence.Id}].steps must include at least one step.");
+            }
+
+            if (sequence.EffectiveSteps.Count > 5)
+            {
+                errors.Add($"followUps.sequences[{sequence.Id}].steps must contain five steps or fewer.");
+            }
+
+            foreach (var step in sequence.EffectiveSteps)
+            {
+                if (step.DelayMinutes <= 0)
+                {
+                    errors.Add($"followUps.sequences[{sequence.Id}].steps.delayMinutes must be positive.");
+                }
+
+                var isSmsStep = string.Equals(step.Channel, SmsFollowUpChannel, StringComparison.OrdinalIgnoreCase);
+                var isEmailStep = string.Equals(step.Channel, EmailFollowUpChannel, StringComparison.OrdinalIgnoreCase);
+                if (!isSmsStep && !isEmailStep)
+                {
+                    errors.Add($"followUps.sequences[{sequence.Id}].steps.channel must be sms or email.");
+                }
+
+                if (isSmsStep)
+                {
+                    AddRequired(
+                        errors,
+                        step.SmsBodyTemplate,
+                        $"followUps.sequences[{sequence.Id}].steps.smsBodyTemplate");
+                }
+
+                if (isEmailStep)
+                {
+                    AddRequired(
+                        errors,
+                        step.EmailSubjectTemplate,
+                        $"followUps.sequences[{sequence.Id}].steps.emailSubjectTemplate");
+                    AddRequired(
+                        errors,
+                        step.EmailBodyTemplate,
+                        $"followUps.sequences[{sequence.Id}].steps.emailBodyTemplate");
+                }
+
+                ValidateFollowUpTemplate(
+                    errors,
+                    step.SmsBodyTemplate,
+                    $"followUps.sequences[{sequence.Id}].steps.smsBodyTemplate",
+                    MaxSmsTemplateLength);
+                ValidateFollowUpTemplate(
+                    errors,
+                    step.EmailSubjectTemplate,
+                    $"followUps.sequences[{sequence.Id}].steps.emailSubjectTemplate",
+                    MaxEmailSubjectTemplateLength);
+                ValidateFollowUpTemplate(
+                    errors,
+                    step.EmailBodyTemplate,
+                    $"followUps.sequences[{sequence.Id}].steps.emailBodyTemplate",
+                    MaxEmailBodyTemplateLength);
+            }
+        }
+    }
+
+    private static void ValidateFollowUpTemplate(
+        ICollection<string> errors,
+        string? template,
+        string fieldName,
+        int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return;
+        }
+
+        if (template.Length > maxLength)
+        {
+            errors.Add($"{fieldName} must be {maxLength} characters or fewer.");
+        }
+
+        var searchIndex = 0;
+        while (searchIndex < template.Length)
+        {
+            var tokenStart = template.IndexOf("{{", searchIndex, StringComparison.Ordinal);
+            if (tokenStart < 0)
+            {
+                return;
+            }
+
+            var tokenEnd = template.IndexOf("}}", tokenStart + 2, StringComparison.Ordinal);
+            if (tokenEnd < 0)
+            {
+                errors.Add($"{fieldName} contains an unterminated template token.");
+                return;
+            }
+
+            var token = template[(tokenStart + 2)..tokenEnd].Trim();
+            if (!IsSupportedFollowUpToken(token))
+            {
+                errors.Add($"{fieldName} contains unsupported template token '{token}'.");
+            }
+
+            searchIndex = tokenEnd + 2;
+        }
+    }
+
+    private static bool IsSupportedFollowUpToken(string token)
+    {
+        if (AllowedFollowUpTokens.Contains(token))
+        {
+            return true;
+        }
+
+        return IsSupportedAttributeToken(token);
     }
 
     private static void ValidateAbsoluteUri(

@@ -272,6 +272,15 @@ public sealed record CrmFollowUpRequest(
     public DateTimeOffset? FollowUpAt { get; init; }
 
     public DateTimeOffset LastInteractionAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public string? CustomerName { get; init; }
+
+    public string? CustomerPhoneNumber { get; init; }
+
+    public string? CustomerEmail { get; init; }
+
+    public IReadOnlyDictionary<string, string> Attributes { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record CrmContactEnsureRequest(
@@ -378,6 +387,10 @@ public static class CrmTimelineEventTypes
     public const string MarketingConsentWebRegistrationBlockedOptedOut = "consent.marketing.web_registration_blocked_opted_out";
     public const string SmsSent = "sms.sent";
     public const string EmailSent = "email.sent";
+    public const string FollowUpScheduled = "followup.scheduled";
+    public const string FollowUpSent = "followup.sent";
+    public const string FollowUpSkipped = "followup.skipped";
+    public const string FollowUpFailed = "followup.failed";
 }
 
 public static class CrmContactAttributeNames

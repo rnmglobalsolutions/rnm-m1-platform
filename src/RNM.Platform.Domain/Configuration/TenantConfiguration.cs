@@ -13,7 +13,8 @@ public sealed record TenantConfiguration(
     CommunicationConfiguration Communication,
     ReportingConfiguration? Reporting = null,
     VoiceConfiguration? Voice = null,
-    ClassAutomationConfiguration? Classes = null);
+    ClassAutomationConfiguration? Classes = null,
+    FollowUpAutomationConfiguration? FollowUps = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,
@@ -158,3 +159,45 @@ public sealed record ClassNotificationTemplateConfiguration(
     string? SmsBodyTemplate = null,
     string? EmailSubjectTemplate = null,
     string? EmailBodyTemplate = null);
+
+public sealed record FollowUpAutomationConfiguration(
+    bool? Enabled = null,
+    int? StalenessCutoffMinutes = null,
+    int? MaxFollowUpsPerContactPerDay = null,
+    IReadOnlyCollection<FollowUpSequenceConfiguration>? Sequences = null)
+{
+    public bool EffectiveEnabled => Enabled ?? false;
+
+    public int EffectiveStalenessCutoffMinutes => StalenessCutoffMinutes ?? 120;
+
+    public int EffectiveMaxFollowUpsPerContactPerDay => MaxFollowUpsPerContactPerDay ?? 2;
+
+    public IReadOnlyCollection<FollowUpSequenceConfiguration> EffectiveSequences =>
+        Sequences is { Count: > 0 } ? Sequences : [];
+}
+
+public sealed record FollowUpSequenceConfiguration(
+    string Id,
+    string Trigger,
+    IReadOnlyCollection<FollowUpStepConfiguration>? Steps = null,
+    IReadOnlyCollection<FollowUpStopConditionConfiguration>? StopWhen = null)
+{
+    public IReadOnlyCollection<FollowUpStepConfiguration> EffectiveSteps =>
+        Steps is { Count: > 0 } ? Steps : [];
+
+    public IReadOnlyCollection<FollowUpStopConditionConfiguration> EffectiveStopWhen =>
+        StopWhen is { Count: > 0 } ? StopWhen : [];
+}
+
+public sealed record FollowUpStepConfiguration(
+    int DelayMinutes,
+    string Channel,
+    string? SmsBodyTemplate = null,
+    string? EmailSubjectTemplate = null,
+    string? EmailBodyTemplate = null,
+    string? RequiresConsent = null);
+
+public sealed record FollowUpStopConditionConfiguration(
+    string? Attribute = null,
+    IReadOnlyCollection<string>? EqualsAny = null,
+    string? ConsentStatus = null);
