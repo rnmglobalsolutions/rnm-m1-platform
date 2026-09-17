@@ -116,7 +116,7 @@
           }
         ],
         "url": {
-          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/ready",
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/readiness",
           "host": [
             "{{functionHost}}"
           ],
@@ -124,7 +124,7 @@
             "api",
             "tenants",
             "{{tenantId}}",
-            "ready"
+            "readiness"
           ]
         }
       }

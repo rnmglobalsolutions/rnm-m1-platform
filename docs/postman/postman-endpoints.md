@@ -33,9 +33,12 @@ Expected success:
 }
 ```
 
-## GET `/api/tenants/{tenantId}/ready`
+## GET `/api/tenants/{tenantId}/readiness`
 
-Protected readiness endpoint for tenant configuration, provider adapter support, storage, secrets, and messaging configuration.
+Protected readiness endpoint for tenant onboarding. It checks tenant config,
+vertical config, provider adapter support, storage settings, required secrets,
+credential shape, SMS/email config, business notifications, and timer-based
+automation activation.
 
 Headers:
 
@@ -44,7 +47,11 @@ x-rnm-api-key: <INTERNAL_API_KEY>
 x-correlation-id: <optional-correlation-id>
 ```
 
-Expected success is `200 OK` with `status: "ready"`. If a dependency is missing, expect `503 Service Unavailable` with per-check readiness details.
+Expected success is `200 OK` with `status: "ready"`. If only warning-level
+checks fail, the endpoint returns `200 OK` with `status: "degraded"`. If a
+required dependency is missing, expect `503 Service Unavailable` with
+`status: "blocked"` and per-check details. Legacy route
+`/api/tenants/{tenantId}/ready` remains supported.
 
 ## GET `/api/tenants/{tenantId}/reports/pilot?from=&to=`
 

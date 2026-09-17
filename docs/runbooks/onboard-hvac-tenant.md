@@ -48,6 +48,22 @@ Rules:
 https://<FUNCTION_APP_HOST>/api/tenants/<tenant-id>/webhooks/vapi/inbound
 ```
 
+## Preflight
+
+Before deploying the tenant, run the production configuration preflight:
+
+```bash
+dotnet run \
+  --project tools/RNM.Platform.TenantPreflight/RNM.Platform.TenantPreflight.csproj \
+  -- \
+  --tenant <tenant-id> \
+  --environment production
+```
+
+Resolve every `BLOCK` result. The output is also the authoritative list of
+tenant-specific Key Vault secret names and required Function App settings. See
+`docs/runbooks/tenant-onboarding-preflight.md` for details.
+
 ## Readiness
 
 Call the protected readiness endpoint:
@@ -55,7 +71,7 @@ Call the protected readiness endpoint:
 ```bash
 curl \
   -H "x-rnm-api-key: <INTERNAL_API_KEY>" \
-  "https://<FUNCTION_APP_HOST>/api/tenants/<tenant-id>/ready"
+  "https://<FUNCTION_APP_HOST>/api/tenants/<tenant-id>/readiness"
 ```
 
 Expected result:
@@ -65,20 +81,22 @@ Expected result:
   "status": "ready",
   "tenantId": "<tenant-id>",
   "checks": [
-    { "name": "tenantConfiguration", "ready": true },
-    { "name": "storage", "ready": true },
-    { "name": "bookingProvider", "ready": true },
-    { "name": "crmProvider", "ready": true },
-    { "name": "smsProvider", "ready": true },
-    { "name": "emailProvider", "ready": true },
-    { "name": "sendGrid", "ready": true },
-    { "name": "emailConfiguration", "ready": true },
-    { "name": "providerSecrets", "ready": true }
+    { "name": "tenantConfiguration", "ready": true, "severity": "required" },
+    { "name": "verticalConfiguration", "ready": true, "severity": "required" },
+    { "name": "storage", "ready": true, "severity": "required" },
+    { "name": "bookingProvider", "ready": true, "severity": "required" },
+    { "name": "crmProvider", "ready": true, "severity": "required" },
+    { "name": "smsProvider", "ready": true, "severity": "required" },
+    { "name": "emailProvider", "ready": true, "severity": "required" },
+    { "name": "providerSecrets", "ready": true, "severity": "required" }
   ]
 }
 ```
 
-Do not route calls until every check is `true`.
+Do not route calls until readiness is `ready`. A `degraded` response means only
+warning-level checks failed; review them before go-live. A `blocked` response
+means a required dependency is missing. Legacy route `/ready` still works, but
+new runbooks should use `/readiness`.
 
 ## Acceptance Calls
 
@@ -109,6 +127,7 @@ For successful booking calls verify:
 
 The tenant is ready only when:
 
+- Production preflight exits successfully.
 - Readiness returns `200`.
 - All acceptance calls pass.
 - Alert email receives a test alert.

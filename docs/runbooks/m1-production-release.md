@@ -14,6 +14,7 @@ Run:
 dotnet clean RNM.Platform.sln
 dotnet build RNM.Platform.sln --configuration Release
 dotnet test RNM.Platform.sln --configuration Release --no-build
+dotnet run --project tools/RNM.Platform.TenantPreflight/RNM.Platform.TenantPreflight.csproj --configuration Release --no-build -- --all --environment repository --json
 az bicep build --file infra/main.bicep
 az bicep build-params --file infra/prod.bicepparam
 ```
@@ -23,6 +24,7 @@ Required:
 - Zero build errors
 - Zero build warnings
 - All unit and integration tests pass
+- All checked-in tenant and vertical manifests pass repository preflight
 - Bicep and parameter validation pass
 - GitHub production deployment succeeds
 
@@ -47,7 +49,7 @@ RNM_OPERATIONS_ALERT_EMAIL
 - No live tenant uses `sample-hvac-tenant`.
 - No production tenant uses wildcard ZIP coverage.
 - Every tenant has independent secrets and provider accounts.
-- Readiness returns `200` for the tenant.
+- Readiness returns `status: "ready"` for the tenant.
 - The onboarding acceptance calls pass.
 
 ## Operating Gate

@@ -245,6 +245,25 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         Assert.Contains("serviceNeed", configuration.QualificationFields);
     }
 
+    [Fact]
+    public async Task GetVerticalConfigurationAsync_RejectsMismatchedVerticalId()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "verticals", "vertical-a.json"),
+            """
+            {
+              "verticalId": "vertical-b",
+              "displayName": "Vertical B",
+              "qualificationFields": ["serviceNeed"],
+              "supportedCallTypes": ["GeneralInquiry"]
+            }
+            """);
+        var provider = new JsonVerticalConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetVerticalConfigurationAsync("vertical-a", CancellationToken.None));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(configRoot))
