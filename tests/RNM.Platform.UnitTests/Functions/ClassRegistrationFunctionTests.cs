@@ -12,7 +12,7 @@ namespace RNM.Platform.UnitTests.Functions;
 public sealed class ClassRegistrationFunctionTests
 {
     [Fact]
-    public async Task RegisterAsync_AllowsConfiguredPublicOriginWithoutApiKey()
+    public async Task RegisterAsync_AllowsTenantSecretWithoutInternalApiKey()
     {
         var session = CreateSession();
         var store = new FakeClassSessionStore(session);
@@ -41,7 +41,7 @@ public sealed class ClassRegistrationFunctionTests
         var sms = new FakeSmsSender();
         var email = new FakeEmailSender();
         var function = CreateFunction(store, sms, email);
-        var request = CreateRegistrationRequest("https://evil.example");
+        var request = CreateRegistrationRequest("https://evil.example", includeSecret: false);
 
         var response = (TestHttpResponseData)await function.RegisterAsync(
             request,
@@ -49,8 +49,29 @@ public sealed class ClassRegistrationFunctionTests
             session.SessionId,
             CancellationToken.None);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.False(response.Headers.TryGetValues("Access-Control-Allow-Origin", out _));
+        Assert.Empty(sms.Requests);
+        Assert.Empty(email.Requests);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_UnexpectedStorageFailureReturnsSafeServiceUnavailable()
+    {
+        var session = CreateSession();
+        var store = new FakeClassSessionStore(session) { ThrowOnGetSession = true };
+        var sms = new FakeSmsSender();
+        var email = new FakeEmailSender();
+        var function = CreateFunction(store, sms, email);
+        var request = CreateRegistrationRequest("https://example.com");
+
+        var response = (TestHttpResponseData)await function.RegisterAsync(
+            request,
+            "tenant-a",
+            session.SessionId,
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Empty(sms.Requests);
         Assert.Empty(email.Requests);
     }
@@ -80,10 +101,12 @@ public sealed class ClassRegistrationFunctionTests
             new SafeErrorResponseFactory(),
             new SafeHttpResponseWriter(),
             new CorrelationContextFactory(),
-            new LimitedRequestBodyReader());
+            new LimitedRequestBodyReader(),
+            new StubSecretProvider("class-secret"),
+            logger);
     }
 
-    private static TestHttpRequestData CreateRegistrationRequest(string origin)
+    private static TestHttpRequestData CreateRegistrationRequest(string origin, bool includeSecret = true)
     {
         var request = new TestHttpRequestData(
             "POST",
@@ -94,12 +117,18 @@ public sealed class ClassRegistrationFunctionTests
               "customerPhoneNumber": "+15551234567",
               "customerEmail": "jane@example.com",
               "marketingConsentGranted": true,
+              "consentCapturedAt": "2025-01-01T12:00:00Z",
+              "consentTextVersion": "class-registration-v1",
               "attributes": {
                 "intent": "masterclass"
               }
             }
             """);
         request.Headers.Add("Origin", origin);
+        if (includeSecret)
+        {
+            request.Headers.Add("X-RNM-Class-Registration-Secret", "class-secret");
+        }
         return request;
     }
 
@@ -108,8 +137,8 @@ public sealed class ClassRegistrationFunctionTests
             "tenant-a",
             "session-a",
             "Financial Master Class",
-            new DateTimeOffset(2026, 6, 10, 23, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 6, 11, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2027, 6, 10, 23, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2027, 6, 11, 0, 0, 0, TimeSpan.Zero),
             "America/Chicago",
             "https://zoom.us/j/123",
             100,

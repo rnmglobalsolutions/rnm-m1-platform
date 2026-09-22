@@ -13,6 +13,8 @@ Import `docs/postman/RNM.Platform.M1.postman_collection.json` into Postman and c
 | `classSessionId` | Shared masterclass session id, for example `financial-masterclass-001` |
 | `internalApiKey` | Internal API key used by protected test endpoints |
 | `vapiWebhookSecret` | Vapi webhook secret for bearer-token testing |
+| `manyChatWebhookSecret` | Per-tenant secret sent by ManyChat in `X-RNM-ManyChat-Secret` |
+| `manyChatExternalEventId` | Stable unique id for one ManyChat delivery; reuse it on retries |
 | `twilioSignature` | Twilio-generated request signature |
 | `correlationId` | Optional request correlation id |
 | `reportFrom` | Pilot report start timestamp |
@@ -90,8 +92,9 @@ Sample body:
 ```json
 {
   "title": "Financial Education Master Class",
-  "startsAt": "2026-07-15T23:00:00Z",
-  "endsAt": "2026-07-16T00:00:00Z",
+  "status": "published",
+  "startsAt": "2027-07-15T23:00:00Z",
+  "endsAt": "2027-07-16T00:00:00Z",
   "timeZone": "America/Chicago",
   "zoomUrl": "https://zoom.us/j/REPLACE_ME",
   "capacity": 100,
@@ -108,7 +111,12 @@ Expected success is `200 OK` with `succeeded: true` and the stored session.
 
 Creates or updates the CRM contact, captures web registration consent without reversing prior opt-outs, registers the contact into the shared class session, sends confirmation SMS/email, and schedules configured reminders.
 
-This endpoint can be called with `x-rnm-api-key` for internal/Postman testing and server-side sources such as Meta lead handling or ManyChat. For browser/funnel use, configure `classes.allowedRegistrationOrigins` in the tenant config and send the matching `Origin` header. This masterclass flow does not use Vapi inbound.
+This endpoint requires either `x-rnm-api-key` for internal calls or the dedicated
+per-tenant `X-RNM-Class-Registration-Secret`. `Origin` controls CORS only and is
+never authentication. A browser must call through a trusted funnel/server
+backend; never embed either secret in browser JavaScript. Generic ManyChat lead
+intake should use the dedicated webhook documented below. This class flow does
+not use Vapi inbound.
 
 Headers for internal testing:
 
@@ -116,6 +124,12 @@ Headers for internal testing:
 x-rnm-api-key: <INTERNAL_API_KEY>
 x-correlation-id: <optional-correlation-id>
 Content-Type: application/json
+```
+
+For a server-side funnel integration, replace `x-rnm-api-key` with:
+
+```text
+X-RNM-Class-Registration-Secret: <TENANT_CLASS_REGISTRATION_SECRET>
 ```
 
 Sample body:
@@ -128,13 +142,63 @@ Sample body:
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentCapturedAt": "2026-09-18T15:00:00Z",
+  "consentTextVersion": "class-registration-v1",
   "attributes": {
     "intent": "masterclass"
   }
 }
 ```
 
-Expected success is `200 OK` with `succeeded: true`, the session, registration, and channel results. SMS is sent only when consent is `opt_in`. Email confirmation is transactional for the registration.
+Expected success is `200 OK` with `succeeded: true`, the session, registration,
+and channel results. A repeated registration returns the existing registration
+with `duplicate: true`. Completed channels and existing reminders are not reset;
+if the original execution stopped before a channel was persisted, M1 resumes
+only that incomplete work. A provider failure successfully placed on the durable
+retry queue is stored as `RetryScheduled` and is not sent again by the duplicate
+request. Both SMS and email are blocked when the contact is already `opted_out`. Explicit
+`marketingConsentGranted=true` requires `consentCapturedAt` and
+`consentTextVersion`.
+
+## POST `/api/tenants/{tenantId}/webhooks/manychat/leads`
+
+Tenant-scoped ManyChat lead intake. It authenticates with a dedicated per-tenant
+secret, deduplicates provider retries by `externalEventId`, upserts the CRM
+contact, records consent evidence and timeline events, schedules configured
+follow-ups, and queues business SMS/email notifications.
+
+Headers:
+
+```text
+X-RNM-ManyChat-Secret: <tenant ManyChat webhook secret>
+x-correlation-id: <optional-correlation-id>
+Content-Type: application/json
+```
+
+Sample body:
+
+```json
+{
+  "externalEventId": "{{manyChatExternalEventId}}",
+  "externalContactId": "manychat-subscriber-123",
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "meta-financial-education",
+  "marketingConsentGranted": true,
+  "consentCapturedAt": "2026-09-17T15:00:00Z",
+  "consentTextVersion": "meta-form-v1",
+  "attributes": {
+    "intent": "financial_education",
+    "sourceCampaign": "meta"
+  }
+}
+```
+
+`marketingConsentGranted=true` requires both `consentCapturedAt` and
+`consentTextVersion`. A previous `opted_out` state is never reversed by this
+webhook. Repeating the same `externalEventId` returns a safe duplicate response
+without repeating CRM writes or notifications.
 
 ## POST `/api/tenants/{tenantId}/classes/reminders/run?maxItems=25`
 

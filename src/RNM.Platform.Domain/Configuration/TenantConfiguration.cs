@@ -14,7 +14,8 @@ public sealed record TenantConfiguration(
     ReportingConfiguration? Reporting = null,
     VoiceConfiguration? Voice = null,
     ClassAutomationConfiguration? Classes = null,
-    FollowUpAutomationConfiguration? FollowUps = null);
+    FollowUpAutomationConfiguration? FollowUps = null,
+    IntegrationConfiguration? Integrations = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,
@@ -30,7 +31,24 @@ public sealed record SecretNameConfiguration(
     string TwilioAuthToken,
     string EmailConnectionString,
     string? CrmCredentials = null,
-    string? BookingCredentials = null);
+    string? BookingCredentials = null,
+    string? ManyChatWebhookSecret = null,
+    string? ClassRegistrationWebhookSecret = null);
+
+public sealed record IntegrationConfiguration(
+    ManyChatIntegrationConfiguration? ManyChat = null);
+
+public sealed record ManyChatIntegrationConfiguration(
+    bool? Enabled = null,
+    bool? ScheduleFollowUp = null,
+    int? MaxRequestsPerMinute = null)
+{
+    public bool EffectiveEnabled => Enabled ?? false;
+
+    public bool EffectiveScheduleFollowUp => ScheduleFollowUp ?? true;
+
+    public int EffectiveMaxRequestsPerMinute => MaxRequestsPerMinute ?? 120;
+}
 
 public sealed record CommunicationConfiguration(
     string SmsFromPhoneNumber,
@@ -146,13 +164,17 @@ public sealed record ClassAutomationConfiguration(
     ClassNotificationTemplateConfiguration? ReminderTemplates = null,
     IReadOnlyCollection<int>? ReminderOffsetsMinutes = null,
     IReadOnlyCollection<string>? AllowedRegistrationOrigins = null,
-    int? ReminderStalenessCutoffMinutes = null)
+    int? ReminderStalenessCutoffMinutes = null,
+    int? MaxRegistrationsPerMinute = null)
 {
     public IReadOnlyCollection<int> EffectiveReminderOffsetsMinutes =>
         ReminderOffsetsMinutes is { Count: > 0 } ? ReminderOffsetsMinutes : [1440, 60];
 
     public int EffectiveReminderStalenessCutoffMinutes =>
         ReminderStalenessCutoffMinutes ?? 60;
+
+    public int EffectiveMaxRegistrationsPerMinute =>
+        Math.Clamp(MaxRegistrationsPerMinute ?? 60, 1, 1000);
 }
 
 public sealed record ClassNotificationTemplateConfiguration(

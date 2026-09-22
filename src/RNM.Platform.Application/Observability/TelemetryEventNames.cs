@@ -88,4 +88,11 @@ public static class TelemetryEventNames
     public const string FollowUpRunRequested = "followup.run.requested";
     public const string FollowUpRunCompleted = "followup.run.completed";
     public const string FollowUpSendFailed = "followup.send.failed";
+    public const string LeadIntakeRequested = "lead_intake.requested";
+    public const string LeadIntakeAuthenticated = "lead_intake.authenticated";
+    public const string LeadIntakeDuplicate = "lead_intake.duplicate";
+    public const string LeadIntakeCompleted = "lead_intake.completed";
+    public const string LeadIntakeFailed = "lead_intake.failed";
+    public const string LeadIntakeBusinessNotificationQueued = "lead_intake.business_notification.queued";
+    public const string LeadIntakeBusinessNotificationFailed = "lead_intake.business_notification.failed";
 }

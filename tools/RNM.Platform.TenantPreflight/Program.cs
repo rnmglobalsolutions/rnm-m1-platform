@@ -320,6 +320,17 @@ internal static class TenantPreflightProgram
             secrets.Add(new RequiredSecret("vapiOutboundApiKey", tenant.Voice.Outbound.VapiApiKeySecretName!));
         }
 
+        if (tenant.Integrations?.ManyChat?.EffectiveEnabled is true)
+        {
+            secrets.Add(new RequiredSecret("manyChatWebhookSecret", tenant.SecretNames.ManyChatWebhookSecret!));
+        }
+
+
+        if (tenant.Classes is not null)
+        {
+            secrets.Add(new RequiredSecret("classRegistrationWebhookSecret", tenant.SecretNames.ClassRegistrationWebhookSecret!));
+        }
+
         return secrets
             .Where(secret => !string.IsNullOrWhiteSpace(secret.SecretName))
             .DistinctBy(secret => secret.SecretName, StringComparer.Ordinal)

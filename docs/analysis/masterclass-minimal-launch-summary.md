@@ -1,5 +1,8 @@
 # Master Classes Minimal Launch Summary
 
+> Historical launch proposal. The implemented behavior and current limitations
+> are documented in `docs/runbooks/masterclass-automation.md`.
+
 ## Decision
 
 For financial education master classes, Zoom should not be treated as a normal
@@ -92,4 +95,3 @@ still enabling the revenue workflow:
 
 Lead capture -> qualification -> consent -> class registration -> confirmation
 -> reminder -> attendance/reporting -> booked call/revenue attribution.
-

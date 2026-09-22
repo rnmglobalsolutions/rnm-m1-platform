@@ -73,6 +73,57 @@ public sealed class JsonConfigurationProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task GetTenantConfigurationAsync_LoadsManyChatIntegrationAndSecret()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            """
+            {
+              "tenantId": "tenant-a",
+              "verticalId": "vertical-a",
+              "businessName": "Tenant A",
+              "timeZone": "America/Chicago",
+              "serviceArea": { "zipCodes": ["75001"], "cities": [] },
+              "providers": {
+                "crmProvider": "AzureTable",
+                "bookingProvider": "GoogleCalendar",
+                "smsProvider": "Twilio",
+                "emailProvider": "SendGrid"
+              },
+              "secretNames": {
+                "crmApiKey": "crm",
+                "bookingApiKey": "booking",
+                "voiceWebhookSecret": "voice",
+                "twilioAccountSid": "sid",
+                "twilioAuthToken": "token",
+                "emailConnectionString": "email",
+                "manyChatWebhookSecret": "tenant-a-manychat-secret"
+              },
+              "communication": {
+                "smsFromPhoneNumber": "+15550001000",
+                "confirmationTemplates": { "smsBodyTemplate": "Received" }
+              },
+              "integrations": {
+                "manyChat": {
+                  "enabled": true,
+                  "scheduleFollowUp": false,
+                  "maxRequestsPerMinute": 75
+                }
+              }
+            }
+            """);
+
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
+
+        Assert.Equal("tenant-a-manychat-secret", configuration.SecretNames.ManyChatWebhookSecret);
+        Assert.True(configuration.Integrations?.ManyChat?.EffectiveEnabled);
+        Assert.False(configuration.Integrations?.ManyChat?.EffectiveScheduleFollowUp);
+        Assert.Equal(75, configuration.Integrations?.ManyChat?.EffectiveMaxRequestsPerMinute);
+    }
+
+    [Fact]
     public async Task GetTenantConfigurationAsync_LoadsBusinessSmsNotificationRule()
     {
         await File.WriteAllTextAsync(

@@ -106,6 +106,7 @@ public sealed class ClassSessionFunction
                         parsed.TimeZone ?? string.Empty,
                         parsed.ZoomUrl ?? string.Empty)
                     {
+                        Status = parsed.Status ?? ClassSessionStatuses.Published,
                         EndsAt = parsed.EndsAt,
                         Capacity = parsed.Capacity,
                         CampaignId = parsed.CampaignId,
@@ -139,8 +140,8 @@ public sealed class ClassSessionFunction
         DateTimeOffset? EndsAt,
         string? TimeZone,
         string? ZoomUrl,
+        string? Status,
         int? Capacity,
         string? CampaignId,
         IReadOnlyDictionary<string, string>? Attributes);
 }
-

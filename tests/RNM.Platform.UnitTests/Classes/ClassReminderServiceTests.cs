@@ -228,6 +228,95 @@ public sealed class ClassReminderServiceTests
     }
 
     [Fact]
+    public async Task RunAsync_CancelledClassSkipsReminderAndDoesNotSend()
+    {
+        var session = CreateSession() with { Status = ClassSessionStatuses.Cancelled };
+        var registration = CreateRegistration();
+        var store = new FakeClassSessionStore(session);
+        await store.UpsertRegistrationAsync(registration, CancellationToken.None);
+        await store.ScheduleRemindersAsync(
+            new ClassReminderScheduleRequest("tenant-a", "corr-1", session, registration, [60]),
+            CancellationToken.None);
+        var crm = new FakeCrmAdapter { LookupResult = OptedInContact() };
+        var sms = new FakeSmsSender();
+        var email = new FakeEmailSender();
+        var logger = new FakeEventLogger();
+        var service = CreateService(store, crm, sms, email, logger);
+
+        var result = await service.RunAsync(
+            new ClassReminderRunRequest("tenant-a", "corr-2", session.StartsAt.AddMinutes(-60)),
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Skipped);
+        Assert.Empty(sms.Requests);
+        Assert.Empty(email.Requests);
+        Assert.Contains(crm.TimelineEvents, evt =>
+            evt.EventType == ClassTimelineEventTypes.ReminderSkipped
+            && evt.Metadata.GetValueOrDefault("reason") == "session_not_published");
+    }
+
+    [Fact]
+    public async Task RunAsync_LegacyClaimWithoutTimestampIsRecovered()
+    {
+        var session = CreateSession();
+        var registration = CreateRegistration();
+        var store = new FakeClassSessionStore(session);
+        await store.UpsertRegistrationAsync(registration, CancellationToken.None);
+        await store.ScheduleRemindersAsync(
+            new ClassReminderScheduleRequest("tenant-a", "corr-1", session, registration, [60]),
+            CancellationToken.None);
+        var reminder = Assert.Single(await store.GetRemindersBySessionAsync("tenant-a", session.SessionId, CancellationToken.None));
+        store.SetReminderState(reminder.RowKey, ClassReminderStatuses.Claimed);
+        var crm = new FakeCrmAdapter { LookupResult = OptedInContact() };
+        var sms = new FakeSmsSender();
+        var email = new FakeEmailSender();
+        var logger = new FakeEventLogger();
+        var service = CreateService(store, crm, sms, email, logger);
+
+        var result = await service.RunAsync(
+            new ClassReminderRunRequest("tenant-a", "corr-2", reminder.DueAt),
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Sent);
+        Assert.Single(sms.Requests);
+        Assert.Single(email.Requests);
+    }
+
+    [Fact]
+    public async Task ScheduleReminders_ReplaceExistingDoesNotResetSentReminder()
+    {
+        var session = CreateSession();
+        var registration = CreateRegistration();
+        var store = new FakeClassSessionStore(session);
+        var schedule = new ClassReminderScheduleRequest("tenant-a", "corr-1", session, registration, [60]);
+        await store.ScheduleRemindersAsync(schedule, CancellationToken.None);
+        var reminder = Assert.Single(await store.GetRemindersBySessionAsync("tenant-a", session.SessionId, CancellationToken.None));
+        await store.MarkReminderAsync("tenant-a", reminder.RowKey, ClassReminderStatuses.Sent, "corr-2", CancellationToken.None);
+
+        await store.ScheduleRemindersAsync(schedule with { ReplaceExisting = true }, CancellationToken.None);
+
+        var stored = Assert.Single(await store.GetRemindersBySessionAsync("tenant-a", session.SessionId, CancellationToken.None));
+        Assert.Equal(ClassReminderStatuses.Sent, stored.Status);
+    }
+
+    [Fact]
+    public async Task ScheduleReminders_ReplaceExistingReactivatesSessionChangeSkip()
+    {
+        var session = CreateSession();
+        var registration = CreateRegistration();
+        var store = new FakeClassSessionStore(session);
+        var schedule = new ClassReminderScheduleRequest("tenant-a", "corr-1", session, registration, [60]);
+        await store.ScheduleRemindersAsync(schedule, CancellationToken.None);
+        await store.CancelPendingRemindersBySessionAsync("tenant-a", session.SessionId, "corr-2", CancellationToken.None);
+
+        await store.ScheduleRemindersAsync(schedule with { ReplaceExisting = true }, CancellationToken.None);
+
+        var stored = Assert.Single(await store.GetRemindersBySessionAsync("tenant-a", session.SessionId, CancellationToken.None));
+        Assert.Equal(ClassReminderStatuses.Pending, stored.Status);
+        Assert.Null(stored.SkipReason);
+    }
+
+    [Fact]
     public async Task RunAsync_AppointmentReminder_OutsideSendWindowSkipsSmsButStillSendsEmail()
     {
         var store = new FakeClassSessionStore();

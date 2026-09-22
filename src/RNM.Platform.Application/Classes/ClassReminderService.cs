@@ -115,6 +115,20 @@ public sealed class ClassReminderService
             return ClassReminderStatuses.Skipped;
         }
 
+        if (!string.Equals(session.Status, ClassSessionStatuses.Published, StringComparison.OrdinalIgnoreCase))
+        {
+            await RecordReminderTimelineAsync(reminder, correlationId, ClassTimelineEventTypes.ReminderSkipped, "Class reminder skipped because the session is not published.", "session_not_published", cancellationToken)
+                .ConfigureAwait(false);
+            return ClassReminderStatuses.Skipped;
+        }
+
+        if (reminder.StartsAt.HasValue && reminder.StartsAt.Value != session.StartsAt)
+        {
+            await RecordReminderTimelineAsync(reminder, correlationId, ClassTimelineEventTypes.ReminderSkipped, "Class reminder skipped because the session time changed.", "session_changed", cancellationToken)
+                .ConfigureAwait(false);
+            return ClassReminderStatuses.Skipped;
+        }
+
         if (asOf >= session.StartsAt)
         {
             await RecordReminderTimelineAsync(reminder, correlationId, ClassTimelineEventTypes.ReminderSkipped, "Class reminder skipped because the class already started.", "class_started", cancellationToken)

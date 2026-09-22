@@ -16,6 +16,7 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
     private readonly Dictionary<string, ClassSessionRecord> sessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ClassRegistrationRecord> registrations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ClassReminderRecord> reminders = new(StringComparer.Ordinal);
+    private readonly HashSet<string> reservations = new(StringComparer.Ordinal);
 
     public FakeClassSessionStore(params ClassSessionRecord[] initialSessions)
     {
@@ -28,6 +29,8 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
     public List<ClassReminderRecord> ScheduledReminders { get; } = [];
 
     public List<ClassNotificationStatusUpdate> NotificationStatusUpdates { get; } = [];
+
+    public bool ThrowOnGetSession { get; set; }
 
     public Task<ClassSessionUpsertResult> UpsertSessionAsync(
         ClassSessionUpsertRequest request,
@@ -43,7 +46,10 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
             request.ZoomUrl,
             request.Capacity,
             request.CampaignId,
-            request.Attributes);
+            request.Attributes)
+        {
+            Status = request.Status
+        };
         sessions[session.SessionId] = session;
         return Task.FromResult(new ClassSessionUpsertResult(true, session));
     }
@@ -53,6 +59,11 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
         string sessionId,
         CancellationToken cancellationToken)
     {
+        if (ThrowOnGetSession)
+        {
+            throw new InvalidOperationException("Class session storage unavailable.");
+        }
+
         sessions.TryGetValue(sessionId, out var session);
         return Task.FromResult(session);
     }
@@ -98,6 +109,48 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
         return Task.FromResult(registration);
     }
 
+    public Task<ClassRegistrationReservationResult> TryReserveRegistrationAsync(
+        string tenantId,
+        string sessionId,
+        string registrationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var key = $"{tenantId}|{sessionId}|{registrationId}";
+        if (reservations.Contains(key))
+        {
+            return Task.FromResult(new ClassRegistrationReservationResult(
+                false,
+                AlreadyReserved: true,
+                Message: "Class registration is already being processed."));
+        }
+
+        if (!sessions.TryGetValue(sessionId, out var session))
+        {
+            return Task.FromResult(new ClassRegistrationReservationResult(false, Message: "Class session was not found."));
+        }
+
+        var count = reservations.Count(value => value.StartsWith($"{tenantId}|{sessionId}|", StringComparison.Ordinal));
+        if (session.Capacity.HasValue && count >= session.Capacity.Value)
+        {
+            return Task.FromResult(new ClassRegistrationReservationResult(false, CapacityReached: true));
+        }
+
+        reservations.Add(key);
+        return Task.FromResult(new ClassRegistrationReservationResult(true));
+    }
+
+    public Task ReleaseRegistrationReservationAsync(
+        string tenantId,
+        string sessionId,
+        string registrationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        reservations.Remove($"{tenantId}|{sessionId}|{registrationId}");
+        return Task.CompletedTask;
+    }
+
     public Task UpdateRegistrationNotificationStatusAsync(
         ClassNotificationStatusUpdate update,
         CancellationToken cancellationToken)
@@ -107,12 +160,24 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
         {
             registrations[update.RegistrationId] = registration with
             {
-                ConfirmationSmsStatus = update.SmsStatus,
-                ConfirmationEmailStatus = update.EmailStatus
+                ConfirmationSmsStatus = update.SmsStatus ?? registration.ConfirmationSmsStatus,
+                ConfirmationEmailStatus = update.EmailStatus ?? registration.ConfirmationEmailStatus
             };
         }
 
         return Task.CompletedTask;
+    }
+
+    public void ClearRegistrationNotificationStatus(string registrationId)
+    {
+        if (registrations.TryGetValue(registrationId, out var registration))
+        {
+            registrations[registrationId] = registration with
+            {
+                ConfirmationSmsStatus = null,
+                ConfirmationEmailStatus = null
+            };
+        }
     }
 
     public Task ScheduleRemindersAsync(
@@ -130,9 +195,39 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
                 $"{offset}m_before",
                 request.Session.StartsAt.AddMinutes(-offset),
                 ClassReminderStatuses.Pending,
-                request.CorrelationId);
-            reminders[reminder.RowKey] = reminder;
-            ScheduledReminders.Add(reminder);
+                request.CorrelationId)
+            {
+                StartsAt = request.Session.StartsAt
+            };
+            if (!reminders.TryGetValue(reminder.RowKey, out var existing)
+                || (request.ReplaceExisting
+                    && existing.Status == ClassReminderStatuses.Skipped
+                    && existing.SkipReason == "session_changed"))
+            {
+                reminders[reminder.RowKey] = reminder;
+                ScheduledReminders.Add(reminder);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task CancelPendingRemindersBySessionAsync(
+        string tenantId,
+        string sessionId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var item in reminders.Where(item =>
+                     item.Value.TenantId == tenantId
+                     && item.Value.SessionId == sessionId
+                     && item.Value.Status is ClassReminderStatuses.Pending or ClassReminderStatuses.Claimed).ToArray())
+        {
+            reminders[item.Key] = item.Value with
+            {
+                Status = ClassReminderStatuses.Skipped,
+                SkipReason = "session_changed"
+            };
         }
 
         return Task.CompletedTask;
@@ -196,7 +291,10 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
                 .Where(reminder =>
                     reminder.TenantId == tenantId
                     && reminder.DueAt <= dueAt
-                    && reminder.Status == ClassReminderStatuses.Pending)
+                    && (reminder.Status == ClassReminderStatuses.Pending
+                        || (reminder.Status == ClassReminderStatuses.Claimed
+                            && (!reminder.ClaimedAt.HasValue
+                                || reminder.ClaimedAt <= DateTimeOffset.UtcNow.AddMinutes(-15)))))
                 .Take(maxItems)
                 .ToArray());
     }
@@ -218,12 +316,20 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
         string correlationId,
         CancellationToken cancellationToken)
     {
-        if (!reminders.TryGetValue(rowKey, out var reminder) || reminder.Status != ClassReminderStatuses.Pending)
+        if (!reminders.TryGetValue(rowKey, out var reminder)
+            || (reminder.Status != ClassReminderStatuses.Pending
+                && !(reminder.Status == ClassReminderStatuses.Claimed
+                    && (!reminder.ClaimedAt.HasValue
+                        || reminder.ClaimedAt <= DateTimeOffset.UtcNow.AddMinutes(-15)))))
         {
             return Task.FromResult(false);
         }
 
-        reminders[rowKey] = reminder with { Status = ClassReminderStatuses.Claimed };
+        reminders[rowKey] = reminder with
+        {
+            Status = ClassReminderStatuses.Claimed,
+            ClaimedAt = DateTimeOffset.UtcNow
+        };
         return Task.FromResult(true);
     }
 
@@ -241,11 +347,26 @@ internal sealed class FakeClassSessionStore : IClassSessionStore
 
         return Task.CompletedTask;
     }
+
+    public void SetReminderState(string rowKey, string status, DateTimeOffset? claimedAt = null, string? skipReason = null)
+    {
+        if (reminders.TryGetValue(rowKey, out var reminder))
+        {
+            reminders[rowKey] = reminder with
+            {
+                Status = status,
+                ClaimedAt = claimedAt,
+                SkipReason = skipReason
+            };
+        }
+    }
 }
 
 internal sealed class FakeCrmAdapter : ICrmAdapter
 {
     public CrmContactLookupResult LookupResult { get; init; } = new(false, null);
+
+    public CrmContactUpsertResult UpsertResult { get; set; } = new(true, true, "contact-1");
 
     public CrmContactUpsertRequest? LastUpsertRequest { get; private set; }
 
@@ -261,7 +382,10 @@ internal sealed class FakeCrmAdapter : ICrmAdapter
         CancellationToken cancellationToken)
     {
         LastUpsertRequest = request;
-        return Task.FromResult(new CrmContactUpsertResult(true, string.IsNullOrWhiteSpace(request.ProviderContactId), request.ProviderContactId ?? "contact-1"));
+        return Task.FromResult(UpsertResult with
+        {
+            ProviderContactId = UpsertResult.ProviderContactId ?? request.ProviderContactId ?? "contact-1"
+        });
     }
 
     public Task<CrmOperationResult> AddInteractionNoteAsync(CrmInteractionNoteRequest request, CancellationToken cancellationToken) =>
@@ -341,6 +465,21 @@ internal sealed class FakeEventLogger : IEventLogger
     }
 }
 
+internal sealed class FakeConfirmationRetryScheduler : IConfirmationRetryScheduler
+{
+    public bool ScheduleResult { get; init; } = true;
+
+    public List<ConfirmationRetryRequest> Requests { get; } = [];
+
+    public Task<bool> ScheduleAsync(
+        ConfirmationRetryRequest request,
+        CancellationToken cancellationToken)
+    {
+        Requests.Add(request);
+        return Task.FromResult(ScheduleResult);
+    }
+}
+
 internal sealed class FakeTenantConfigurationProvider : ITenantConfigurationProvider
 {
     public ClassAutomationConfiguration? Classes { get; init; } =
@@ -367,7 +506,14 @@ internal sealed class FakeTenantConfigurationProvider : ITenantConfigurationProv
             "America/Chicago",
             new ServiceAreaConfiguration(["*"], [], null),
             new ProviderConfiguration("AzureTable", "GoogleCalendar", "Twilio", "SendGrid"),
-            new SecretNameConfiguration("crm", "booking", "voice", "twilioSid", "twilioToken", "email"),
+            new SecretNameConfiguration(
+                "crm",
+                "booking",
+                "voice",
+                "twilioSid",
+                "twilioToken",
+                "email",
+                ClassRegistrationWebhookSecret: "class-registration-secret"),
             new CommunicationConfiguration(
                 "+15550001111",
                 "info@example.com",

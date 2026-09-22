@@ -80,7 +80,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ReportingConfigurationDto? Reporting,
         VoiceConfigurationDto? Voice,
         ClassAutomationConfigurationDto? Classes,
-        FollowUpAutomationConfigurationDto? FollowUps)
+        FollowUpAutomationConfigurationDto? FollowUps,
+        IntegrationConfigurationDto? Integrations)
     {
         public TenantConfiguration ToDomain()
         {
@@ -106,7 +107,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                     SecretNames?.TwilioAuthToken ?? string.Empty,
                     SecretNames?.EmailConnectionString ?? string.Empty,
                     SecretNames?.CrmCredentials,
-                    SecretNames?.BookingCredentials),
+                    SecretNames?.BookingCredentials,
+                    SecretNames?.ManyChatWebhookSecret,
+                    SecretNames?.ClassRegistrationWebhookSecret),
                 new CommunicationConfiguration(
                     Communication?.SmsFromPhoneNumber ?? string.Empty,
                     Communication?.EmailFromAddress,
@@ -183,7 +186,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                 Classes.ReminderTemplates.EmailBodyTemplate),
                         Classes.ReminderOffsetsMinutes,
                         Classes.AllowedRegistrationOrigins,
-                        Classes.ReminderStalenessCutoffMinutes),
+                        Classes.ReminderStalenessCutoffMinutes,
+                        Classes.MaxRegistrationsPerMinute),
                 FollowUps is null
                     ? null
                     : new FollowUpAutomationConfiguration(
@@ -209,7 +213,16 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                                 condition.EqualsAny,
                                                 condition.ConsentStatus))
                                         .ToArray()))
-                            .ToArray()));
+                            .ToArray()),
+                Integrations is null
+                    ? null
+                    : new IntegrationConfiguration(
+                        Integrations.ManyChat is null
+                            ? null
+                            : new ManyChatIntegrationConfiguration(
+                                Integrations.ManyChat.Enabled,
+                                Integrations.ManyChat.ScheduleFollowUp,
+                                Integrations.ManyChat.MaxRequestsPerMinute)));
         }
     }
 
@@ -233,7 +246,17 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? TwilioAuthToken,
         string? EmailConnectionString,
         string? CrmCredentials,
-        string? BookingCredentials);
+        string? BookingCredentials,
+        string? ManyChatWebhookSecret,
+        string? ClassRegistrationWebhookSecret);
+
+    private sealed record IntegrationConfigurationDto(
+        ManyChatIntegrationConfigurationDto? ManyChat);
+
+    private sealed record ManyChatIntegrationConfigurationDto(
+        bool? Enabled,
+        bool? ScheduleFollowUp,
+        int? MaxRequestsPerMinute);
 
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,
@@ -326,7 +349,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ClassNotificationTemplateConfigurationDto? ReminderTemplates,
         IReadOnlyCollection<int>? ReminderOffsetsMinutes,
         IReadOnlyCollection<string>? AllowedRegistrationOrigins,
-        int? ReminderStalenessCutoffMinutes);
+        int? ReminderStalenessCutoffMinutes,
+        int? MaxRegistrationsPerMinute);
 
     private sealed record ClassNotificationTemplateConfigurationDto(
         string? SmsBodyTemplate,

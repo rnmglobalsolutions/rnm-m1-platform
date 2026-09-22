@@ -22,7 +22,16 @@
     "voiceWebhookSecret": "tenant-rnm-insurance-agents-vapi-webhook-secret",
     "twilioAccountSid": "tenant-rnm-insurance-agents-twilio-account-sid",
     "twilioAuthToken": "tenant-rnm-insurance-agents-twilio-auth-token",
-    "emailConnectionString": "tenant-rnm-insurance-agents-email-connection"
+    "emailConnectionString": "tenant-rnm-insurance-agents-email-connection",
+    "manyChatWebhookSecret": "tenant-rnm-insurance-agents-manychat-webhook-secret",
+    "classRegistrationWebhookSecret": "tenant-rnm-insurance-agents-class-registration-webhook-secret"
+  },
+  "integrations": {
+    "manyChat": {
+      "enabled": true,
+      "scheduleFollowUp": true,
+      "maxRequestsPerMinute": 120
+    }
   },
   "communication": {
     "smsFromPhoneNumber": "+1XXXXXXXXXX",
@@ -75,6 +84,7 @@
     ]
   },
   "classes": {
+    "maxRegistrationsPerMinute": 60,
     "allowedRegistrationOrigins": [
       "https://rnmglobalsolutions.com",
       "https://www.rnmglobalsolutions.com",

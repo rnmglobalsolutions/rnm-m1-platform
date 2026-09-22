@@ -12,6 +12,8 @@ public sealed record ClassSessionUpsertRequest(
     string TimeZone,
     string ZoomUrl)
 {
+    public string Status { get; init; } = ClassSessionStatuses.Published;
+
     public DateTimeOffset? EndsAt { get; init; }
 
     public int? Capacity { get; init; }
@@ -32,7 +34,10 @@ public sealed record ClassSessionRecord(
     string ZoomUrl,
     int? Capacity,
     string? CampaignId,
-    IReadOnlyDictionary<string, string> Attributes);
+    IReadOnlyDictionary<string, string> Attributes)
+{
+    public string Status { get; init; } = ClassSessionStatuses.Published;
+}
 
 public sealed record ClassSessionUpsertResult(
     bool Succeeded,
@@ -53,6 +58,10 @@ public sealed record ClassRegistrationRequest(
     public string? CampaignId { get; init; }
 
     public bool MarketingConsentGranted { get; init; }
+
+    public DateTimeOffset? ConsentCapturedAt { get; init; }
+
+    public string? ConsentTextVersion { get; init; }
 
     public IReadOnlyDictionary<string, string> Attributes { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -84,6 +93,15 @@ public sealed record ClassRegistrationResult(
     ConfirmationChannelResult? Sms,
     ConfirmationChannelResult? Email,
     ClassFailureReason? FailureReason = null,
+    string? Message = null)
+{
+    public bool Duplicate { get; init; }
+}
+
+public sealed record ClassRegistrationReservationResult(
+    bool Succeeded,
+    bool AlreadyReserved = false,
+    bool CapacityReached = false,
     string? Message = null);
 
 public sealed record ClassReminderRecord(
@@ -97,6 +115,10 @@ public sealed record ClassReminderRecord(
     string Status,
     string CorrelationId)
 {
+    public DateTimeOffset? ClaimedAt { get; init; }
+
+    public string? SkipReason { get; init; }
+
     public string TargetType { get; init; } = ReminderTargetTypes.ClassSession;
 
     public string TargetId { get; init; } = string.Empty;
@@ -187,7 +209,10 @@ public sealed record ClassReminderScheduleRequest(
     string CorrelationId,
     ClassSessionRecord Session,
     ClassRegistrationRecord Registration,
-    IReadOnlyCollection<int> ReminderOffsetsMinutes);
+    IReadOnlyCollection<int> ReminderOffsetsMinutes)
+{
+    public bool ReplaceExisting { get; init; }
+}
 
 public sealed record ClassNotificationRequest(
     string TenantId,
@@ -198,6 +223,8 @@ public sealed record ClassNotificationRequest(
     ClassNotificationKind Kind)
 {
     public ConfirmationFailureReason? SmsSuppressionReason { get; init; }
+
+    public ConfirmationFailureReason? EmailSuppressionReason { get; init; }
 }
 
 public sealed record AppointmentReminderNotificationRequest(
@@ -246,12 +273,28 @@ public enum ClassFailureReason
     CrmWriteFailed = 4,
     StorageFailure = 5,
     CapacityReached = 6,
-    ContactOptedOut = 7
+    ContactOptedOut = 7,
+    SessionNotOpen = 8,
+    SessionAlreadyStarted = 9
 }
 
 public static class ClassRegistrationStatuses
 {
     public const string Registered = "registered";
+}
+
+public static class ClassSessionStatuses
+{
+    public const string Draft = "draft";
+    public const string Published = "published";
+    public const string Closed = "closed";
+    public const string Cancelled = "cancelled";
+
+    public static bool IsSupported(string? value) =>
+        string.Equals(value, Draft, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, Published, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, Closed, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, Cancelled, StringComparison.OrdinalIgnoreCase);
 }
 
 public static class ClassReminderStatuses

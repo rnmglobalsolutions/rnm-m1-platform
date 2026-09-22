@@ -175,8 +175,9 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         ValidateAppointmentReminders(errors, tenantConfiguration.Communication.AppointmentReminders);
         ValidateReporting(errors, tenantConfiguration.Reporting);
         ValidateVoice(errors, tenantConfiguration.Voice);
-        ValidateClasses(errors, tenantConfiguration.Classes);
+        ValidateClasses(errors, tenantConfiguration.Classes, tenantConfiguration.SecretNames);
         ValidateFollowUps(errors, tenantConfiguration.FollowUps);
+        ValidateIntegrations(errors, tenantConfiguration.Integrations, tenantConfiguration.SecretNames);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -464,12 +465,15 @@ public sealed class ConfigurationValidator : IConfigurationValidator
 
     private static void ValidateClasses(
         ICollection<string> errors,
-        ClassAutomationConfiguration? classes)
+        ClassAutomationConfiguration? classes,
+        SecretNameConfiguration secretNames)
     {
         if (classes is null)
         {
             return;
         }
+
+        AddRequired(errors, secretNames.ClassRegistrationWebhookSecret, "secretNames.classRegistrationWebhookSecret");
 
         ValidateClassTemplate(
             errors,
@@ -515,6 +519,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (classes.ReminderStalenessCutoffMinutes is < 1)
         {
             errors.Add("classes.reminderStalenessCutoffMinutes must be one or greater.");
+        }
+
+        if (classes.MaxRegistrationsPerMinute is < 1 or > 1000)
+        {
+            errors.Add("classes.maxRegistrationsPerMinute must be between 1 and 1000.");
         }
     }
 
@@ -721,6 +730,28 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (!Uri.TryCreate(value, UriKind.Absolute, out _))
         {
             errors.Add($"{fieldName} must be an absolute URL.");
+        }
+    }
+
+    private static void ValidateIntegrations(
+        ICollection<string> errors,
+        IntegrationConfiguration? integrations,
+        SecretNameConfiguration secretNames)
+    {
+        var manyChat = integrations?.ManyChat;
+        if (manyChat is null)
+        {
+            return;
+        }
+
+        if (manyChat.Enabled is true)
+        {
+            AddRequired(errors, secretNames.ManyChatWebhookSecret, "secretNames.manyChatWebhookSecret");
+        }
+
+        if (manyChat.MaxRequestsPerMinute is < 1 or > 1000)
+        {
+            errors.Add("integrations.manyChat.maxRequestsPerMinute must be between 1 and 1000.");
         }
     }
 }

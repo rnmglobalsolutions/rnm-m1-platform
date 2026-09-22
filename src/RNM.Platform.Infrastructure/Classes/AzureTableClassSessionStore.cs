@@ -14,6 +14,8 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
     private const string DefaultRegistrationsTableName = "RnmClassRegistrations";
     private const string DefaultReminderDueTableName = "RnmClassReminderDue";
     private const int MaxTableStringLength = 32000;
+    private static readonly TimeSpan ReminderClaimLease = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan RegistrationReservationLease = TimeSpan.FromMinutes(15);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string? connectionString;
@@ -41,25 +43,52 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
         try
         {
             var table = await GetTableClientAsync(sessionsTableName, cancellationToken).ConfigureAwait(false);
-            var entity = new TableEntity(request.TenantId, request.SessionId)
+            for (var attempt = 0; attempt < 5; attempt++)
             {
-                ["Title"] = SafeTableString(request.Title),
-                ["StartsAt"] = request.StartsAt,
-                ["TimeZone"] = SafeValue(request.TimeZone),
-                ["ZoomUrl"] = SafeTableString(request.ZoomUrl),
-                ["CampaignId"] = SafeValue(request.CampaignId),
-                ["AttributesJson"] = SerializeMetadata(request.Attributes),
-                ["UpdatedAt"] = DateTimeOffset.UtcNow,
-                ["CorrelationId"] = request.CorrelationId
-            };
-            AddIfPresent(entity, "EndsAt", request.EndsAt);
-            if (request.Capacity.HasValue)
-            {
-                entity["Capacity"] = request.Capacity.Value;
+                var existing = await table
+                    .GetEntityIfExistsAsync<TableEntity>(request.TenantId, request.SessionId, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                var entity = existing.HasValue
+                    ? existing.Value!
+                    : new TableEntity(request.TenantId, request.SessionId);
+                entity["Title"] = SafeTableString(request.Title);
+                entity["StartsAt"] = request.StartsAt;
+                entity["TimeZone"] = SafeValue(request.TimeZone);
+                entity["ZoomUrl"] = SafeTableString(request.ZoomUrl);
+                entity["Status"] = SafeValue(request.Status).ToLowerInvariant();
+                entity["CampaignId"] = SafeValue(request.CampaignId);
+                entity["AttributesJson"] = SerializeMetadata(request.Attributes);
+                entity["UpdatedAt"] = DateTimeOffset.UtcNow;
+                entity["CorrelationId"] = request.CorrelationId;
+                if (!existing.HasValue)
+                {
+                    entity["CreatedAt"] = DateTimeOffset.UtcNow;
+                    entity["RegisteredCount"] = 0;
+                }
+
+                SetOrRemove(entity, "EndsAt", request.EndsAt);
+                SetOrRemove(entity, "Capacity", request.Capacity);
+
+                try
+                {
+                    if (existing.HasValue)
+                    {
+                        await table.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await table.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return new ClassSessionUpsertResult(true, MaterializeSession(entity));
+                }
+                catch (RequestFailedException exception) when (exception.Status is 409 or 412)
+                {
+                    // A concurrent capacity reservation or session update won; reload and retry.
+                }
             }
 
-            await table.UpsertEntityAsync(entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
-            return new ClassSessionUpsertResult(true, MaterializeSession(entity));
+            return FailedSession(ClassFailureReason.StorageFailure, "Class session changed concurrently and could not be updated.");
         }
         catch (OperationCanceledException)
         {
@@ -212,6 +241,167 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
         return MaterializeRegistration(entity);
     }
 
+    public async Task<ClassRegistrationReservationResult> TryReserveRegistrationAsync(
+        string tenantId,
+        string sessionId,
+        string registrationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return new ClassRegistrationReservationResult(false, Message: "Azure Table connection string is missing.");
+        }
+
+        var sessions = await GetTableClientAsync(sessionsTableName, cancellationToken).ConfigureAwait(false);
+        var registrations = await GetTableClientAsync(registrationsTableName, cancellationToken).ConfigureAwait(false);
+        var reservationRowKey = CreateReservationRowKey(sessionId, registrationId);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var existingReservation = await sessions
+                .GetEntityIfExistsAsync<TableEntity>(tenantId, reservationRowKey, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (existingReservation.HasValue)
+            {
+                var existingReservationEntity = existingReservation.Value!;
+                var createdAt = ReadDateTimeOffset(existingReservationEntity, "CreatedAt");
+                if (createdAt is null || createdAt > DateTimeOffset.UtcNow.Subtract(RegistrationReservationLease))
+                {
+                    return new ClassRegistrationReservationResult(
+                        false,
+                        AlreadyReserved: true,
+                        Message: "Class registration is already being processed.");
+                }
+
+                existingReservationEntity["CreatedAt"] = DateTimeOffset.UtcNow;
+                existingReservationEntity["CorrelationId"] = correlationId;
+                try
+                {
+                    await sessions.UpdateEntityAsync(existingReservationEntity, existingReservationEntity.ETag, TableUpdateMode.Merge, cancellationToken)
+                        .ConfigureAwait(false);
+                    return new ClassRegistrationReservationResult(true, AlreadyReserved: true);
+                }
+                catch (RequestFailedException exception) when (exception.Status is 409 or 412)
+                {
+                    continue;
+                }
+            }
+
+            Response<TableEntity> sessionResponse;
+            try
+            {
+                sessionResponse = await sessions
+                    .GetEntityAsync<TableEntity>(tenantId, sessionId, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (RequestFailedException exception) when (exception.Status == 404)
+            {
+                return new ClassRegistrationReservationResult(false, Message: "Class session was not found.");
+            }
+
+            var session = sessionResponse.Value;
+            var registeredCount = ReadInt(session, "RegisteredCount")
+                ?? await CountRegistrationsAsync(registrations, tenantId, sessionId, cancellationToken).ConfigureAwait(false);
+            var capacity = ReadInt(session, "Capacity");
+            if (capacity.HasValue && registeredCount >= capacity.Value)
+            {
+                return new ClassRegistrationReservationResult(
+                    false,
+                    CapacityReached: true,
+                    Message: "Class session capacity has been reached.");
+            }
+
+            session["RegisteredCount"] = registeredCount + 1;
+            session["UpdatedAt"] = DateTimeOffset.UtcNow;
+            session["CorrelationId"] = correlationId;
+            var reservation = new TableEntity(tenantId, reservationRowKey)
+            {
+                ["SessionId"] = sessionId,
+                ["RegistrationId"] = registrationId,
+                ["Status"] = "reserved",
+                ["CreatedAt"] = DateTimeOffset.UtcNow,
+                ["CorrelationId"] = correlationId
+            };
+
+            try
+            {
+                await sessions.SubmitTransactionAsync(
+                        [
+                            new TableTransactionAction(TableTransactionActionType.UpdateMerge, session, session.ETag),
+                            new TableTransactionAction(TableTransactionActionType.Add, reservation)
+                        ],
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return new ClassRegistrationReservationResult(true);
+            }
+            catch (RequestFailedException exception) when (exception.Status is 409 or 412)
+            {
+                // A duplicate reservation or concurrent capacity update is resolved on the next iteration.
+            }
+        }
+
+        return new ClassRegistrationReservationResult(false, Message: "Class registration reservation could not be completed.");
+    }
+
+    public async Task ReleaseRegistrationReservationAsync(
+        string tenantId,
+        string sessionId,
+        string registrationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return;
+        }
+
+        var table = await GetTableClientAsync(sessionsTableName, cancellationToken).ConfigureAwait(false);
+        var reservationRowKey = CreateReservationRowKey(sessionId, registrationId);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var reservation = await table
+                .GetEntityIfExistsAsync<TableEntity>(tenantId, reservationRowKey, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (!reservation.HasValue)
+            {
+                return;
+            }
+
+            var session = await table
+                .GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (!session.HasValue)
+            {
+                await table.DeleteEntityAsync(tenantId, reservationRowKey, reservation.Value!.ETag, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            var sessionEntity = session.Value!;
+            sessionEntity["RegisteredCount"] = Math.Max(0, (ReadInt(sessionEntity, "RegisteredCount") ?? 1) - 1);
+            sessionEntity["UpdatedAt"] = DateTimeOffset.UtcNow;
+            sessionEntity["CorrelationId"] = correlationId;
+            try
+            {
+                await table.SubmitTransactionAsync(
+                        [
+                            new TableTransactionAction(TableTransactionActionType.UpdateMerge, sessionEntity, sessionEntity.ETag),
+                            new TableTransactionAction(TableTransactionActionType.Delete, reservation.Value!, reservation.Value!.ETag)
+                        ],
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+            catch (RequestFailedException exception) when (exception.Status is 404 or 409 or 412)
+            {
+                // A concurrent reservation change won; reload before deciding whether compensation is still needed.
+            }
+        }
+
+        throw new InvalidOperationException("Class registration reservation could not be released.");
+    }
+
     public async Task UpdateRegistrationNotificationStatusAsync(
         ClassNotificationStatusUpdate update,
         CancellationToken cancellationToken)
@@ -224,11 +414,18 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
         var table = await GetTableClientAsync(registrationsTableName, cancellationToken).ConfigureAwait(false);
         var entity = new TableEntity(update.TenantId, update.RegistrationId)
         {
-            ["ConfirmationSmsStatus"] = SafeValue(update.SmsStatus),
-            ["ConfirmationEmailStatus"] = SafeValue(update.EmailStatus),
             ["UpdatedAt"] = DateTimeOffset.UtcNow,
             ["CorrelationId"] = update.CorrelationId
         };
+        if (!string.IsNullOrWhiteSpace(update.SmsStatus))
+        {
+            entity["ConfirmationSmsStatus"] = SafeValue(update.SmsStatus);
+        }
+
+        if (!string.IsNullOrWhiteSpace(update.EmailStatus))
+        {
+            entity["ConfirmationEmailStatus"] = SafeValue(update.EmailStatus);
+        }
 
         await table.UpsertEntityAsync(entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
     }
@@ -261,13 +458,61 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
                 ["ProviderContactId"] = request.Registration.ProviderContactId,
                 ["ReminderKind"] = $"{offsetMinutes}m_before",
                 ["DueAt"] = dueAt,
+                ["StartsAt"] = request.Session.StartsAt,
                 ["Status"] = ClassReminderStatuses.Pending,
                 ["CreatedAt"] = DateTimeOffset.UtcNow,
                 ["UpdatedAt"] = DateTimeOffset.UtcNow,
                 ["CorrelationId"] = request.CorrelationId
             };
 
-            await table.UpsertEntityAsync(entity, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await table.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RequestFailedException exception) when (exception.Status == 409)
+            {
+                if (request.ReplaceExisting)
+                {
+                    await TryReactivateSessionChangedReminderAsync(table, entity, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    public async Task CancelPendingRemindersBySessionAsync(
+        string tenantId,
+        string sessionId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("Azure Table connection string is missing.");
+        }
+
+        var table = await GetTableClientAsync(reminderDueTableName, cancellationToken).ConfigureAwait(false);
+        var filter = $"PartitionKey eq '{EscapeODataString(tenantId)}' and SessionId eq '{EscapeODataString(sessionId)}'";
+        await foreach (var entity in table.QueryAsync<TableEntity>(filter, cancellationToken: cancellationToken))
+        {
+            var status = ReadString(entity, "Status");
+            if (!string.Equals(status, ClassReminderStatuses.Pending, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(status, ClassReminderStatuses.Claimed, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            entity["Status"] = ClassReminderStatuses.Skipped;
+            entity["SkipReason"] = "session_changed";
+            entity["UpdatedAt"] = DateTimeOffset.UtcNow;
+            entity["CorrelationId"] = correlationId;
+            try
+            {
+                await table.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RequestFailedException exception) when (exception.Status == 412)
+            {
+                // A concurrent dispatcher owns the row; it will evaluate the current session before sending.
+            }
         }
     }
 
@@ -342,10 +587,19 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
         {
             var table = await GetTableClientAsync(reminderDueTableName, cancellationToken).ConfigureAwait(false);
             var reminders = new List<ClassReminderRecord>();
-            var filter = $"PartitionKey eq '{EscapeODataString(tenantId)}' and Status eq '{ClassReminderStatuses.Pending}'";
+            var filter = $"PartitionKey eq '{EscapeODataString(tenantId)}' and (Status eq '{ClassReminderStatuses.Pending}' or Status eq '{ClassReminderStatuses.Claimed}')";
             await foreach (var entity in table.QueryAsync<TableEntity>(filter, cancellationToken: cancellationToken))
             {
                 if (ReadDateTimeOffset(entity, "DueAt") is not { } entityDueAt || entityDueAt > dueAt)
+                {
+                    continue;
+                }
+
+                var status = ReadString(entity, "Status");
+                var claimedAt = ReadDateTimeOffset(entity, "ClaimedAt");
+                if (string.Equals(status, ClassReminderStatuses.Claimed, StringComparison.OrdinalIgnoreCase)
+                    && claimedAt.HasValue
+                    && claimedAt > DateTimeOffset.UtcNow.Subtract(ReminderClaimLease))
                 {
                     continue;
                 }
@@ -412,7 +666,13 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
                     rowKey,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
-            if (!string.Equals(ReadString(existing.Value, "Status"), ClassReminderStatuses.Pending, StringComparison.OrdinalIgnoreCase))
+            var status = ReadString(existing.Value, "Status");
+            var claimedAt = ReadDateTimeOffset(existing.Value, "ClaimedAt");
+            var isStaleClaim = string.Equals(status, ClassReminderStatuses.Claimed, StringComparison.OrdinalIgnoreCase)
+                && (!claimedAt.HasValue
+                    || claimedAt.Value <= DateTimeOffset.UtcNow.Subtract(ReminderClaimLease));
+            if (!string.Equals(status, ClassReminderStatuses.Pending, StringComparison.OrdinalIgnoreCase)
+                && !isStaleClaim)
             {
                 return false;
             }
@@ -487,7 +747,10 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
             ReadString(entity, "ZoomUrl") ?? string.Empty,
             ReadInt(entity, "Capacity"),
             ReadString(entity, "CampaignId"),
-            ReadMetadata(entity));
+            ReadMetadata(entity))
+        {
+            Status = ReadString(entity, "Status") ?? ClassSessionStatuses.Published
+        };
 
     private static ClassRegistrationRecord MaterializeRegistration(TableEntity entity) =>
         new(
@@ -530,8 +793,59 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
             EndsAt = ReadDateTimeOffset(entity, "EndsAt"),
             TimeZone = ReadString(entity, "TimeZone"),
             OnlineMeetingUrl = ReadString(entity, "OnlineMeetingUrl"),
+            ClaimedAt = ReadDateTimeOffset(entity, "ClaimedAt"),
+            SkipReason = ReadString(entity, "SkipReason"),
             Attributes = ReadMetadata(entity)
         };
+
+    private static async Task TryReactivateSessionChangedReminderAsync(
+        TableClient table,
+        TableEntity replacement,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var existing = await table
+                .GetEntityIfExistsAsync<TableEntity>(replacement.PartitionKey, replacement.RowKey, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (!existing.HasValue)
+            {
+                try
+                {
+                    await table.AddEntityAsync(replacement, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (RequestFailedException exception) when (exception.Status == 409)
+                {
+                    continue;
+                }
+            }
+
+            var current = existing.Value!;
+            if (!string.Equals(ReadString(current, "Status"), ClassReminderStatuses.Skipped, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(ReadString(current, "SkipReason"), "session_changed", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var etag = current.ETag;
+            current.Clear();
+            foreach (var property in replacement)
+            {
+                current[property.Key] = property.Value;
+            }
+
+            try
+            {
+                await table.UpdateEntityAsync(current, etag, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (RequestFailedException exception) when (exception.Status is 404 or 412)
+            {
+                // Reload and only reactivate if the reminder is still a session-change skip.
+            }
+        }
+    }
 
     private static string CreateReminderRowKey(
         DateTimeOffset dueAt,
@@ -542,6 +856,25 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
     private static string CreateReminderTargetRowKeyComponent(string targetId) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(targetId))).ToLowerInvariant();
 
+    private static string CreateReservationRowKey(string sessionId, string registrationId) =>
+        $"reservation|{CreateReminderTargetRowKeyComponent($"{sessionId}|{registrationId}")}";
+
+    private static async Task<int> CountRegistrationsAsync(
+        TableClient table,
+        string tenantId,
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var count = 0;
+        var filter = $"PartitionKey eq '{EscapeODataString(tenantId)}' and SessionId eq '{EscapeODataString(sessionId)}'";
+        await foreach (var _ in table.QueryAsync<TableEntity>(filter, cancellationToken: cancellationToken))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     private static ClassSessionUpsertResult FailedSession(ClassFailureReason reason, string message) =>
         new(false, null, reason, message);
 
@@ -550,6 +883,30 @@ public sealed class AzureTableClassSessionStore : IClassSessionStore
         if (value.HasValue)
         {
             entity[propertyName] = value.Value;
+        }
+    }
+
+    private static void SetOrRemove(TableEntity entity, string propertyName, DateTimeOffset? value)
+    {
+        if (value.HasValue)
+        {
+            entity[propertyName] = value.Value;
+        }
+        else
+        {
+            entity.Remove(propertyName);
+        }
+    }
+
+    private static void SetOrRemove(TableEntity entity, string propertyName, int? value)
+    {
+        if (value.HasValue)
+        {
+            entity[propertyName] = value.Value;
+        }
+        else
+        {
+            entity.Remove(propertyName);
         }
     }
 

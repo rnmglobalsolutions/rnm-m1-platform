@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
@@ -7,18 +8,19 @@ using RNM.Platform.Api.Runtime;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Observability;
 using RNM.Platform.Domain.Configuration;
+using RNM.Platform.Infrastructure.Secrets;
 
 namespace RNM.Platform.Api.Functions;
 
 public sealed class ClassRegistrationFunction
 {
     private const string ApiKeyHeaderName = "x-rnm-api-key";
+    private const string RegistrationSecretHeaderName = "X-RNM-Class-Registration-Secret";
     private const int MaxBodyBytes = 32768;
-    private const int PublicRateLimitPerMinute = 30;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly object RateLimitLock = new();
-    private static readonly Dictionary<string, RateLimitCounter> RateLimitCounters = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, RateLimitCounter> RateLimitCounters = new(StringComparer.Ordinal);
 
     private readonly ClassRegistrationService classRegistrationService;
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
@@ -28,6 +30,8 @@ public sealed class ClassRegistrationFunction
     private readonly SafeHttpResponseWriter responseWriter;
     private readonly CorrelationContextFactory correlationContextFactory;
     private readonly LimitedRequestBodyReader requestBodyReader;
+    private readonly ISecretProvider secretProvider;
+    private readonly IEventLogger eventLogger;
 
     public ClassRegistrationFunction(
         ClassRegistrationService classRegistrationService,
@@ -37,7 +41,9 @@ public sealed class ClassRegistrationFunction
         SafeErrorResponseFactory safeErrorResponseFactory,
         SafeHttpResponseWriter responseWriter,
         CorrelationContextFactory correlationContextFactory,
-        LimitedRequestBodyReader requestBodyReader)
+        LimitedRequestBodyReader requestBodyReader,
+        ISecretProvider secretProvider,
+        IEventLogger eventLogger)
     {
         this.classRegistrationService = classRegistrationService;
         this.tenantConfigurationProvider = tenantConfigurationProvider;
@@ -47,6 +53,8 @@ public sealed class ClassRegistrationFunction
         this.responseWriter = responseWriter;
         this.correlationContextFactory = correlationContextFactory;
         this.requestBodyReader = requestBodyReader;
+        this.secretProvider = secretProvider;
+        this.eventLogger = eventLogger;
     }
 
     [Function("ClassRegistrationCreate")]
@@ -75,6 +83,14 @@ public sealed class ClassRegistrationFunction
                 HttpStatusCode.BadRequest,
                 safeErrorResponseFactory.CreateBadRequest(correlationId));
         }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogEndpointFailureAsync(tenantId, correlationId, "tenant_configuration_unavailable", cancellationToken).ConfigureAwait(false);
+            return responseWriter.WriteSafeError(
+                request,
+                HttpStatusCode.ServiceUnavailable,
+                safeErrorResponseFactory.CreateServiceUnavailable(correlationId));
+        }
 
         var allowedOrigin = GetAllowedOrigin(request, tenant);
         if (string.Equals(request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
@@ -93,15 +109,7 @@ public sealed class ClassRegistrationFunction
         }
 
         var internalAuthorized = IsInternalAuthorized(request);
-        if (!internalAuthorized && allowedOrigin is null)
-        {
-            return responseWriter.WriteSafeError(
-                request,
-                HttpStatusCode.Forbidden,
-                safeErrorResponseFactory.CreateUnauthorized(correlationId));
-        }
-
-        if (!internalAuthorized && !AllowPublicRequest(request, tenantId, allowedOrigin!))
+        if (!internalAuthorized && !AllowRequest(tenantId, tenant.Classes?.EffectiveMaxRegistrationsPerMinute ?? 60))
         {
             var rateLimited = responseWriter.WriteSafeError(
                 request,
@@ -109,6 +117,25 @@ public sealed class ClassRegistrationFunction
                 safeErrorResponseFactory.CreateRateLimited(correlationId));
             AddCorsHeaders(rateLimited, allowedOrigin);
             return rateLimited;
+        }
+
+        var tenantAuthorization = internalAuthorized
+            ? TenantWebhookAuthorization.Authorized
+            : await AuthorizeTenantWebhookAsync(request, tenant, tenantId, correlationId, cancellationToken).ConfigureAwait(false);
+        if (tenantAuthorization is TenantWebhookAuthorization.Unavailable)
+        {
+            return responseWriter.WriteSafeError(
+                request,
+                HttpStatusCode.ServiceUnavailable,
+                safeErrorResponseFactory.CreateServiceUnavailable(correlationId));
+        }
+
+        if (tenantAuthorization is not TenantWebhookAuthorization.Authorized)
+        {
+            return responseWriter.WriteSafeError(
+                request,
+                HttpStatusCode.Unauthorized,
+                safeErrorResponseFactory.CreateUnauthorized(correlationId));
         }
 
         var body = await requestBodyReader.ReadAsStringAsync(request, MaxBodyBytes, cancellationToken).ConfigureAwait(false);
@@ -147,27 +174,43 @@ public sealed class ClassRegistrationFunction
             return response;
         }
 
-        var result = await classRegistrationService
-            .RegisterAsync(
-                new ClassRegistrationRequest(
-                    tenantId,
-                    correlationId,
-                    sessionId,
-                    parsed.CustomerName ?? parsed.Name ?? string.Empty,
-                    parsed.CustomerPhoneNumber ?? parsed.PhoneNumber,
-                    parsed.CustomerEmail ?? parsed.Email)
-                {
-                    Source = parsed.Source ?? "WebRegistration",
-                    CampaignId = parsed.CampaignId,
-                    MarketingConsentGranted = parsed.MarketingConsentGranted ?? false,
-                    Attributes = parsed.Attributes ?? new Dictionary<string, string>()
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
+        ClassRegistrationResult result;
+        try
+        {
+            result = await classRegistrationService
+                .RegisterAsync(
+                    new ClassRegistrationRequest(
+                        tenantId,
+                        correlationId,
+                        sessionId,
+                        parsed.CustomerName ?? parsed.Name ?? string.Empty,
+                        parsed.CustomerPhoneNumber ?? parsed.PhoneNumber,
+                        parsed.CustomerEmail ?? parsed.Email)
+                    {
+                        Source = parsed.Source ?? "WebRegistration",
+                        CampaignId = parsed.CampaignId,
+                        MarketingConsentGranted = parsed.MarketingConsentGranted ?? false,
+                        ConsentCapturedAt = parsed.ConsentCapturedAt,
+                        ConsentTextVersion = parsed.ConsentTextVersion,
+                        Attributes = parsed.Attributes ?? new Dictionary<string, string>()
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogEndpointFailureAsync(tenantId, correlationId, "registration_service_unavailable", cancellationToken).ConfigureAwait(false);
+            var unavailable = responseWriter.WriteSafeError(
+                request,
+                HttpStatusCode.ServiceUnavailable,
+                safeErrorResponseFactory.CreateServiceUnavailable(correlationId));
+            AddCorsHeaders(unavailable, allowedOrigin);
+            return unavailable;
+        }
 
         var resultResponse = responseWriter.WriteJson(
             request,
-            result.Succeeded ? HttpStatusCode.OK : HttpStatusCode.BadRequest,
+            MapStatusCode(result),
             result,
             correlationId);
         AddCorsHeaders(resultResponse, allowedOrigin);
@@ -206,46 +249,124 @@ public sealed class ClassRegistrationFunction
         response.Headers.Add("Access-Control-Allow-Origin", allowedOrigin);
         response.Headers.Add("Vary", "Origin");
         response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
-        response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, x-correlation-id");
+        response.Headers.Add("Access-Control-Allow-Headers", $"Content-Type, x-correlation-id, {RegistrationSecretHeaderName}");
     }
 
-    private static bool AllowPublicRequest(
+    private async Task<TenantWebhookAuthorization> AuthorizeTenantWebhookAsync(
         HttpRequestData request,
+        TenantConfiguration tenant,
         string tenantId,
-        string allowedOrigin)
+        string correlationId,
+        CancellationToken cancellationToken)
     {
-        var key = $"{tenantId}|{allowedOrigin}|{GetClientAddress(request)}";
-        var now = DateTimeOffset.UtcNow;
-
-        lock (RateLimitLock)
+        var secretName = tenant.SecretNames.ClassRegistrationWebhookSecret;
+        if (string.IsNullOrWhiteSpace(secretName))
         {
-            if (!RateLimitCounters.TryGetValue(key, out var counter)
-                || now - counter.WindowStartedAt >= TimeSpan.FromMinutes(1))
+            await LogAuthFailureAsync(tenantId, correlationId, "class_registration_secret_not_configured", cancellationToken).ConfigureAwait(false);
+            return TenantWebhookAuthorization.Unauthorized;
+        }
+
+        try
+        {
+            var expected = await secretProvider.GetSecretAsync(secretName, cancellationToken).ConfigureAwait(false);
+            var provided = request.GetHeaderValue(RegistrationSecretHeaderName);
+            var valid = apiKeyRequestValidator.IsValid(provided, expected);
+            if (!valid)
             {
-                RateLimitCounters[key] = new RateLimitCounter(now, 1);
-                return true;
+                await LogAuthFailureAsync(tenantId, correlationId, "invalid_class_registration_secret", cancellationToken).ConfigureAwait(false);
             }
 
-            if (counter.Count >= PublicRateLimitPerMinute)
-            {
-                return false;
-            }
-
-            RateLimitCounters[key] = counter with { Count = counter.Count + 1 };
-            return true;
+            return valid
+                ? TenantWebhookAuthorization.Authorized
+                : TenantWebhookAuthorization.Unauthorized;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogAuthFailureAsync(tenantId, correlationId, "class_registration_secret_unavailable", cancellationToken).ConfigureAwait(false);
+            return TenantWebhookAuthorization.Unavailable;
         }
     }
 
-    private static string GetClientAddress(HttpRequestData request)
+    private static bool AllowRequest(string tenantId, int limit)
     {
-        var forwardedFor = request.GetHeaderValue("X-Forwarded-For");
-        if (string.IsNullOrWhiteSpace(forwardedFor))
+        var now = DateTimeOffset.UtcNow;
+        var counter = RateLimitCounters.GetOrAdd(tenantId, _ => new RateLimitCounter(now, 0));
+        lock (counter)
         {
-            return "unknown";
+            if (now - counter.WindowStartedAt >= TimeSpan.FromMinutes(1))
+            {
+                counter.WindowStartedAt = now;
+                counter.Count = 0;
+            }
+
+            counter.Count++;
+            return counter.Count <= limit;
+        }
+    }
+
+    private static HttpStatusCode MapStatusCode(ClassRegistrationResult result)
+    {
+        if (result.Succeeded)
+        {
+            return HttpStatusCode.OK;
         }
 
-        return forwardedFor.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault()
-            ?? "unknown";
+        return result.FailureReason switch
+        {
+            ClassFailureReason.MissingSession => HttpStatusCode.NotFound,
+            ClassFailureReason.CapacityReached => HttpStatusCode.Conflict,
+            ClassFailureReason.CrmWriteFailed or ClassFailureReason.StorageFailure => HttpStatusCode.ServiceUnavailable,
+            _ => HttpStatusCode.BadRequest
+        };
+    }
+
+    private async Task LogAuthFailureAsync(
+        string tenantId,
+        string correlationId,
+        string outcome,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await eventLogger.LogEventAsync(
+                    TelemetryEventNames.SecurityAuthFailed,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", tenantId)
+                        .Add("correlationId", correlationId)
+                        .Add("endpoint", "class_registration")
+                        .Add("outcome", outcome)
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Security telemetry is best-effort.
+        }
+    }
+
+    private async Task LogEndpointFailureAsync(
+        string tenantId,
+        string correlationId,
+        string outcome,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await eventLogger.LogEventAsync(
+                    TelemetryEventNames.ClassRegistrationFailed,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", tenantId)
+                        .Add("correlationId", correlationId)
+                        .Add("outcome", outcome)
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Failure telemetry is best-effort.
+        }
     }
 
     private sealed record ClassRegistrationBody(
@@ -258,9 +379,21 @@ public sealed class ClassRegistrationFunction
         string? Source,
         string? CampaignId,
         bool? MarketingConsentGranted,
+        DateTimeOffset? ConsentCapturedAt,
+        string? ConsentTextVersion,
         IReadOnlyDictionary<string, string>? Attributes);
 
-    private sealed record RateLimitCounter(
-        DateTimeOffset WindowStartedAt,
-        int Count);
+    private sealed class RateLimitCounter(DateTimeOffset windowStartedAt, int count)
+    {
+        public DateTimeOffset WindowStartedAt { get; set; } = windowStartedAt;
+
+        public int Count { get; set; } = count;
+    }
+
+    private enum TenantWebhookAuthorization
+    {
+        Unauthorized = 0,
+        Authorized = 1,
+        Unavailable = 2
+    }
 }

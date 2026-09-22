@@ -30,8 +30,20 @@
       "value": ""
     },
     {
+      "key": "classRegistrationWebhookSecret",
+      "value": ""
+    },
+    {
       "key": "vapiWebhookSecret",
       "value": ""
+    },
+    {
+      "key": "manyChatWebhookSecret",
+      "value": ""
+    },
+    {
+      "key": "manyChatExternalEventId",
+      "value": "{{$guid}}"
     },
     {
       "key": "twilioSignature",
@@ -649,7 +661,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"title\": \"Financial Education Master Class\",\n  \"startsAt\": \"2026-07-15T23:00:00Z\",\n  \"endsAt\": \"2026-07-16T00:00:00Z\",\n  \"timeZone\": \"America/Chicago\",\n  \"zoomUrl\": \"https://zoom.us/j/REPLACE_ME\",\n  \"capacity\": 100,\n  \"campaignId\": \"{{campaignId}}\",\n  \"attributes\": {\n    \"topic\": \"financial_education\"\n  }\n}"
+          "raw": "{\n  \"title\": \"Financial Education Master Class\",\n  \"status\": \"published\",\n  \"startsAt\": \"2027-07-15T23:00:00Z\",\n  \"endsAt\": \"2027-07-16T00:00:00Z\",\n  \"timeZone\": \"America/Chicago\",\n  \"zoomUrl\": \"https://zoom.us/j/REPLACE_ME\",\n  \"capacity\": 100,\n  \"campaignId\": \"{{campaignId}}\",\n  \"attributes\": {\n    \"topic\": \"financial_education\"\n  }\n}"
         },
         "url": {
           "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/sessions/{{classSessionId}}",
@@ -681,13 +693,18 @@
             "value": "{{internalApiKey}}"
           },
           {
+            "key": "X-RNM-Class-Registration-Secret",
+            "value": "{{classRegistrationWebhookSecret}}",
+            "disabled": true
+          },
+          {
             "key": "x-correlation-id",
             "value": "{{correlationId}}"
           }
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerName\": \"Jane Lead\",\n  \"customerPhoneNumber\": \"+15551234567\",\n  \"customerEmail\": \"jane@example.com\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"source\": \"WebRegistration\",\n  \"marketingConsentGranted\": true,\n  \"attributes\": {\n    \"intent\": \"masterclass\",\n    \"estimatedValue\": \"unknown\"\n  }\n}"
+          "raw": "{\n  \"customerName\": \"Jane Lead\",\n  \"customerPhoneNumber\": \"+15551234567\",\n  \"customerEmail\": \"jane@example.com\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"source\": \"WebRegistration\",\n  \"marketingConsentGranted\": true,\n  \"consentCapturedAt\": \"2026-09-18T15:00:00Z\",\n  \"consentTextVersion\": \"class-registration-v1\",\n  \"attributes\": {\n    \"intent\": \"masterclass\",\n    \"estimatedValue\": \"unknown\"\n  }\n}"
         },
         "url": {
           "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/{{classSessionId}}/registrations",
@@ -838,6 +855,44 @@
             "test",
             "email",
             "send"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ManyChat Lead Intake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-RNM-ManyChat-Secret",
+            "value": "{{manyChatWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"externalEventId\": \"{{manyChatExternalEventId}}\",\n  \"externalContactId\": \"manychat-subscriber-123\",\n  \"customerName\": \"Jane Lead\",\n  \"customerPhoneNumber\": \"+15551234567\",\n  \"customerEmail\": \"jane@example.com\",\n  \"campaignId\": \"meta-financial-education\",\n  \"marketingConsentGranted\": true,\n  \"consentCapturedAt\": \"2026-09-17T15:00:00Z\",\n  \"consentTextVersion\": \"meta-form-v1\",\n  \"attributes\": {\n    \"intent\": \"financial_education\",\n    \"sourceCampaign\": \"meta\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/manychat/leads",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "manychat",
+            "leads"
           ]
         }
       }

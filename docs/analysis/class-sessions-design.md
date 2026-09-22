@@ -1,5 +1,10 @@
 # Live Class Sessions and Registration Design
 
+> Historical design note. It predates the implemented secured registration
+> endpoint, TimerTrigger reminder runner, atomic capacity reservation, durable
+> notification retries, and session lifecycle handling. Use
+> `docs/runbooks/masterclass-automation.md` as the operational source of truth.
+
 ## Executive Summary
 
 The design is sound only if `ClassSession` and `ClassRegistration` are treated as new CRM-adjacent entities, not as `book_appointment`; the existing booking model is one lead to one appointment, while this funnel is one session to many registrants. The platform already has strong reusable pieces: tenant-scoped CRM storage, contact dedup, consent states, Twilio/SendGrid senders, confirmation templates, reporting reads, and safe telemetry. The single biggest risk is the public registration endpoint, because the current internal API-key model cannot be exposed to a browser and the repository has no reusable rate-limiting mechanism. Reminders also need new scheduling infrastructure because the only deferred pattern present is the confirmation retry queue, not a timer-based due-work runner. No Zoom API should be built in v1; storing a manually created Zoom join URL on `ClassSession` is consistent with the current adapter discipline and avoids burning time on plumbing.

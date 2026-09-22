@@ -16,17 +16,20 @@ public sealed class ClassNotificationService
     private readonly IEmailSender emailSender;
     private readonly ICrmAdapter crmAdapter;
     private readonly IEventLogger eventLogger;
+    private readonly IConfirmationRetryScheduler? retryScheduler;
 
     public ClassNotificationService(
         ISmsSender smsSender,
         IEmailSender emailSender,
         ICrmAdapter crmAdapter,
-        IEventLogger eventLogger)
+        IEventLogger eventLogger,
+        IConfirmationRetryScheduler? retryScheduler = null)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
         this.crmAdapter = crmAdapter;
         this.eventLogger = eventLogger;
+        this.retryScheduler = retryScheduler;
     }
 
     public async Task<(ConfirmationChannelResult? Sms, ConfirmationChannelResult? Email)> SendAsync(
@@ -94,13 +97,21 @@ public sealed class ClassNotificationService
                 ? Sent(ConfirmationChannel.Sms, result.ProviderMessageId)
                 : Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
             await RecordNotificationTimelineAsync(request, channelResult, "sms", cancellationToken).ConfigureAwait(false);
+            if (channelResult.Status is ConfirmationChannelStatus.Failed)
+            {
+                var retryScheduled = await TryScheduleRetryAsync(request, ConfirmationRetryKind.CustomerSms, request.Registration.CustomerPhoneNumber, body, null, cancellationToken)
+                    .ConfigureAwait(false);
+                channelResult = channelResult with { RetryScheduled = retryScheduled };
+            }
             return channelResult;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);
             await LogNotificationFailureAsync(request, "sms", failed.FailureReason?.ToString(), cancellationToken).ConfigureAwait(false);
-            return failed;
+            var retryScheduled = await TryScheduleRetryAsync(request, ConfirmationRetryKind.CustomerSms, request.Registration.CustomerPhoneNumber, body, null, cancellationToken)
+                .ConfigureAwait(false);
+            return failed with { RetryScheduled = retryScheduled };
         }
     }
 
@@ -108,6 +119,11 @@ public sealed class ClassNotificationService
         ClassNotificationRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.EmailSuppressionReason is { } suppressionReason)
+        {
+            return Skipped(ConfirmationChannel.Email, suppressionReason);
+        }
+
         if (string.IsNullOrWhiteSpace(request.Templates.EmailSubjectTemplate)
             || string.IsNullOrWhiteSpace(request.Templates.EmailBodyTemplate))
         {
@@ -117,6 +133,11 @@ public sealed class ClassNotificationService
         if (string.IsNullOrWhiteSpace(request.Registration.CustomerEmail))
         {
             return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingEmail);
+        }
+
+        if (string.Equals(request.Registration.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        {
+            return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.ContactOptedOut);
         }
 
         var subject = RenderTemplate(request.Templates.EmailSubjectTemplate, request);
@@ -138,13 +159,68 @@ public sealed class ClassNotificationService
                 ? Sent(ConfirmationChannel.Email, result.ProviderMessageId)
                 : Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSendFailed);
             await RecordNotificationTimelineAsync(request, channelResult, "email", cancellationToken).ConfigureAwait(false);
+            if (channelResult.Status is ConfirmationChannelStatus.Failed)
+            {
+                var retryScheduled = await TryScheduleRetryAsync(request, ConfirmationRetryKind.CustomerEmail, request.Registration.CustomerEmail, body, subject, cancellationToken)
+                    .ConfigureAwait(false);
+                channelResult = channelResult with { RetryScheduled = retryScheduled };
+            }
             return channelResult;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             var failed = Failed(ConfirmationChannel.Email, ConfirmationFailureReason.EmailSenderException);
             await LogNotificationFailureAsync(request, "email", failed.FailureReason?.ToString(), cancellationToken).ConfigureAwait(false);
-            return failed;
+            var retryScheduled = await TryScheduleRetryAsync(request, ConfirmationRetryKind.CustomerEmail, request.Registration.CustomerEmail, body, subject, cancellationToken)
+                .ConfigureAwait(false);
+            return failed with { RetryScheduled = retryScheduled };
+        }
+    }
+
+    private async Task<bool> TryScheduleRetryAsync(
+        ClassNotificationRequest request,
+        ConfirmationRetryKind kind,
+        string destination,
+        string body,
+        string? subject,
+        CancellationToken cancellationToken)
+    {
+        if (retryScheduler is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var scheduled = await retryScheduler
+                .ScheduleAsync(
+                    new ConfirmationRetryRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        kind,
+                        destination,
+                        body,
+                        subject)
+                    {
+                        ClassRegistrationId = request.Kind is ClassNotificationKind.RegistrationConfirmation
+                            ? request.Registration.RegistrationId
+                            : null
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!scheduled)
+            {
+                await LogNotificationFailureAsync(request, kind.ToString(), "retry_schedule_failed", cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return scheduled;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await LogNotificationFailureAsync(request, kind.ToString(), "retry_schedule_exception", cancellationToken)
+                .ConfigureAwait(false);
+            return false;
         }
     }
 

@@ -13,6 +13,7 @@ Add a `classes` section to the tenant config:
     "allowedRegistrationOrigins": [
       "https://www.example.com"
     ],
+    "maxRegistrationsPerMinute": 60,
     "reminderOffsetsMinutes": [1440, 60],
     "registrationTemplates": {
       "smsBodyTemplate": "You're registered for {{classTitle}}\n{{classDate}} {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
@@ -27,6 +28,19 @@ Add a `classes` section to the tenant config:
   }
 }
 ```
+
+Also configure the dedicated server-to-server registration secret name:
+
+```json
+{
+  "secretNames": {
+    "classRegistrationWebhookSecret": "tenant-rnm-insurance-agents-class-registration-webhook-secret"
+  }
+}
+```
+
+Create that secret in the environment's Key Vault. Its value must be a strong,
+random secret. M1 reads it at runtime; it is not stored in tenant JSON.
 
 Set `RNM_ACTIVE_TENANTS` in the Function App when reminder automation should run:
 
@@ -61,8 +75,8 @@ second runner.
 1. Create the Zoom meeting manually.
 2. Copy the Zoom join URL.
 3. Create or update the class session in M1.
-4. Register leads through the public registration endpoint, a funnel form, Meta
-   lead handling, ManyChat, or an internal Postman request.
+4. Register leads through a trusted funnel backend or an internal request. Meta
+   and ManyChat generic lead capture should use their dedicated intake webhook.
 5. Confirm the lead received email and, if consent was granted, SMS.
 6. Let the timer process reminders every five minutes, or run reminders manually.
 7. Check the class report.
@@ -78,8 +92,9 @@ Content-Type: application/json
 ```json
 {
   "title": "Financial Education Master Class",
-  "startsAt": "2026-07-15T23:00:00Z",
-  "endsAt": "2026-07-16T00:00:00Z",
+  "status": "published",
+  "startsAt": "2027-07-15T23:00:00Z",
+  "endsAt": "2027-07-16T00:00:00Z",
   "timeZone": "America/Chicago",
   "zoomUrl": "https://zoom.us/j/REPLACE_ME",
   "capacity": 100,
@@ -91,17 +106,16 @@ Content-Type: application/json
 
 ```http
 POST /api/tenants/{tenantId}/classes/{classSessionId}/registrations
+X-RNM-Class-Registration-Secret: <tenant-secret>
 Content-Type: application/json
 ```
 
-Browser/funnel requests must come from an origin configured in
-`classes.allowedRegistrationOrigins`. Server-side sources such as Meta lead
-handling or ManyChat should call the same endpoint with `x-rnm-api-key`.
-Internal tests can also use `x-rnm-api-key`.
-The public path is intended for a trusted funnel page and is additionally
-protected by a small per-instance rate limit. Treat it as a pilot-safe public
-entry point, not as strong authentication; add stronger bot protection before
-high-volume public campaigns.
+`Origin` is used only for CORS and never authenticates a request. A browser must
+submit through a trusted funnel/server backend that adds the dedicated tenant
+secret. Never embed `X-RNM-Class-Registration-Secret` or `x-rnm-api-key` in
+browser JavaScript. Internal tests can use `x-rnm-api-key` instead. The endpoint
+also has a per-tenant, per-instance rate-limit guard; provider-side or edge rate
+limiting remains recommended before high-volume paid campaigns.
 
 ```json
 {
@@ -111,6 +125,8 @@ high-volume public campaigns.
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentCapturedAt": "2026-09-18T15:00:00Z",
+  "consentTextVersion": "class-registration-v1",
   "attributes": {
     "intent": "masterclass"
   }
@@ -119,12 +135,22 @@ high-volume public campaigns.
 
 ## Consent Rules
 
-- SMS confirmation and SMS reminders require `marketingConsentGranted: true`.
+- Explicit `marketingConsentGranted: true` requires `consentCapturedAt` and
+  `consentTextVersion` evidence.
+- SMS confirmation and SMS reminders require consent status `opt_in`.
 - A contact already marked `opted_out` is not reversed from the web registration
   flow.
-- Email confirmation is treated as transactional for the class registration.
+- An `opted_out` contact receives neither customer SMS nor customer email.
+- An existing `opt_in` remains valid when a later registration contains no new
+  grant; the timeline records that no new explicit consent was captured.
 - Twilio STOP still wins and updates CRM consent through the existing inbound
   SMS webhook.
+
+Registration confirmation delivery statuses are `Sent`, `Skipped`, `Failed`, or
+`RetryScheduled`. `RetryScheduled` means the provider call failed but the durable
+confirmation retry queue accepted the work. Repeating the registration does not
+send that channel again while its queued retry is outstanding. A plain `Failed`
+status can be resumed by an idempotent duplicate request.
 
 ## Reminder Processing
 
@@ -139,7 +165,14 @@ sends reminder email when allowed.
 
 Stale reminders are skipped. Configure `classes.reminderStalenessCutoffMinutes`
 per tenant when needed; the default is 60 minutes. M1 also skips reminders for
-classes that have already started.
+classes that have already started, are no longer `published`, or whose start
+time changed after the reminder row was created. Claimed rows become eligible
+again after a 15-minute recovery lease if a Function execution crashes.
+
+Changing a class start time or status cancels its pending reminder rows and
+rebuilds reminders for existing registrations when the updated session remains
+published and in the future. Reminders already marked `Sent` are never reset;
+only rows skipped specifically because the session changed may be reactivated.
 
 For appointments, configure `communication.appointmentReminders.reminderStalenessCutoffMinutes`.
 M1 skips appointment reminder rows when the appointment has already started.
@@ -209,6 +242,8 @@ All tables are tenant-scoped with `PartitionKey = tenantId`.
 - No dashboard UI.
 - No nurture sequence after class attendance.
 - Public registration rate limiting is best-effort per Function App instance.
+- Direct browser submission is intentionally unsupported because a browser
+  cannot safely hold the registration secret; use a trusted backend/proxy.
 
 
 --
@@ -224,9 +259,8 @@ dotnet test RNM.Platform.sln --configuration Release
 Debe pasar todo. La última vez quedó en:
 
 ```text
-370 unit tests passed
-1 integration test passed
-0 failed
+The current unit test count reported by the command
+and all integration tests must pass with `0 failed`.
 ```
 
 **2. Configura el tenant**
@@ -237,6 +271,7 @@ En el tenant que vas a usar, confirma que existe:
   "allowedRegistrationOrigins": [
     "https://tu-funnel.com"
   ],
+  "maxRegistrationsPerMinute": 60,
   "reminderOffsetsMinutes": [1440, 60],
   "registrationTemplates": {
     "smsBodyTemplate": "...",
@@ -250,6 +285,9 @@ En el tenant que vas a usar, confirma que existe:
   }
 }
 ```
+
+Also configure `secretNames.classRegistrationWebhookSecret` and create its
+value in Key Vault before testing.
 
 Para reminders automáticos de masterclass, en Azure Function App agrega:
 
@@ -277,8 +315,9 @@ Body:
 ```json
 {
   "title": "Financial Education Master Class",
-  "startsAt": "2026-07-15T23:00:00Z",
-  "endsAt": "2026-07-16T00:00:00Z",
+  "status": "published",
+  "startsAt": "2027-07-15T23:00:00Z",
+  "endsAt": "2027-07-16T00:00:00Z",
   "timeZone": "America/Chicago",
   "zoomUrl": "https://zoom.us/j/REPLACE_ME",
   "capacity": 100,
@@ -294,7 +333,8 @@ POST /api/tenants/{tenantId}/classes/{classSessionId}/registrations
 Content-Type: application/json
 ```
 
-Para Postman puedes usar también `x-rnm-api-key`.
+Para Postman usa `x-rnm-api-key` o
+`X-RNM-Class-Registration-Secret`, nunca solo `Origin`.
 
 ```json
 {
@@ -304,6 +344,8 @@ Para Postman puedes usar también `x-rnm-api-key`.
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentCapturedAt": "2026-09-18T15:00:00Z",
+  "consentTextVersion": "class-registration-v1",
   "attributes": {
     "intent": "masterclass"
   }
@@ -327,7 +369,8 @@ Haz otro registro con:
 
 Resultado esperado:
 
-- Email sí puede salir.
+- El registro se guarda, pero no sale SMS por falta de `opt_in`.
+- El email puede salir mientras el contacto no esté `opted_out`.
 - SMS debe quedar skipped por falta de consentimiento.
 - No debe romper el registro.
 
@@ -335,6 +378,7 @@ Luego prueba un contacto previamente `opted_out`:
 
 - M1 no debe revertirlo desde web registration.
 - No debe enviar SMS.
+- No debe enviar email al contacto.
 - Debe dejar timeline/evento de consentimiento bloqueado o declinado.
 
 **7. Prueba reminders manualmente**
@@ -370,9 +414,9 @@ Debe devolver conteos reales:
 - opted-out registrations
 
 **9. Prueba desde funnel real**
-Desde el dominio configurado en `allowedRegistrationOrigins`, manda el POST sin API key.
-
-Debe funcionar solo si el `Origin` coincide. Desde otro dominio debe dar `403`.
+El navegador envía el formulario a tu backend de confianza. Ese backend llama a
+M1 con `X-RNM-Class-Registration-Secret`. El `Origin` debe coincidir para recibir
+headers CORS, pero una solicitud sin secreto siempre debe devolver `401`.
 
 **Criterio de éxito**
 El flujo está funcionando si puedes hacer esto completo:

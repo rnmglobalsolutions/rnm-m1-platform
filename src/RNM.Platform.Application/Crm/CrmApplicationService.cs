@@ -311,7 +311,7 @@ public sealed class CrmApplicationService
                     request.ProviderContactId,
                     ProviderBookingId: null,
                     CrmTimelineEventTypes.FollowUpRequired,
-                    Source: "InboundVoice",
+                    Source: request.Source,
                     Summary: $"Follow-up required: {request.Reason}",
                     new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {

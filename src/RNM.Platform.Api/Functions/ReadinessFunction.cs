@@ -239,6 +239,17 @@ public sealed class ReadinessFunction
             secrets.Add(new RequiredSecret("vapiOutboundApiKey", tenant.Voice.Outbound.VapiApiKeySecretName));
         }
 
+        if (tenant.Integrations?.ManyChat?.EffectiveEnabled is true)
+        {
+            secrets.Add(new RequiredSecret("manyChatWebhookSecret", tenant.SecretNames.ManyChatWebhookSecret));
+        }
+
+
+        if (tenant.Classes is not null)
+        {
+            secrets.Add(new RequiredSecret("classRegistrationWebhookSecret", tenant.SecretNames.ClassRegistrationWebhookSecret));
+        }
+
         return secrets;
     }
 

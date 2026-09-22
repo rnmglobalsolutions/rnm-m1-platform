@@ -33,12 +33,32 @@ public interface IClassSessionStore
         ClassRegistrationRecord registration,
         CancellationToken cancellationToken);
 
+    Task<ClassRegistrationReservationResult> TryReserveRegistrationAsync(
+        string tenantId,
+        string sessionId,
+        string registrationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    Task ReleaseRegistrationReservationAsync(
+        string tenantId,
+        string sessionId,
+        string registrationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task UpdateRegistrationNotificationStatusAsync(
         ClassNotificationStatusUpdate update,
         CancellationToken cancellationToken);
 
     Task ScheduleRemindersAsync(
         ClassReminderScheduleRequest request,
+        CancellationToken cancellationToken);
+
+    Task CancelPendingRemindersBySessionAsync(
+        string tenantId,
+        string sessionId,
+        string correlationId,
         CancellationToken cancellationToken);
 
     Task ScheduleAppointmentRemindersAsync(
