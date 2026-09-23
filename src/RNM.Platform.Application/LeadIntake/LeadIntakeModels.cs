@@ -24,6 +24,9 @@ public sealed record InboundLeadIntakeResult(
     string? ProviderContactId = null,
     bool FollowUpRequested = false,
     bool BusinessNotificationQueued = false,
+    string? LeadClassification = null,
+    string? RecommendedRoute = null,
+    string? ClassificationReasons = null,
     string? FailureCode = null);
 
 public sealed record InboundLeadReceiptClaimRequest(
@@ -61,4 +64,3 @@ public sealed record InboundLeadReceiptFailureRequest(
     string CorrelationId,
     string FailureCode,
     DateTimeOffset FailedAt);
-

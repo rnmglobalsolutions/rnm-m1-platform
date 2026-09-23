@@ -222,7 +222,14 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                             : new ManyChatIntegrationConfiguration(
                                 Integrations.ManyChat.Enabled,
                                 Integrations.ManyChat.ScheduleFollowUp,
-                                Integrations.ManyChat.MaxRequestsPerMinute)));
+                                Integrations.ManyChat.MaxRequestsPerMinute,
+                                Integrations.ManyChat.RoutingActions is null
+                                    ? null
+                                    : new ManyChatRoutingActionsConfiguration(
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.Consultation),
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.MasterClass),
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.FollowUp),
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.None)))));
         }
     }
 
@@ -256,7 +263,30 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private sealed record ManyChatIntegrationConfigurationDto(
         bool? Enabled,
         bool? ScheduleFollowUp,
-        int? MaxRequestsPerMinute);
+        int? MaxRequestsPerMinute,
+        ManyChatRoutingActionsConfigurationDto? RoutingActions);
+
+    private sealed record ManyChatRoutingActionsConfigurationDto(
+        ManyChatRoutingActionConfigurationDto? Consultation,
+        ManyChatRoutingActionConfigurationDto? MasterClass,
+        ManyChatRoutingActionConfigurationDto? FollowUp,
+        ManyChatRoutingActionConfigurationDto? None);
+
+    private sealed record ManyChatRoutingActionConfigurationDto(
+        string? Type,
+        string? Label,
+        string? Url,
+        string? Message);
+
+    private static ManyChatRoutingActionConfiguration? ToRoutingAction(
+        ManyChatRoutingActionConfigurationDto? action) =>
+        action is null
+            ? null
+            : new ManyChatRoutingActionConfiguration(
+                action.Type,
+                action.Label,
+                action.Url,
+                action.Message);
 
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,

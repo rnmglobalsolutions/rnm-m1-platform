@@ -753,5 +753,53 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         {
             errors.Add("integrations.manyChat.maxRequestsPerMinute must be between 1 and 1000.");
         }
+
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.Consultation,
+            "integrations.manyChat.routingActions.consultation");
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.MasterClass,
+            "integrations.manyChat.routingActions.masterClass");
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.FollowUp,
+            "integrations.manyChat.routingActions.followUp");
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.None,
+            "integrations.manyChat.routingActions.none");
+    }
+
+    private static void ValidateManyChatRoutingAction(
+        ICollection<string> errors,
+        ManyChatRoutingActionConfiguration? action,
+        string fieldName)
+    {
+        if (action is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(action.Type)
+            && !string.Equals(action.Type, "link", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(action.Type, "message", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(action.Type, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"{fieldName}.type must be link, message, or none.");
+        }
+
+        if (action.Label?.Length > 80)
+        {
+            errors.Add($"{fieldName}.label must be 80 characters or fewer.");
+        }
+
+        if (action.Message?.Length > 500)
+        {
+            errors.Add($"{fieldName}.message must be 500 characters or fewer.");
+        }
+
+        ValidateAbsoluteUri(errors, action.Url, $"{fieldName}.url");
     }
 }

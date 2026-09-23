@@ -193,7 +193,10 @@ public sealed class InboundLeadIntakeService
                 false,
                 upsert.ProviderContactId,
                 followUpRequested,
-                businessNotificationQueued);
+                businessNotificationQueued,
+                GetAttribute(attributes, "leadClassification"),
+                GetAttribute(attributes, "recommendedRoute"),
+                GetAttribute(attributes, "classificationReasons"));
         }
         catch (OperationCanceledException)
         {
@@ -410,17 +413,123 @@ public sealed class InboundLeadIntakeService
 
     private static Dictionary<string, string> BuildAttributes(InboundLeadIntakeRequest request, string consent)
     {
+        var classification = ClassifyLead(request.Attributes, consent);
         var attributes = new Dictionary<string, string>(request.Attributes, StringComparer.OrdinalIgnoreCase)
         {
             [CrmContactAttributeNames.LeadSource] = request.Source,
             [CrmContactAttributeNames.LeadStatus] = CrmOutboundLeadStatuses.New,
             [CrmContactAttributeNames.ConsentStatus] = consent,
-            [CrmContactAttributeNames.ExternalSourceId] = request.ExternalContactId
+            [CrmContactAttributeNames.ExternalSourceId] = request.ExternalContactId,
+            ["leadClassification"] = classification.Classification,
+            ["classificationReasons"] = string.Join(",", classification.Reasons),
+            ["recommendedRoute"] = classification.RecommendedRoute
         };
         AddIfPresent(attributes, CrmContactAttributeNames.CampaignId, request.CampaignId);
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentCapturedAt, request.ConsentCapturedAt?.ToUniversalTime().ToString("O"));
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentTextVersion, request.ConsentTextVersion);
         return attributes;
+    }
+
+    private static LeadClassification ClassifyLead(IReadOnlyDictionary<string, string> attributes, string consent)
+    {
+        var reasons = new List<string>();
+        if (string.Equals(consent, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase)
+            || IsAny(attributes, "requestedNextStep", "opted_out", "no_contact")
+            || IsAny(attributes, "communicationOptOut", "true", "yes"))
+        {
+            return new LeadClassification("opted_out", "none", ["consent_not_available"]);
+        }
+
+        var funnelType = GetAttribute(attributes, "funnelType");
+        if (string.IsNullOrWhiteSpace(funnelType))
+        {
+            return new LeadClassification("follow_up", "follow_up", ["missing_funnel_type"]);
+        }
+
+        if (string.Equals(funnelType, "financial_education", StringComparison.OrdinalIgnoreCase))
+        {
+            return ClassifyFinancialEducationLead(attributes, reasons);
+        }
+
+        if (string.Equals(funnelType, "business_opportunity", StringComparison.OrdinalIgnoreCase))
+        {
+            return ClassifyBusinessOpportunityLead(attributes, reasons);
+        }
+
+        return new LeadClassification("follow_up", "follow_up", ["unknown_funnel_type"]);
+    }
+
+    private static LeadClassification ClassifyFinancialEducationLead(
+        IReadOnlyDictionary<string, string> attributes,
+        List<string> reasons)
+    {
+        if (IsAny(attributes, "requestedNextStep", "consultation"))
+        {
+            reasons.Add("requested_consultation");
+            return new LeadClassification("ready_for_consultation", "consultation", reasons);
+        }
+
+        if (IsAny(attributes, "requestedNextStep", "master_class"))
+        {
+            reasons.Add("requested_master_class");
+            return new LeadClassification("education_needed", "master_class", reasons);
+        }
+
+        if (IsAny(attributes, "timeline", "this_week", "under_30_days", "30_90_days")
+            && HasAnyAttribute(attributes, "primaryGoal", "currentProtection"))
+        {
+            reasons.Add("near_term_financial_timeline");
+            reasons.Add("financial_goal_present");
+            return new LeadClassification("ready_for_consultation", "consultation", reasons);
+        }
+
+        if (IsAny(attributes, "timeline", "learning_only", "just_learning", "over_90_days")
+            || IsAny(attributes, "primaryGoal", "not_sure", "education"))
+        {
+            reasons.Add("education_or_longer_timeline");
+            return new LeadClassification("education_needed", "master_class", reasons);
+        }
+
+        reasons.Add("financial_interest_needs_follow_up");
+        return new LeadClassification("follow_up", "follow_up", reasons);
+    }
+
+    private static LeadClassification ClassifyBusinessOpportunityLead(
+        IReadOnlyDictionary<string, string> attributes,
+        List<string> reasons)
+    {
+        if (IsAny(attributes, "incomeExpectation", "guaranteed_income", "money_fast")
+            || IsAny(attributes, "willingToLicense", "false", "no"))
+        {
+            reasons.Add("incompatible_business_expectation");
+            return new LeadClassification("not_qualified", "none", reasons);
+        }
+
+        if (IsAny(attributes, "requestedNextStep", "consultation", "intro_call")
+            && !IsAny(attributes, "weeklyAvailability", "less_than_5", "none"))
+        {
+            reasons.Add("requested_intro_call");
+            reasons.Add("availability_present");
+            return new LeadClassification("ready_for_consultation", "consultation", reasons);
+        }
+
+        if (IsAny(attributes, "requestedNextStep", "master_class")
+            || IsAny(attributes, "experienceLevel", "new_to_industry", "some_interest"))
+        {
+            reasons.Add("business_education_needed");
+            return new LeadClassification("education_needed", "master_class", reasons);
+        }
+
+        if (IsAny(attributes, "timeline", "this_week", "under_30_days")
+            && !IsAny(attributes, "weeklyAvailability", "less_than_5", "none"))
+        {
+            reasons.Add("near_term_business_timeline");
+            reasons.Add("availability_present");
+            return new LeadClassification("ready_for_consultation", "consultation", reasons);
+        }
+
+        reasons.Add("business_interest_needs_follow_up");
+        return new LeadClassification("follow_up", "follow_up", reasons);
     }
 
     private static Dictionary<string, string> BuildTemplateTokens(
@@ -533,6 +642,16 @@ public sealed class InboundLeadIntakeService
     private static string? GetAttribute(IReadOnlyDictionary<string, string> attributes, string name) =>
         attributes.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
 
+    private static bool HasAnyAttribute(IReadOnlyDictionary<string, string> attributes, params string[] names) =>
+        names.Any(name => GetAttribute(attributes, name) is not null);
+
+    private static bool IsAny(IReadOnlyDictionary<string, string> attributes, string name, params string[] values)
+    {
+        var current = GetAttribute(attributes, name);
+        return current is not null
+            && values.Any(value => string.Equals(current, value, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static void AddIfPresent(IDictionary<string, string> attributes, string name, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
@@ -540,4 +659,9 @@ public sealed class InboundLeadIntakeService
             attributes[name] = value.Trim();
         }
     }
+
+    private sealed record LeadClassification(
+        string Classification,
+        string RecommendedRoute,
+        IReadOnlyCollection<string> Reasons);
 }

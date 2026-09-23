@@ -41,7 +41,8 @@ public sealed record IntegrationConfiguration(
 public sealed record ManyChatIntegrationConfiguration(
     bool? Enabled = null,
     bool? ScheduleFollowUp = null,
-    int? MaxRequestsPerMinute = null)
+    int? MaxRequestsPerMinute = null,
+    ManyChatRoutingActionsConfiguration? RoutingActions = null)
 {
     public bool EffectiveEnabled => Enabled ?? false;
 
@@ -49,6 +50,18 @@ public sealed record ManyChatIntegrationConfiguration(
 
     public int EffectiveMaxRequestsPerMinute => MaxRequestsPerMinute ?? 120;
 }
+
+public sealed record ManyChatRoutingActionsConfiguration(
+    ManyChatRoutingActionConfiguration? Consultation = null,
+    ManyChatRoutingActionConfiguration? MasterClass = null,
+    ManyChatRoutingActionConfiguration? FollowUp = null,
+    ManyChatRoutingActionConfiguration? None = null);
+
+public sealed record ManyChatRoutingActionConfiguration(
+    string? Type = null,
+    string? Label = null,
+    string? Url = null,
+    string? Message = null);
 
 public sealed record CommunicationConfiguration(
     string SmsFromPhoneNumber,

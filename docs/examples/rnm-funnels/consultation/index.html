@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Consulta | RNM Global Solutions</title>
+    <meta name="description" content="Solicita una consulta breve con RNM Global Solutions.">
+    <link rel="stylesheet" href="../assets/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a class="brand" href="https://rnmglobalsolutions.com/">
+            <img src="../assets/rnm-mark.svg" alt="">
+            <span>RNM Global Solutions</span>
+          </a>
+        </div>
+      </header>
+
+      <main class="page">
+        <section class="intro" aria-labelledby="page-title">
+          <p class="eyebrow">Consulta personalizada</p>
+          <h1 id="page-title">Revisa tu siguiente paso con informacion clara.</h1>
+          <p class="lede">
+            Completa este formulario corto para que podamos entender tu objetivo y
+            determinar si corresponde una consulta 1:1, una clase educativa o seguimiento.
+          </p>
+
+          <div class="proof" aria-label="Resumen del proceso">
+            <div class="proof-item">
+              <strong>Formulario corto</strong>
+              <span>Solo datos basicos de contacto e intencion.</span>
+            </div>
+            <div class="proof-item">
+              <strong>Revision inicial</strong>
+              <span>RNM clasifica la ruta correcta internamente.</span>
+            </div>
+            <div class="proof-item">
+              <strong>Siguiente paso</strong>
+              <span>Consulta, clase educativa o follow-up.</span>
+            </div>
+          </div>
+
+          <p class="notice">
+            Este formulario no es una recomendacion financiera personalizada.
+            La opcion adecuada depende de tu situacion, presupuesto, estado,
+            objetivos y elegibilidad.
+          </p>
+        </section>
+
+        <section class="form-panel" aria-labelledby="form-title">
+          <h2 id="form-title">Solicitar consulta</h2>
+          <p>Responde lo esencial. No pedimos SSN, datos medicos ni informacion sensible.</p>
+
+          <form data-consultation-form>
+            <input type="hidden" name="campaignId" value="web-consultation">
+            <input type="hidden" name="funnelType" value="financial_education">
+            <div class="hidden-field" aria-hidden="true">
+              <label for="companyWebsiteConfirm">Company website</label>
+              <input id="companyWebsiteConfirm" name="companyWebsiteConfirm" tabindex="-1" autocomplete="off">
+            </div>
+
+            <div class="field">
+              <label for="customerName">Nombre completo</label>
+              <input id="customerName" name="customerName" autocomplete="name" required>
+            </div>
+
+            <div class="grid-2">
+              <div class="field">
+                <label for="customerPhoneNumber">Telefono</label>
+                <input id="customerPhoneNumber" name="customerPhoneNumber" autocomplete="tel">
+              </div>
+              <div class="field">
+                <label for="customerEmail">Email</label>
+                <input id="customerEmail" name="customerEmail" type="email" autocomplete="email">
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="primaryGoal">Objetivo principal</label>
+              <select id="primaryGoal" name="primaryGoal" required>
+                <option value="">Selecciona una opcion</option>
+                <option value="family_protection">Proteccion para mi familia</option>
+                <option value="life_insurance">Seguro de vida</option>
+                <option value="retirement_planning">Planificacion a largo plazo</option>
+                <option value="business_opportunity">Explorar oportunidad de negocio</option>
+                <option value="not_sure">No estoy seguro</option>
+              </select>
+            </div>
+
+            <div class="grid-2">
+              <div class="field">
+                <label for="timeline">Horizonte</label>
+                <select id="timeline" name="timeline" required>
+                  <option value="">Selecciona</option>
+                  <option value="this_week">Esta semana</option>
+                  <option value="under_30_days">Proximos 30 dias</option>
+                  <option value="30_90_days">1 a 3 meses</option>
+                  <option value="learning_only">Solo estoy aprendiendo</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="state">Estado</label>
+                <input id="state" name="state" autocomplete="address-level1" maxlength="32" required>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="field">
+                <label for="currentProtection">Proteccion actual</label>
+                <select id="currentProtection" name="currentProtection">
+                  <option value="">Selecciona</option>
+                  <option value="none">No tengo</option>
+                  <option value="employer_only">Solo por mi trabajo</option>
+                  <option value="personal_policy">Tengo una poliza personal</option>
+                  <option value="not_sure">No estoy seguro</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="monthlyRange">Rango mensual opcional</label>
+                <select id="monthlyRange" name="monthlyRange">
+                  <option value="">Prefiero no decir</option>
+                  <option value="under_100">Menos de $100</option>
+                  <option value="100_250">$100 a $250</option>
+                  <option value="250_500">$250 a $500</option>
+                  <option value="500_plus">$500+</option>
+                </select>
+              </div>
+            </div>
+
+            <label class="checkbox">
+              <input type="checkbox" name="consent" required>
+              <span>Acepto que RNM me contacte por SMS/email sobre mi solicitud. Pueden aplicar tarifas de mensajes y datos. Puedo responder STOP para optar por salir.</span>
+            </label>
+
+            <div class="actions">
+              <button type="submit" data-default-text>Enviar solicitud</button>
+            </div>
+            <div class="status" data-status role="status" aria-live="polite"></div>
+            <p class="fine-print">No vendas ni compartas datos sensibles en este formulario.</p>
+          </form>
+        </section>
+      </main>
+
+      <footer>
+        <div class="footer-inner">RNM Global Solutions</div>
+      </footer>
+    </div>
+
+    <script src="../config.js"></script>
+    <script src="../assets/funnel.js"></script>
+  </body>
+</html>

@@ -33,6 +33,56 @@ public sealed class InboundLeadIntakeServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_ClassifiesNearTermFinancialEducationLeadForConsultation()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest(
+            new Dictionary<string, string>
+            {
+                ["funnelType"] = "financial_education",
+                ["primaryGoal"] = "family_protection",
+                ["timeline"] = "under_30_days",
+                ["currentProtection"] = "employer_only",
+                ["requestedNextStep"] = "consultation"
+            });
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("ready_for_consultation", result.LeadClassification);
+        Assert.Equal("consultation", result.RecommendedRoute);
+        var attributes = fixture.Crm.Upserts.Single().Attributes;
+        Assert.Equal("ready_for_consultation", attributes["leadClassification"]);
+        Assert.Equal("consultation", attributes["recommendedRoute"]);
+        Assert.Contains("requested_consultation", attributes["classificationReasons"]);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ClassifiesIncompatibleBusinessOpportunityLeadAsNotQualified()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest(
+            new Dictionary<string, string>
+            {
+                ["funnelType"] = "business_opportunity",
+                ["primaryGoal"] = "extra_income",
+                ["timeline"] = "under_30_days",
+                ["weeklyAvailability"] = "10_20_hours",
+                ["incomeExpectation"] = "guaranteed_income"
+            });
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("not_qualified", result.LeadClassification);
+        Assert.Equal("none", result.RecommendedRoute);
+        var attributes = fixture.Crm.Upserts.Single().Attributes;
+        Assert.Equal("not_qualified", attributes["leadClassification"]);
+        Assert.Equal("none", attributes["recommendedRoute"]);
+        Assert.Contains("incompatible_business_expectation", attributes["classificationReasons"]);
+    }
+
+    [Fact]
     public async Task ProcessAsync_ExistingOptedOutCannotBeReversedByManyChat()
     {
         var fixture = new Fixture();
@@ -96,7 +146,7 @@ public sealed class InboundLeadIntakeServiceTests
         Assert.False(fixture.Receipt.Failed);
     }
 
-    private static InboundLeadIntakeRequest CreateRequest() =>
+    private static InboundLeadIntakeRequest CreateRequest(IReadOnlyDictionary<string, string>? attributes = null) =>
         new(
             "tenant-a",
             "insurance-agents",
@@ -111,7 +161,7 @@ public sealed class InboundLeadIntakeServiceTests
             MarketingConsentGranted: true,
             DateTimeOffset.UtcNow.AddMinutes(-1),
             "meta-form-v1",
-            new Dictionary<string, string> { ["intent"] = "agent_interest" },
+            attributes ?? new Dictionary<string, string> { ["intent"] = "agent_interest" },
             ScheduleFollowUp: false);
 
     private sealed class Fixture

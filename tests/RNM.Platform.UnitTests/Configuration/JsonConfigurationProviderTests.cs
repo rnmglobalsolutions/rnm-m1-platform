@@ -107,7 +107,28 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "manyChat": {
                   "enabled": true,
                   "scheduleFollowUp": false,
-                  "maxRequestsPerMinute": 75
+                  "maxRequestsPerMinute": 75,
+                  "routingActions": {
+                    "consultation": {
+                      "type": "link",
+                      "label": "Book consultation",
+                      "url": "https://example.com/book",
+                      "message": "Book a 1:1 consultation."
+                    },
+                    "masterClass": {
+                      "type": "link",
+                      "label": "Join class",
+                      "url": "https://example.com/class"
+                    },
+                    "followUp": {
+                      "type": "message",
+                      "message": "We will follow up."
+                    },
+                    "none": {
+                      "type": "none",
+                      "message": "No routing."
+                    }
+                  }
                 }
               }
             }
@@ -121,6 +142,10 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         Assert.True(configuration.Integrations?.ManyChat?.EffectiveEnabled);
         Assert.False(configuration.Integrations?.ManyChat?.EffectiveScheduleFollowUp);
         Assert.Equal(75, configuration.Integrations?.ManyChat?.EffectiveMaxRequestsPerMinute);
+        Assert.Equal("Book consultation", configuration.Integrations?.ManyChat?.RoutingActions?.Consultation?.Label);
+        Assert.Equal("https://example.com/class", configuration.Integrations?.ManyChat?.RoutingActions?.MasterClass?.Url);
+        Assert.Equal("message", configuration.Integrations?.ManyChat?.RoutingActions?.FollowUp?.Type);
+        Assert.Equal("none", configuration.Integrations?.ManyChat?.RoutingActions?.None?.Type);
     }
 
     [Fact]

@@ -181,6 +181,33 @@ public sealed class ConfigurationValidatorTests
     }
 
     [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenManyChatRoutingUrlIsInvalid()
+    {
+        var validator = new ConfigurationValidator();
+        var configuration = CreateValidTenantConfiguration() with
+        {
+            SecretNames = CreateValidTenantConfiguration().SecretNames with
+            {
+                ManyChatWebhookSecret = "manychat-secret"
+            },
+            Integrations = new IntegrationConfiguration(
+                new ManyChatIntegrationConfiguration(
+                    Enabled: true,
+                    RoutingActions: new ManyChatRoutingActionsConfiguration(
+                        Consultation: new ManyChatRoutingActionConfiguration(
+                            "link",
+                            "Book",
+                            "not-a-url",
+                            "Book a consultation."))))
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("routingActions.consultation.url", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateTenant_ReturnsErrors_WhenConditionalBusinessSmsNotificationHasNoCondition()
     {
         var validator = new ConfigurationValidator();

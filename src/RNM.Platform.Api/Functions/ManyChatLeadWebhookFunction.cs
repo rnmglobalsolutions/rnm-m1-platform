@@ -186,11 +186,42 @@ public sealed class ManyChatLeadWebhookFunction
                 processing = result.Processing,
                 followUpRequested = result.FollowUpRequested,
                 businessNotificationQueued = result.BusinessNotificationQueued,
+                leadClassification = result.LeadClassification,
+                recommendedRoute = result.RecommendedRoute,
+                classificationReasons = result.ClassificationReasons,
+                nextAction = ResolveNextAction(result.RecommendedRoute, integration.RoutingActions),
                 tenantId,
                 correlationId
             },
             correlationId);
     }
+
+    private static ManyChatNextAction ResolveNextAction(
+        string? recommendedRoute,
+        ManyChatRoutingActionsConfiguration? actions)
+    {
+        var route = string.IsNullOrWhiteSpace(recommendedRoute) ? "follow_up" : recommendedRoute.Trim();
+        var configured = route.ToLowerInvariant() switch
+        {
+            "consultation" => actions?.Consultation,
+            "master_class" => actions?.MasterClass,
+            "follow_up" => actions?.FollowUp,
+            "none" => actions?.None,
+            _ => actions?.FollowUp
+        };
+
+        return new ManyChatNextAction(
+            route,
+            configured?.Type ?? DefaultActionType(route),
+            configured?.Label,
+            configured?.Url,
+            configured?.Message);
+    }
+
+    private static string DefaultActionType(string route) =>
+        string.Equals(route, "none", StringComparison.OrdinalIgnoreCase)
+            ? "none"
+            : "message";
 
     private static bool TryReadAttributes(
         IReadOnlyDictionary<string, JsonElement>? source,
@@ -282,6 +313,13 @@ public sealed class ManyChatLeadWebhookFunction
         DateTimeOffset? ConsentCapturedAt,
         string? ConsentTextVersion,
         IReadOnlyDictionary<string, JsonElement>? Attributes);
+
+    private sealed record ManyChatNextAction(
+        string Route,
+        string Type,
+        string? Label,
+        string? Url,
+        string? Message);
 
     private sealed class RateLimitCounter(DateTimeOffset windowStartedAt, int count)
     {
