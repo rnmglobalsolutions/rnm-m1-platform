@@ -16,6 +16,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         "verticalId",
         "businessName",
         "correlationId",
+        "campaignId",
         "customerName",
         "customerPhoneNumber",
         "customerEmail",

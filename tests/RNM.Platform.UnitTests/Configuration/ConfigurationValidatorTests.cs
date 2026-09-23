@@ -77,6 +77,29 @@ public sealed class ConfigurationValidatorTests
     }
 
     [Fact]
+    public void ValidateTenant_AllowsCampaignIdInConfirmationTemplates()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                BusinessNotificationEmail = "office@example.com",
+                ConfirmationTemplates = validConfiguration.Communication.ConfirmationTemplates with
+                {
+                    BusinessEmailSubjectTemplate = "New lead {{campaignId}}",
+                    BusinessEmailBodyTemplate = "Campaign: {{campaignId}}"
+                }
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public void ValidateTenant_ReturnsErrors_WhenDynamicAttributeTokenIsInvalid()
     {
         var validator = new ConfigurationValidator();
