@@ -10,8 +10,11 @@ Import `docs/postman/RNM.Platform.M1.postman_collection.json` into Postman and c
 | `contactFunctionHost` | Contact Function App host, for example `https://<contact-app>.azurewebsites.net` |
 | `tenantId` | Tenant route id, for example `sample-hvac-tenant` |
 | `campaignId` | Outbound campaign id used by CRM v0.5 lead records |
+| `classSessionId` | Shared masterclass session id, for example `financial-masterclass-001` |
 | `internalApiKey` | Internal API key used by protected test endpoints |
 | `vapiWebhookSecret` | Vapi webhook secret for bearer-token testing |
+| `manyChatWebhookSecret` | Per-tenant secret sent by ManyChat in `X-RNM-ManyChat-Secret` |
+| `manyChatExternalEventId` | Stable unique id for one ManyChat delivery; reuse it on retries |
 | `twilioSignature` | Twilio-generated request signature |
 | `correlationId` | Optional request correlation id |
 | `reportFrom` | Pilot report start timestamp |
@@ -32,9 +35,12 @@ Expected success:
 }
 ```
 
-## GET `/api/tenants/{tenantId}/ready`
+## GET `/api/tenants/{tenantId}/readiness`
 
-Protected readiness endpoint for tenant configuration, provider adapter support, storage, secrets, and messaging configuration.
+Protected readiness endpoint for tenant onboarding. It checks tenant config,
+vertical config, provider adapter support, storage settings, required secrets,
+credential shape, SMS/email config, business notifications, and timer-based
+automation activation.
 
 Headers:
 
@@ -43,7 +49,11 @@ x-rnm-api-key: <INTERNAL_API_KEY>
 x-correlation-id: <optional-correlation-id>
 ```
 
-Expected success is `200 OK` with `status: "ready"`. If a dependency is missing, expect `503 Service Unavailable` with per-check readiness details.
+Expected success is `200 OK` with `status: "ready"`. If only warning-level
+checks fail, the endpoint returns `200 OK` with `status: "degraded"`. If a
+required dependency is missing, expect `503 Service Unavailable` with
+`status: "blocked"` and per-check details. Legacy route
+`/api/tenants/{tenantId}/ready` remains supported.
 
 ## GET `/api/tenants/{tenantId}/reports/pilot?from=&to=`
 
@@ -64,6 +74,188 @@ to=2026-07-07T23:59:59Z
 ```
 
 Expected success is `200 OK` with speed-to-contact, funnel, projected revenue, activity summary, baseline comparison, and summary text.
+
+## PUT/POST `/api/tenants/{tenantId}/classes/sessions/{classSessionId}`
+
+Protected endpoint to create or update a shared masterclass session for the `rnm-insurance-agents` tenant. This does not create a Zoom meeting. Create the meeting in Zoom manually, then store the Zoom URL here.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+Content-Type: application/json
+```
+
+Sample body:
+
+```json
+{
+  "title": "Financial Education Master Class",
+  "status": "published",
+  "startsAt": "2027-07-15T23:00:00Z",
+  "endsAt": "2027-07-16T00:00:00Z",
+  "timeZone": "America/Chicago",
+  "zoomUrl": "https://zoom.us/j/REPLACE_ME",
+  "capacity": 100,
+  "campaignId": "financial-education-july",
+  "attributes": {
+    "topic": "financial_education"
+  }
+}
+```
+
+Expected success is `200 OK` with `succeeded: true` and the stored session.
+
+## POST `/api/tenants/{tenantId}/classes/{classSessionId}/registrations`
+
+Creates or updates the CRM contact, captures web registration consent without reversing prior opt-outs, registers the contact into the shared class session, sends confirmation SMS/email, and schedules configured reminders.
+
+This endpoint requires either `x-rnm-api-key` for internal calls or the dedicated
+per-tenant `X-RNM-Class-Registration-Secret`. `Origin` controls CORS only and is
+never authentication. A browser must call through a trusted funnel/server
+backend; never embed either secret in browser JavaScript. Generic ManyChat lead
+intake should use the dedicated webhook documented below. This class flow does
+not use Vapi inbound.
+
+Headers for internal testing:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+Content-Type: application/json
+```
+
+For a server-side funnel integration, replace `x-rnm-api-key` with:
+
+```text
+X-RNM-Class-Registration-Secret: <TENANT_CLASS_REGISTRATION_SECRET>
+```
+
+Sample body:
+
+```json
+{
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "financial-education-july",
+  "source": "WebRegistration",
+  "marketingConsentGranted": true,
+  "consentCapturedAt": "2026-09-18T15:00:00Z",
+  "consentTextVersion": "class-registration-v1",
+  "attributes": {
+    "intent": "masterclass"
+  }
+}
+```
+
+Expected success is `200 OK` with `succeeded: true`, the session, registration,
+and channel results. A repeated registration returns the existing registration
+with `duplicate: true`. Completed channels and existing reminders are not reset;
+if the original execution stopped before a channel was persisted, M1 resumes
+only that incomplete work. A provider failure successfully placed on the durable
+retry queue is stored as `RetryScheduled` and is not sent again by the duplicate
+request. Both SMS and email are blocked when the contact is already `opted_out`. Explicit
+`marketingConsentGranted=true` requires `consentCapturedAt` and
+`consentTextVersion`.
+
+## POST `/api/tenants/{tenantId}/webhooks/manychat/leads`
+
+Tenant-scoped ManyChat lead intake. It authenticates with a dedicated per-tenant
+secret, deduplicates provider retries by `externalEventId`, upserts the CRM
+contact, records consent evidence and timeline events, schedules configured
+follow-ups, and queues business SMS/email notifications.
+
+Headers:
+
+```text
+X-RNM-ManyChat-Secret: <tenant ManyChat webhook secret>
+x-correlation-id: <optional-correlation-id>
+Content-Type: application/json
+```
+
+Sample body:
+
+```json
+{
+  "externalEventId": "{{manyChatExternalEventId}}",
+  "externalContactId": "manychat-subscriber-123",
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "meta-financial-education",
+  "marketingConsentGranted": true,
+  "consentCapturedAt": "2026-09-17T15:00:00Z",
+  "consentTextVersion": "meta-form-v1",
+  "attributes": {
+    "intent": "financial_education",
+    "sourceCampaign": "meta"
+  }
+}
+```
+
+`marketingConsentGranted=true` requires both `consentCapturedAt` and
+`consentTextVersion`. A previous `opted_out` state is never reversed by this
+webhook. Repeating the same `externalEventId` returns a safe duplicate response
+without repeating CRM writes or notifications.
+
+## POST `/api/tenants/{tenantId}/classes/reminders/run?maxItems=25`
+
+Protected manual reminder runner. Useful for testing or operational recovery. The deployed timer also runs every five minutes for tenants listed in `RNM_ACTIVE_TENANTS`.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Optional query parameters:
+
+```text
+maxItems=25
+dueAt=2026-07-15T22:00:00Z
+```
+
+Expected success is `200 OK` with scanned/sent/skipped/failed counts.
+
+## POST `/api/tenants/{tenantId}/followups/run?maxItems=25`
+
+Protected manual follow-up runner. Useful for testing configured tenant follow-up
+sequences without waiting for the deployed timer. The timer also runs follow-ups
+every five minutes for tenants listed in `RNM_ACTIVE_TENANTS`.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Optional query parameters:
+
+```text
+maxItems=25
+dueAt=2026-07-15T22:00:00Z
+```
+
+Expected success is `200 OK` with scanned/sent/skipped/failed counts. SMS
+follow-ups require `opt_in` consent and the shared send window. Email follow-ups
+also require `opt_in` consent for this marketing follow-up automation.
+
+## GET `/api/tenants/{tenantId}/classes/{classSessionId}/report`
+
+Protected class report endpoint. It returns only real stored counts for this class session.
+
+Headers:
+
+```text
+x-rnm-api-key: <INTERNAL_API_KEY>
+x-correlation-id: <optional-correlation-id>
+```
+
+Expected success is `200 OK` with registrations, confirmation counts, reminders sent, opted-out registrations, and a plain summary.
 
 ## POST `/api/tenants/{tenantId}/webhooks/vapi/inbound`
 

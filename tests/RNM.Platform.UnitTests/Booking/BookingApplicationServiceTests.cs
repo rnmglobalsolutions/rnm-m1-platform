@@ -296,7 +296,8 @@ public sealed class BookingApplicationServiceTests
                 [slot]),
             CreateBookingResult = new CreateBookingResult(
                 Succeeded: true,
-                ProviderBookingId: "booking-123")
+                ProviderBookingId: "booking-123",
+                OnlineMeetingUrl: "https://meet.google.com/abc-defg-hij")
         };
         var eventLogger = new RecordingBookingEventLogger();
         var service = CreateService(adapter, eventLogger);
@@ -309,6 +310,7 @@ public sealed class BookingApplicationServiceTests
 
         Assert.True(result.IsBooked);
         Assert.Equal("booking-123", result.ProviderBookingId);
+        Assert.Equal("https://meet.google.com/abc-defg-hij", result.OnlineMeetingUrl);
         Assert.Equal(slot, result.SelectedSlot);
         Assert.Equal(1, adapter.CheckAvailabilityCallCount);
         Assert.Equal(1, adapter.CreateBookingCallCount);

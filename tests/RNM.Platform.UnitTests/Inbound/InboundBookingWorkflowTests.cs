@@ -46,6 +46,56 @@ public sealed class InboundBookingWorkflowTests
     }
 
     [Fact]
+    public async Task ProcessAsync_NotifiesBusinessBySms_WhenBusinessRuleIsAlways()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                communication: CreateBusinessSmsCommunication(BusinessSmsNotificationConfiguration.Always())));
+
+        var result = await harness.Workflow.ProcessAsync(CreateWorkflowRequest(), CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(2, harness.SmsSender.SendCallCount);
+        Assert.Contains(harness.SmsSender.Requests, request =>
+            request.ToPhoneNumber == "+15557654321"
+            && request.Body.Contains("Jane Customer", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_NotifiesBusinessBySms_WhenConditionalRuleMatchesConfiguredAttribute()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                communication: CreateBusinessSmsCommunication(
+                    BusinessSmsNotificationConfiguration.Conditional("leadSource", ["zillow"]))));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: CreateArgumentsJson(leadSource: "zillow")),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(2, harness.SmsSender.SendCallCount);
+        Assert.Contains(harness.SmsSender.Requests, request => request.ToPhoneNumber == "+15557654321");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_DoesNotNotifyBusinessBySms_WhenConditionalRuleDoesNotMatchConfiguredAttribute()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                communication: CreateBusinessSmsCommunication(
+                    BusinessSmsNotificationConfiguration.Conditional("leadSource", ["zillow"]))));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: CreateArgumentsJson(leadSource: "realtor.com")),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(1, harness.SmsSender.SendCallCount);
+        Assert.DoesNotContain(harness.SmsSender.Requests, request => request.ToPhoneNumber == "+15557654321");
+    }
+
+    [Fact]
     public async Task ProcessAsync_UsesToolPhoneNumber_WhenSessionPhoneIsMissing()
     {
         var harness = CreateHarness();
@@ -358,7 +408,8 @@ public sealed class InboundBookingWorkflowTests
     private static string CreateArgumentsJson(
         string serviceAddress = "123 Main St, Addison, TX 75001",
         string? email = "lead@example.com",
-        string? preferredTime = "Afternoon")
+        string? preferredTime = "Afternoon",
+        string? leadSource = null)
     {
         var emailProperty = email is null
             ? string.Empty
@@ -366,6 +417,9 @@ public sealed class InboundBookingWorkflowTests
         var preferredTimeProperty = preferredTime is null
             ? string.Empty
             : $@",""preferredTime"":""{preferredTime}""";
+        var leadSourceProperty = leadSource is null
+            ? string.Empty
+            : $@",""leadSource"":""{leadSource}""";
 
         return $$"""
         {
@@ -374,9 +428,24 @@ public sealed class InboundBookingWorkflowTests
           "serviceAddress": "{{serviceAddress}}",
           "urgency": "Soon",
           "phoneNumber": "+15551234567",
-          "name": "Jane Customer"{{emailProperty}}{{preferredTimeProperty}}
+          "name": "Jane Customer"{{emailProperty}}{{preferredTimeProperty}}{{leadSourceProperty}}
         }
         """;
+    }
+
+    private static CommunicationConfiguration CreateBusinessSmsCommunication(
+        BusinessSmsNotificationConfiguration businessSmsNotification)
+    {
+        return new CommunicationConfiguration(
+            "+15550001000",
+            "booking@example.com",
+            new ConfirmationTemplateConfiguration(
+                "SMS {{bookingDate}} {{bookingTime}} {{serviceType}}",
+                "Email {{bookingDate}}",
+                "Email {{bookingStart}}",
+                "Business {{customerName}} {{attr.leadSource}}"),
+            BusinessNotificationPhoneNumber: "+15557654321",
+            BusinessSmsNotification: businessSmsNotification);
     }
 
     private static Predicate<RecordedWorkflowEvent> EventNamed(string eventName) =>
@@ -393,10 +462,14 @@ public sealed class InboundBookingWorkflowTests
     private sealed class StubTenantConfigurationProvider : ITenantConfigurationProvider
     {
         private readonly bool useInvalidConfirmationTemplates;
+        private readonly CommunicationConfiguration? communication;
 
-        public StubTenantConfigurationProvider(bool useInvalidConfirmationTemplates = false)
+        public StubTenantConfigurationProvider(
+            bool useInvalidConfirmationTemplates = false,
+            CommunicationConfiguration? communication = null)
         {
             this.useInvalidConfirmationTemplates = useInvalidConfirmationTemplates;
+            this.communication = communication;
         }
 
         public Task<TenantConfiguration> GetTenantConfigurationAsync(
@@ -411,7 +484,7 @@ public sealed class InboundBookingWorkflowTests
                 new ServiceAreaConfiguration(["75001"], ["Addison"], null),
                 new ProviderConfiguration("Crm", "Booking", "Sms", "Email"),
                 new SecretNameConfiguration("crm", "booking", "vapi", "sid", "token", "email"),
-                new CommunicationConfiguration(
+                communication ?? new CommunicationConfiguration(
                     "+15550001000",
                     "booking@example.com",
                     useInvalidConfirmationTemplates
@@ -584,12 +657,15 @@ public sealed class InboundBookingWorkflowTests
 
         public SmsMessageRequest? LastRequest { get; private set; }
 
+        public List<SmsMessageRequest> Requests { get; } = [];
+
         public Task<SmsSendResult> SendSmsAsync(
             SmsMessageRequest request,
             CancellationToken cancellationToken)
         {
             SendCallCount++;
             LastRequest = request;
+            Requests.Add(request);
             return Task.FromResult(SendResult);
         }
     }

@@ -1,0 +1,130 @@
+{
+  "tenantId": "rnm-insurance-agents",
+  "verticalId": "insurance-agents",
+  "businessName": "RNM Insurance Agent Network",
+  "timeZone": "America/Chicago",
+  "serviceArea": {
+    "zipCodes": [],
+    "cities": ["United States"],
+    "referralMessage": "RNM can review the request and follow up with next steps."
+  },
+  "providers": {
+    "crmProvider": "AzureTable",
+    "bookingProvider": "GoogleCalendar",
+    "smsProvider": "Twilio",
+    "emailProvider": "SendGrid"
+  },
+  "secretNames": {
+    "crmApiKey": "tenant-rnm-insurance-agents-crm-credentials",
+    "bookingApiKey": "tenant-rnm-insurance-agents-google-calendar-credentials",
+    "crmCredentials": "tenant-rnm-insurance-agents-crm-credentials",
+    "bookingCredentials": "tenant-rnm-insurance-agents-google-calendar-credentials",
+    "voiceWebhookSecret": "tenant-rnm-insurance-agents-vapi-webhook-secret",
+    "twilioAccountSid": "tenant-rnm-insurance-agents-twilio-account-sid",
+    "twilioAuthToken": "tenant-rnm-insurance-agents-twilio-auth-token",
+    "emailConnectionString": "tenant-rnm-insurance-agents-email-connection",
+    "manyChatWebhookSecret": "tenant-rnm-insurance-agents-manychat-webhook-secret",
+    "classRegistrationWebhookSecret": "tenant-rnm-insurance-agents-class-registration-webhook-secret"
+  },
+  "integrations": {
+    "manyChat": {
+      "enabled": true,
+      "scheduleFollowUp": true,
+      "maxRequestsPerMinute": 120,
+      "routingActions": {
+        "consultation": {
+          "type": "link",
+          "label": "Schedule a 1:1 consultation",
+          "url": "https://rnmglobalsolutions.com/consultation",
+          "message": "Based on your answers, the best next step is a short 1:1 consultation."
+        },
+        "masterClass": {
+          "type": "link",
+          "label": "Register for the master class",
+          "url": "https://rnmglobalsolutions.com/masterclass/register",
+          "message": "Based on your answers, the best next step is the master class."
+        },
+        "followUp": {
+          "type": "message",
+          "label": "Continue follow-up",
+          "message": "Thanks. RNM will send helpful next steps and follow up when you are ready."
+        },
+        "none": {
+          "type": "none",
+          "label": "No promotional routing",
+          "message": "Thanks. We will not send promotional follow-up."
+        }
+      }
+    }
+  },
+  "communication": {
+    "smsFromPhoneNumber": "+1XXXXXXXXXX",
+    "emailFromAddress": "info@rnmglobalsolutions.com",
+    "businessNotificationEmail": "info@rnmglobalsolutions.com",
+    "businessNotificationPhoneNumber": "+1XXXXXXXXXX",
+    "businessSmsNotification": {
+      "mode": "always"
+    },
+    "confirmationTemplates": {
+      "smsBodyTemplate": "RNM received your request. Our team will send the next step soon. Reply STOP to opt out.",
+      "emailSubjectTemplate": "RNM received your request",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nRNM received your request and will follow up with the appropriate next step.\n\nReference: {{correlationId}}",
+      "businessSmsBodyTemplate": "New RNM lead\n{{customerName}}\n{{customerPhoneNumber}}\nFunnel: {{attr.funnelType}}\nClass: {{attr.leadClassification}}\nRoute: {{attr.recommendedRoute}}\nRef: {{correlationId}}",
+      "businessEmailSubjectTemplate": "New RNM lead: {{customerName}}",
+      "businessEmailBodyTemplate": "New RNM lead received\n\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nCampaign: {{campaignId}}\nFunnel: {{attr.funnelType}}\nMeta channel: {{attr.metaChannel}}\nTrigger: {{attr.triggerType}}\nKeyword: {{attr.keyword}}\nGoal: {{attr.primaryGoal}}\nTimeline: {{attr.timeline}}\nState: {{attr.state}}\nRequested next step: {{attr.requestedNextStep}}\nClassification: {{attr.leadClassification}}\nRecommended route: {{attr.recommendedRoute}}\nReasons: {{attr.classificationReasons}}\nReference: {{correlationId}}"
+    }
+  },
+  "followUps": {
+    "enabled": true,
+    "stalenessCutoffMinutes": 120,
+    "maxFollowUpsPerContactPerDay": 2,
+    "sequences": [
+      {
+        "id": "lead-needs-follow-up",
+        "trigger": "followup.required",
+        "steps": [
+          {
+            "delayMinutes": 30,
+            "channel": "sms",
+            "smsBodyTemplate": "Hi {{customerName}}, this is RNM. We received your request and can help with the next step. Reply here when you can. Reply STOP to opt out."
+          },
+          {
+            "delayMinutes": 1440,
+            "channel": "email",
+            "emailSubjectTemplate": "Following up on your RNM request",
+            "emailBodyTemplate": "Hi {{customerName}},\n\nWe received your request and wanted to follow up with next steps.\n\nReference: {{correlationId}}\n\nReply to this email when you are ready."
+          }
+        ],
+        "stopWhen": [
+          {
+            "attribute": "leadStatus",
+            "equalsAny": ["Booked", "AppointmentScheduled", "appointment_booked", "reactivated"]
+          },
+          {
+            "consentStatus": "opted_out"
+          }
+        ]
+      }
+    ]
+  },
+  "classes": {
+    "maxRegistrationsPerMinute": 60,
+    "allowedRegistrationOrigins": [
+      "https://rnmglobalsolutions.com",
+      "https://www.rnmglobalsolutions.com",
+      "https://insurance.rnmglobalsolutions.com"
+    ],
+    "reminderOffsetsMinutes": [1440, 60],
+    "reminderStalenessCutoffMinutes": 60,
+    "registrationTemplates": {
+      "smsBodyTemplate": "You're registered for {{classTitle}}\n{{classDate}} {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "You're registered: {{classTitle}}",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nYou're registered for {{classTitle}}.\n\nDate: {{classDate}}\nTime: {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\n\nReference: {{registrationId}}"
+    },
+    "reminderTemplates": {
+      "smsBodyTemplate": "Reminder: {{classTitle}} starts {{classDate}} {{classTime}} {{timeZone}}.\nJoin: {{zoomUrl}}\nReply STOP to opt out.",
+      "emailSubjectTemplate": "Reminder: {{classTitle}}",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nReminder: {{classTitle}} is coming up.\n\nDate: {{classDate}}\nTime: {{classTime}} {{timeZone}}\nJoin: {{zoomUrl}}\n\nReference: {{registrationId}}"
+    }
+  }
+}

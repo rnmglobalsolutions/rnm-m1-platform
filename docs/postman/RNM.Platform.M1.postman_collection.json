@@ -22,12 +22,28 @@
       "value": "pilot-campaign"
     },
     {
+      "key": "classSessionId",
+      "value": "financial-masterclass-001"
+    },
+    {
       "key": "internalApiKey",
+      "value": ""
+    },
+    {
+      "key": "classRegistrationWebhookSecret",
       "value": ""
     },
     {
       "key": "vapiWebhookSecret",
       "value": ""
+    },
+    {
+      "key": "manyChatWebhookSecret",
+      "value": ""
+    },
+    {
+      "key": "manyChatExternalEventId",
+      "value": "{{$guid}}"
     },
     {
       "key": "twilioSignature",
@@ -112,7 +128,7 @@
           }
         ],
         "url": {
-          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/ready",
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/readiness",
           "host": [
             "{{functionHost}}"
           ],
@@ -120,7 +136,7 @@
             "api",
             "tenants",
             "{{tenantId}}",
-            "ready"
+            "readiness"
           ]
         }
       }
@@ -626,6 +642,188 @@
       }
     },
     {
+      "name": "Class Session Upsert",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Financial Education Master Class\",\n  \"status\": \"published\",\n  \"startsAt\": \"2027-07-15T23:00:00Z\",\n  \"endsAt\": \"2027-07-16T00:00:00Z\",\n  \"timeZone\": \"America/Chicago\",\n  \"zoomUrl\": \"https://zoom.us/j/REPLACE_ME\",\n  \"capacity\": 100,\n  \"campaignId\": \"{{campaignId}}\",\n  \"attributes\": {\n    \"topic\": \"financial_education\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/sessions/{{classSessionId}}",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "sessions",
+            "{{classSessionId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Registration Create",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "X-RNM-Class-Registration-Secret",
+            "value": "{{classRegistrationWebhookSecret}}",
+            "disabled": true
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerName\": \"Jane Lead\",\n  \"customerPhoneNumber\": \"+15551234567\",\n  \"customerEmail\": \"jane@example.com\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"source\": \"WebRegistration\",\n  \"marketingConsentGranted\": true,\n  \"consentCapturedAt\": \"2026-09-18T15:00:00Z\",\n  \"consentTextVersion\": \"class-registration-v1\",\n  \"attributes\": {\n    \"intent\": \"masterclass\",\n    \"estimatedValue\": \"unknown\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/{{classSessionId}}/registrations",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "{{classSessionId}}",
+            "registrations"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Reminders Manual Run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/reminders/run?maxItems=25",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "reminders",
+            "run"
+          ],
+          "query": [
+            {
+              "key": "maxItems",
+              "value": "25"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Follow Ups Manual Run",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/followups/run?maxItems=25",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "followups",
+            "run"
+          ],
+          "query": [
+            {
+              "key": "maxItems",
+              "value": "25"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Class Report",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-rnm-api-key",
+            "value": "{{internalApiKey}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/classes/{{classSessionId}}/report",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "classes",
+            "{{classSessionId}}",
+            "report"
+          ]
+        }
+      }
+    },
+    {
       "name": "Test Email Send",
       "request": {
         "method": "POST",
@@ -657,6 +855,44 @@
             "test",
             "email",
             "send"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ManyChat Lead Intake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-RNM-ManyChat-Secret",
+            "value": "{{manyChatWebhookSecret}}"
+          },
+          {
+            "key": "x-correlation-id",
+            "value": "{{correlationId}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"externalEventId\": \"{{manyChatExternalEventId}}\",\n  \"externalContactId\": \"manychat-subscriber-123\",\n  \"customerName\": \"Jane Lead\",\n  \"customerPhoneNumber\": \"+15551234567\",\n  \"customerEmail\": \"jane@example.com\",\n  \"campaignId\": \"meta-financial-education\",\n  \"marketingConsentGranted\": true,\n  \"consentCapturedAt\": \"2026-09-17T15:00:00Z\",\n  \"consentTextVersion\": \"meta-form-v1\",\n  \"attributes\": {\n    \"intent\": \"financial_education\",\n    \"sourceCampaign\": \"meta\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{functionHost}}/api/tenants/{{tenantId}}/webhooks/manychat/leads",
+          "host": [
+            "{{functionHost}}"
+          ],
+          "path": [
+            "api",
+            "tenants",
+            "{{tenantId}}",
+            "webhooks",
+            "manychat",
+            "leads"
           ]
         }
       }

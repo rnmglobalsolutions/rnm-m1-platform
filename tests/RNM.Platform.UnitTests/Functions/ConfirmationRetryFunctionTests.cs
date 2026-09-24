@@ -2,6 +2,7 @@ using RNM.Platform.Api.Functions;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Messaging;
+using RNM.Platform.UnitTests.Classes;
 using Xunit;
 
 namespace RNM.Platform.UnitTests.Functions;
@@ -58,6 +59,34 @@ public sealed class ConfirmationRetryFunctionTests
                 }
                 """,
                 CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RunAsync_SuccessfulClassRetryUpdatesOnlyDeliveredChannel()
+    {
+        var store = new FakeClassSessionStore();
+        var function = new ConfirmationRetryFunction(
+            new RecordingSmsSender(),
+            new RecordingEmailSender(),
+            new RecordingEventLogger(),
+            store);
+
+        await function.RunAsync(
+            """
+            {
+              "tenantId": "tenant-a",
+              "correlationId": "corr-123",
+              "kind": 0,
+              "destination": "+15551234567",
+              "body": "Class confirmed",
+              "classRegistrationId": "registration-1"
+            }
+            """,
+            CancellationToken.None);
+
+        var update = Assert.Single(store.NotificationStatusUpdates);
+        Assert.Equal("Sent", update.SmsStatus);
+        Assert.Null(update.EmailStatus);
     }
 
     private sealed class RecordingSmsSender : ISmsSender

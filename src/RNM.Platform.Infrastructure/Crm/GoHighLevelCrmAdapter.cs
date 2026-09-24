@@ -56,10 +56,14 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
             }
 
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var contactId = TryReadContactId(responseJson);
+            var contact = TryReadContact(responseJson, request.TenantId);
+            var contactId = contact?.ProviderContactId ?? TryReadContactId(responseJson);
             return string.IsNullOrWhiteSpace(contactId)
                 ? new CrmContactLookupResult(false, null)
-                : new CrmContactLookupResult(true, contactId);
+                : new CrmContactLookupResult(true, contactId)
+                {
+                    Contact = contact
+                };
         }
         catch (OperationCanceledException)
         {
@@ -325,6 +329,174 @@ public sealed class GoHighLevelCrmAdapter : ICrmProviderAdapter
             return null;
         }
     }
+
+    private static CrmContactRecord? TryReadContact(string responseJson, string tenantId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(responseJson);
+            var root = document.RootElement;
+            var contact = TryGetContactElement(root);
+            if (contact is null)
+            {
+                return null;
+            }
+
+            var contactId = ReadString(contact.Value, "id") ?? ReadString(contact.Value, "contactId");
+            if (string.IsNullOrWhiteSpace(contactId))
+            {
+                return null;
+            }
+
+            var attributes = ReadNormalizedAttributes(contact.Value);
+            var zipCode = ReadString(contact.Value, "postalCode")
+                ?? ReadString(contact.Value, "zipCode")
+                ?? ReadString(contact.Value, "zip");
+            AddAttribute(attributes, CrmContactAttributeNames.ConsentStatus, ReadString(contact.Value, "consentStatus"));
+            AddAttribute(attributes, CrmContactAttributeNames.LeadSource, ReadString(contact.Value, "leadSource") ?? ReadString(contact.Value, "source"));
+            AddAttribute(attributes, CrmContactAttributeNames.CampaignId, ReadString(contact.Value, "campaignId"));
+            AddAttribute(attributes, CrmContactAttributeNames.LeadStatus, ReadString(contact.Value, "leadStatus"));
+            AddAttribute(attributes, CrmContactAttributeNames.Intent, ReadString(contact.Value, "intent"));
+            AddAttribute(attributes, CrmContactAttributeNames.TargetPropertyAddress, ReadString(contact.Value, "targetPropertyAddress"));
+            AddAttribute(attributes, CrmContactAttributeNames.AssignedAgent, ReadString(contact.Value, "assignedAgent") ?? ReadString(contact.Value, "assignedTo"));
+            AddAttribute(attributes, "estimatedValue", ReadString(contact.Value, "estimatedValue"));
+            AddAttribute(attributes, "serviceNeed", ReadString(contact.Value, "serviceNeed"));
+            AddAttribute(attributes, "serviceAddress", ReadString(contact.Value, "serviceAddress"));
+            AddAttribute(attributes, "propertyType", ReadString(contact.Value, "propertyType"));
+            AddAttribute(attributes, "urgency", ReadString(contact.Value, "urgency"));
+            AddAttribute(attributes, "zipCode", zipCode);
+
+            return new CrmContactRecord(
+                tenantId,
+                contactId,
+                ReadString(contact.Value, "phone") ?? ReadString(contact.Value, "phoneNumber"),
+                ReadString(contact.Value, "email"),
+                ReadContactName(contact.Value),
+                zipCode,
+                attributes);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static JsonElement? TryGetContactElement(JsonElement root)
+    {
+        if (root.ValueKind is not JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (root.TryGetProperty("contact", out var contact)
+            && contact.ValueKind is JsonValueKind.Object)
+        {
+            return contact;
+        }
+
+        if (root.TryGetProperty("contacts", out var contacts)
+            && contacts.ValueKind is JsonValueKind.Array)
+        {
+            foreach (var item in contacts.EnumerateArray())
+            {
+                if (item.ValueKind is JsonValueKind.Object)
+                {
+                    return item;
+                }
+            }
+        }
+
+        return root;
+    }
+
+    private static Dictionary<string, string> ReadNormalizedAttributes(JsonElement contact)
+    {
+        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!contact.TryGetProperty("customFields", out var customFields))
+        {
+            return attributes;
+        }
+
+        if (customFields.ValueKind is JsonValueKind.Object)
+        {
+            foreach (var field in customFields.EnumerateObject())
+            {
+                AddAttributeAliases(attributes, field.Name, ReadJsonValue(field.Value));
+            }
+        }
+
+        if (customFields.ValueKind is JsonValueKind.Array)
+        {
+            foreach (var field in customFields.EnumerateArray())
+            {
+                if (field.ValueKind is not JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var value = ReadString(field, "value") ?? ReadString(field, "fieldValue");
+                var key = ReadString(field, "name")
+                    ?? ReadString(field, "key")
+                    ?? ReadString(field, "fieldKey")
+                    ?? ReadString(field, "id")
+                    ?? ReadString(field, "fieldId");
+                AddAttributeAliases(attributes, key, value);
+            }
+        }
+
+        return attributes;
+    }
+
+    private static string? ReadContactName(JsonElement contact)
+    {
+        var name = ReadString(contact, "name") ?? ReadString(contact, "fullName");
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            return name;
+        }
+
+        var firstName = ReadString(contact, "firstName");
+        var lastName = ReadString(contact, "lastName");
+        return string.Join(" ", new[] { firstName, lastName }.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static void AddAttributeAliases(
+        IDictionary<string, string> attributes,
+        string? key,
+        string? value)
+    {
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        AddAttribute(attributes, key, value);
+
+        var trimmedKey = key.Trim();
+        var lastSegment = trimmedKey.Split(['.', '_', '-'], StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+        AddAttribute(attributes, lastSegment, value);
+    }
+
+    private static void AddAttribute(
+        IDictionary<string, string> attributes,
+        string? key,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
+        {
+            attributes[key.Trim()] = value.Trim();
+        }
+    }
+
+    private static string? ReadJsonValue(JsonElement value) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.ToString(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null
+        };
 
     private static string? ReadFirstContactId(JsonElement root)
     {

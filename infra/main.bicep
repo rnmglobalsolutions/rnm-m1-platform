@@ -35,6 +35,9 @@ param contactFunctionAllowedCorsOrigins array = [
 @description('Additional Function App settings. Values must be non-sensitive.')
 param additionalFunctionAppSettings object = {}
 
+@description('Comma-separated tenant IDs processed by scheduled background reminders. Leave empty to disable scheduled reminder processing.')
+param activeTenants string = ''
+
 @description('Operations email that receives M1 production alerts. Leave empty to skip alert deployment.')
 param operationsAlertEmail string = ''
 
@@ -59,6 +62,7 @@ var contactFunctionAppName = '${resourceBaseName}-contact-func'
 var mainFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.ContactSystemReviewFunction.Disabled': 'true'
   RNM_ALLOW_WILDCARD_SERVICE_AREA: 'false'
+  RNM_ACTIVE_TENANTS: activeTenants
   RNM_REQUIRE_INTERNAL_API_KEY: 'true'
 })
 var contactFunctionAppSettings = union(additionalFunctionAppSettings, {

@@ -334,6 +334,212 @@ public sealed class ConfirmationApplicationServiceTests
     }
 
     [Fact]
+    public async Task SendBookingConfirmationAsync_RendersDynamicContactAttributeTokens()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var service = CreateService(smsSender, emailSender);
+        var templates = new ConfirmationTemplateSet(
+            "Lead {{customerName}} is a {{attr.intent}} for {{attr.targetPropertyAddress}}",
+            "New lead for {{businessName}}",
+            "Agent: {{attr.assignedAgent}}\nSource: {{attr.leadSource}}\nCampaign: {{attr.campaignId}}");
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: templates,
+                businessName: "RNM Commercial Real Estate",
+                contactAttributes: new Dictionary<string, string>
+                {
+                    ["intent"] = "seller",
+                    ["targetPropertyAddress"] = "123 Market St",
+                    ["assignedAgent"] = "Alex Agent",
+                    ["leadSource"] = "LoopNet",
+                    ["campaignId"] = "reactivation-q2"
+                }),
+            CancellationToken.None);
+
+        Assert.Equal("Lead Jane Lead is a seller for 123 Market St", smsSender.LastRequest?.Body);
+        Assert.Equal("New lead for RNM Commercial Real Estate", emailSender.LastRequest?.Subject);
+        Assert.Equal("Agent: Alex Agent\nSource: LoopNet\nCampaign: reactivation-q2", emailSender.LastRequest?.Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_RendersOnlineMeetingUrlToken()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var service = CreateService(smsSender, emailSender);
+        var request = CreateRequest(
+            templates: new ConfirmationTemplateSet(
+                "Meet {{onlineMeetingUrl}}",
+                "Appointment details",
+                "Join here: {{onlineMeetingUrl}}"),
+            bookingDecision: CreateBookedDecision() with
+            {
+                OnlineMeetingUrl = "https://meet.google.com/abc-defg-hij"
+            });
+
+        var result = await service.SendBookingConfirmationAsync(request, CancellationToken.None);
+
+        Assert.True(result.SmsSent);
+        Assert.True(result.EmailSent);
+        Assert.Equal("Meet https://meet.google.com/abc-defg-hij", smsSender.LastRequest?.Body);
+        Assert.Equal("Join here: https://meet.google.com/abc-defg-hij", emailSender.LastRequest?.Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_PrefersFreshRequestAttributes_WhenCrmAttributesDiffer()
+    {
+        var smsSender = new FakeSmsSender();
+        var crmAdapter = new FakeCrmAdapter
+        {
+            LookupResult = new CrmContactLookupResult(true, "contact-123")
+            {
+                Contact = new CrmContactRecord(
+                    "tenant-a",
+                    "contact-123",
+                    "+15551234567",
+                    "lead@example.com",
+                    "Jane Lead",
+                    "75001",
+                    new Dictionary<string, string>
+                    {
+                        ["intent"] = "old-intent"
+                    })
+            }
+        };
+        var service = CreateService(smsSender: smsSender, crmAdapter: crmAdapter);
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: new ConfirmationTemplateSet("Intent {{attr.intent}}", "unused", "unused"),
+                contactAttributes: new Dictionary<string, string>
+                {
+                    ["intent"] = "seller"
+                }),
+            CancellationToken.None);
+
+        Assert.Equal("Intent seller", smsSender.LastRequest?.Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_RendersDynamicTokenFromSanitizedCrmAttributeName()
+    {
+        var smsSender = new FakeSmsSender();
+        var crmAdapter = new FakeCrmAdapter
+        {
+            LookupResult = new CrmContactLookupResult(true, "contact-123")
+            {
+                Contact = new CrmContactRecord(
+                    "tenant-a",
+                    "contact-123",
+                    "+15551234567",
+                    "lead@example.com",
+                    "Jane Lead",
+                    "75001",
+                    new Dictionary<string, string>
+                    {
+                        ["leadsource"] = "zillow"
+                    })
+            }
+        };
+        var service = CreateService(smsSender: smsSender, crmAdapter: crmAdapter);
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: new ConfirmationTemplateSet("Source {{attr.lead-source}}", "unused", "unused")),
+            CancellationToken.None);
+
+        Assert.Equal("Source zillow", smsSender.LastRequest?.Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_RendersMissingDynamicContactAttributeAsEmptyText()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var service = CreateService(smsSender, emailSender);
+        var templates = new ConfirmationTemplateSet(
+            "Estimated value: {{attr.estimatedValue}}.",
+            "Subject {{attr.missing}}",
+            "Body {{unknownToken}} {{attr.missing}}.");
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(templates: templates),
+            CancellationToken.None);
+
+        Assert.Equal("Estimated value: .", smsSender.LastRequest?.Body);
+        Assert.Equal("Subject ", emailSender.LastRequest?.Subject);
+        Assert.Equal("Body  .", emailSender.LastRequest?.Body);
+        Assert.DoesNotContain("null", smsSender.LastRequest?.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("null", emailSender.LastRequest?.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_RendersExistingHvacTemplatesIdentically()
+    {
+        var smsSender = new FakeSmsSender();
+        var emailSender = new FakeEmailSender();
+        var service = CreateService(smsSender, emailSender);
+        var templates = new ConfirmationTemplateSet(
+            "RNM appt confirmed\n{{bookingDate}} {{bookingTime}}\nService: {{serviceType}}\nAddress: {{serviceAddress}}\nRef: {{correlationId}}\nReply STOP to opt out.",
+            "RNM HVAC appointment confirmed for {{bookingDate}}",
+            "RNM Global Solutions\nAppointment confirmed\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nProperty type: {{propertyType}}\nService address: {{serviceAddress}}\nZIP code: {{zipCode}}\nReference: {{correlationId}}\n\nThank you for choosing RNM Global Solutions.",
+            BusinessSmsBodyTemplate: "New HVAC booking\n{{bookingDate}} {{bookingTime}}\n{{customerName}}\n{{customerPhoneNumber}}\n{{serviceType}}\n{{serviceAddress}}\nRef: {{correlationId}}",
+            BusinessEmailSubjectTemplate: "New HVAC booking: {{serviceType}} - {{bookingDate}} {{bookingTime}}",
+            BusinessEmailBodyTemplate: "New HVAC appointment booked\n\nCustomer\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\n\nAppointment\nDate: {{bookingDate}}\nTime: {{bookingTime}}\nService: {{serviceType}}\nProperty type: {{propertyType}}\nUrgency: {{urgency}}\nService address: {{serviceAddress}}\nZIP code: {{zipCode}}\n\nTracking\nBooking ID: {{providerBookingId}}\nCorrelation ID: {{correlationId}}");
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: templates,
+                serviceType: "AC not cooling",
+                urgency: "urgent",
+                businessNotificationEmail: "office@example.com",
+                businessNotificationPhoneNumber: "+15557654321",
+                notifyBusinessBySms: true),
+            CancellationToken.None);
+
+        Assert.Equal(
+            "RNM appt confirmed\n2026-05-01 09:00\nService: AC not cooling\nAddress: 123 Main Street, Addison, TX 75001\nRef: corr-123\nReply STOP to opt out.",
+            smsSender.Requests[0].Body);
+        Assert.Equal("RNM HVAC appointment confirmed for 2026-05-01", emailSender.Requests[0].Subject);
+        Assert.Equal(
+            "RNM Global Solutions\nAppointment confirmed\n\nCustomer\nName: Jane Lead\nPhone: +15551234567\nEmail: lead@example.com\n\nAppointment\nDate: 2026-05-01\nTime: 09:00\nService: AC not cooling\nProperty type: residential\nService address: 123 Main Street, Addison, TX 75001\nZIP code: 75001\nReference: corr-123\n\nThank you for choosing RNM Global Solutions.",
+            emailSender.Requests[0].Body);
+        Assert.Equal(
+            "New HVAC booking\n2026-05-01 09:00\nJane Lead\n+15551234567\nAC not cooling\n123 Main Street, Addison, TX 75001\nRef: corr-123",
+            smsSender.Requests[1].Body);
+        Assert.Equal("New HVAC booking: AC not cooling - 2026-05-01 09:00", emailSender.Requests[1].Subject);
+        Assert.Equal(
+            "New HVAC appointment booked\n\nCustomer\nName: Jane Lead\nPhone: +15551234567\nEmail: lead@example.com\n\nAppointment\nDate: 2026-05-01\nTime: 09:00\nService: AC not cooling\nProperty type: residential\nUrgency: urgent\nService address: 123 Main Street, Addison, TX 75001\nZIP code: 75001\n\nTracking\nBooking ID: booking-123\nCorrelation ID: corr-123",
+            emailSender.Requests[1].Body);
+    }
+
+    [Fact]
+    public async Task SendBookingConfirmationAsync_NewVerticalCanRenderConfiguredDynamicTemplates()
+    {
+        var smsSender = new FakeSmsSender();
+        var service = CreateService(smsSender: smsSender);
+        var templates = new ConfirmationTemplateSet(
+            "{{businessName}} booked {{attr.intent}} lead {{customerName}} for {{attr.targetPropertyAddress}}",
+            "unused",
+            "unused");
+
+        await service.SendBookingConfirmationAsync(
+            CreateRequest(
+                templates: templates,
+                businessName: "CRE Pilot",
+                contactAttributes: new Dictionary<string, string>
+                {
+                    ["intent"] = "buyer",
+                    ["targetPropertyAddress"] = "900 Commerce Ave"
+                }),
+            CancellationToken.None);
+
+        Assert.Equal("CRE Pilot booked buyer lead Jane Lead for 900 Commerce Ave", smsSender.LastRequest?.Body);
+    }
+
+    [Fact]
     public async Task SendBookingConfirmationAsync_RendersStructuredSmsAndEmailDetails()
     {
         var smsSender = new FakeSmsSender();
@@ -469,7 +675,9 @@ public sealed class ConfirmationApplicationServiceTests
         string? urgency = "non_urgent",
         string? businessNotificationEmail = null,
         string? businessNotificationPhoneNumber = null,
-        bool notifyBusinessBySms = false)
+        bool notifyBusinessBySms = false,
+        string? businessName = null,
+        IReadOnlyDictionary<string, string>? contactAttributes = null)
     {
         return new BookingConfirmationRequest(
             "tenant-a",
@@ -492,7 +700,9 @@ public sealed class ConfirmationApplicationServiceTests
             urgency,
             businessNotificationEmail,
             businessNotificationPhoneNumber,
-            notifyBusinessBySms);
+            notifyBusinessBySms,
+            businessName,
+            contactAttributes);
     }
 
     private static BookingDecisionResult CreateBookedDecision()

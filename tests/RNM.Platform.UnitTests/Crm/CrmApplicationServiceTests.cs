@@ -1,8 +1,13 @@
 using RNM.Platform.Application.Booking;
+using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Crm;
+using RNM.Platform.Application.FollowUps;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Qualification;
+using RNM.Platform.UnitTests.Classes;
+using RNM.Platform.UnitTests.FollowUps;
 using Xunit;
 
 namespace RNM.Platform.UnitTests.Crm;
@@ -121,6 +126,71 @@ public sealed class CrmApplicationServiceTests
             adapter.LastUpsertRequest?.Attributes ?? new Dictionary<string, string>(),
             item => string.Equals(item.Key, CrmContactAttributeNames.ConsentStatus, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(item.Value, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_SchedulesFutureAppointmentRemindersAndSkipsPastOffsets()
+    {
+        var adapter = new FakeCrmAdapter();
+        var store = new FakeClassSessionStore();
+        var startsAt = DateTimeOffset.UtcNow.AddHours(2);
+        var service = CreateService(
+            adapter,
+            classSessionStore: store);
+
+        var result = await service.SyncBookedLeadAsync(
+            CreateRequest(bookingDecision: CreateBookedDecision(startsAt)),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var reminder = Assert.Single(store.ScheduledReminders);
+        Assert.Equal(ReminderTargetTypes.Appointment, reminder.TargetType);
+        Assert.Equal("booking-123", reminder.TargetId);
+        Assert.Equal("contact-123", reminder.ProviderContactId);
+        Assert.Equal("Jane Lead", reminder.CustomerName);
+        Assert.Equal("+15551234567", reminder.CustomerPhoneNumber);
+        Assert.Equal("lead@example.com", reminder.CustomerEmail);
+        Assert.Equal("Afternoon", reminder.BookingLabel);
+        Assert.Equal(startsAt, reminder.StartsAt);
+        Assert.Equal("https://meet.google.com/abc-defg-hij", reminder.OnlineMeetingUrl);
+        Assert.Equal("60m_before", reminder.ReminderKind);
+        Assert.Contains(adapter.TimelineEvents, evt =>
+            evt.EventType == CrmTimelineEventTypes.AppointmentReminderScheduled
+            && evt.ProviderBookingId == "booking-123");
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_DoesNotScheduleAppointmentRemindersForAlreadyStartedBooking()
+    {
+        var store = new FakeClassSessionStore();
+        var service = CreateService(
+            classSessionStore: store);
+
+        var result = await service.SyncBookedLeadAsync(
+            CreateRequest(bookingDecision: CreateBookedDecision(DateTimeOffset.UtcNow.AddMinutes(-5))),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(store.ScheduledReminders);
+    }
+
+    [Fact]
+    public async Task SyncBookedLeadAsync_DoesNotRecordScheduledTimelineWhenAllReminderOffsetsArePast()
+    {
+        var adapter = new FakeCrmAdapter();
+        var store = new FakeClassSessionStore();
+        var service = CreateService(
+            adapter,
+            classSessionStore: store);
+
+        var result = await service.SyncBookedLeadAsync(
+            CreateRequest(bookingDecision: CreateBookedDecision(DateTimeOffset.UtcNow.AddMinutes(30))),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(store.ScheduledReminders);
+        Assert.DoesNotContain(adapter.TimelineEvents, evt =>
+            evt.EventType == CrmTimelineEventTypes.AppointmentReminderScheduled);
     }
 
     [Fact]
@@ -650,13 +720,46 @@ public sealed class CrmApplicationServiceTests
         Assert.DoesNotContain("GoHighLevel", typeof(CrmContactUpsertRequest).FullName);
     }
 
+    [Fact]
+    public async Task MarkFollowUpRequiredAsync_SchedulesConfiguredFollowUpAutomation()
+    {
+        var adapter = new FakeCrmAdapter();
+        var followUpStore = new RecordingFollowUpStore();
+        var scheduler = new FollowUpSchedulingService(
+            new FollowUpTenantProvider(),
+            followUpStore,
+            adapter,
+            new RecordingCrmEventLogger());
+        var service = CreateService(adapter: adapter, followUpSchedulingService: scheduler);
+
+        var result = await service.MarkFollowUpRequiredAsync(
+            new CrmFollowUpRequest("tenant-a", "corr-123", "contact-123", "No booking")
+            {
+                CustomerName = "Jane Lead",
+                CustomerPhoneNumber = "+15551234567",
+                CustomerEmail = "lead@example.com",
+                LastInteractionAt = new DateTimeOffset(2026, 7, 10, 14, 0, 0, TimeSpan.Zero)
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var followUp = Assert.Single(followUpStore.FollowUps.Values);
+        Assert.Equal("contact-123", followUp.ProviderContactId);
+        Assert.Equal(FollowUpTriggers.LeadFollowUpRequired, followUp.TriggerEventType);
+    }
+
     private static CrmApplicationService CreateService(
         FakeCrmAdapter? adapter = null,
-        RecordingCrmEventLogger? eventLogger = null)
+        RecordingCrmEventLogger? eventLogger = null,
+        IClassSessionStore? classSessionStore = null,
+        FollowUpSchedulingService? followUpSchedulingService = null)
     {
         return new CrmApplicationService(
             adapter ?? new FakeCrmAdapter(),
-            eventLogger ?? new RecordingCrmEventLogger());
+            eventLogger ?? new RecordingCrmEventLogger(),
+            classSessionStore is null ? null : new FakeTenantConfigurationProvider(),
+            classSessionStore,
+            followUpSchedulingService);
     }
 
     private static CrmSyncRequest CreateRequest(
@@ -754,12 +857,13 @@ public sealed class CrmApplicationServiceTests
         };
     }
 
-    private static BookingDecisionResult CreateBookedDecision()
+    private static BookingDecisionResult CreateBookedDecision(DateTimeOffset? startsAt = null)
     {
+        var start = startsAt ?? new DateTimeOffset(2026, 5, 1, 14, 0, 0, TimeSpan.Zero);
         var slot = new AvailableSlot(
             "slot-1",
-            new DateTimeOffset(2026, 5, 1, 14, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 5, 1, 15, 0, 0, TimeSpan.Zero),
+            start,
+            start.AddHours(1),
             "Afternoon");
 
         return new BookingDecisionResult(
@@ -767,7 +871,8 @@ public sealed class CrmApplicationServiceTests
             FailureReason: null,
             [slot],
             slot,
-            "booking-123");
+            "booking-123",
+            OnlineMeetingUrl: "https://meet.google.com/abc-defg-hij");
     }
 
     private static BookingDecisionResult CreateNonBookedDecision()

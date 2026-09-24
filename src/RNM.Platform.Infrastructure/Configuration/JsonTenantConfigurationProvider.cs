@@ -78,7 +78,10 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         SecretNameConfigurationDto? SecretNames,
         CommunicationConfigurationDto? Communication,
         ReportingConfigurationDto? Reporting,
-        VoiceConfigurationDto? Voice)
+        VoiceConfigurationDto? Voice,
+        ClassAutomationConfigurationDto? Classes,
+        FollowUpAutomationConfigurationDto? FollowUps,
+        IntegrationConfigurationDto? Integrations)
     {
         public TenantConfiguration ToDomain()
         {
@@ -104,7 +107,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                     SecretNames?.TwilioAuthToken ?? string.Empty,
                     SecretNames?.EmailConnectionString ?? string.Empty,
                     SecretNames?.CrmCredentials,
-                    SecretNames?.BookingCredentials),
+                    SecretNames?.BookingCredentials,
+                    SecretNames?.ManyChatWebhookSecret,
+                    SecretNames?.ClassRegistrationWebhookSecret),
                 new CommunicationConfiguration(
                     Communication?.SmsFromPhoneNumber ?? string.Empty,
                     Communication?.EmailFromAddress,
@@ -117,7 +122,22 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                         Communication?.ConfirmationTemplates?.BusinessEmailBodyTemplate),
                     Communication?.BusinessNotificationEmail,
                     Communication?.BusinessNotificationPhoneNumber,
-                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? true),
+                    Communication?.NotifyBusinessBySmsForUrgentOnly ?? false,
+                    CreateBusinessSmsNotificationConfiguration(Communication),
+                    Communication?.AppointmentReminders is null
+                        ? null
+                        : new AppointmentReminderConfiguration(
+                            Communication.AppointmentReminders.Templates is null
+                                ? null
+                                : new ConfirmationTemplateConfiguration(
+                                    Communication.AppointmentReminders.Templates.SmsBodyTemplate ?? string.Empty,
+                                    Communication.AppointmentReminders.Templates.EmailSubjectTemplate,
+                                    Communication.AppointmentReminders.Templates.EmailBodyTemplate,
+                                    Communication.AppointmentReminders.Templates.BusinessSmsBodyTemplate,
+                                    Communication.AppointmentReminders.Templates.BusinessEmailSubjectTemplate,
+                                    Communication.AppointmentReminders.Templates.BusinessEmailBodyTemplate),
+                            Communication.AppointmentReminders.ReminderOffsetsMinutes,
+                            Communication.AppointmentReminders.ReminderStalenessCutoffMinutes)),
                 new ReportingConfiguration(
                     Reporting?.CloseRate,
                     Reporting?.AvgCommissionValue,
@@ -148,7 +168,68 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                     ? null
                                     : new TcpaWindowConfiguration(
                                         Voice.Outbound.TcpaWindow.StartHour,
-                                        Voice.Outbound.TcpaWindow.EndHour))));
+                                        Voice.Outbound.TcpaWindow.EndHour))),
+                Classes is null
+                    ? null
+                    : new ClassAutomationConfiguration(
+                        Classes.RegistrationTemplates is null
+                            ? null
+                            : new ClassNotificationTemplateConfiguration(
+                                Classes.RegistrationTemplates.SmsBodyTemplate,
+                                Classes.RegistrationTemplates.EmailSubjectTemplate,
+                                Classes.RegistrationTemplates.EmailBodyTemplate),
+                        Classes.ReminderTemplates is null
+                            ? null
+                            : new ClassNotificationTemplateConfiguration(
+                                Classes.ReminderTemplates.SmsBodyTemplate,
+                                Classes.ReminderTemplates.EmailSubjectTemplate,
+                                Classes.ReminderTemplates.EmailBodyTemplate),
+                        Classes.ReminderOffsetsMinutes,
+                        Classes.AllowedRegistrationOrigins,
+                        Classes.ReminderStalenessCutoffMinutes,
+                        Classes.MaxRegistrationsPerMinute),
+                FollowUps is null
+                    ? null
+                    : new FollowUpAutomationConfiguration(
+                        FollowUps.Enabled,
+                        FollowUps.StalenessCutoffMinutes,
+                        FollowUps.MaxFollowUpsPerContactPerDay,
+                        FollowUps.Sequences?.Select(sequence =>
+                                new FollowUpSequenceConfiguration(
+                                    sequence.Id ?? string.Empty,
+                                    sequence.Trigger ?? string.Empty,
+                                    sequence.Steps?.Select(step =>
+                                            new FollowUpStepConfiguration(
+                                                step.DelayMinutes ?? 0,
+                                                step.Channel ?? string.Empty,
+                                                step.SmsBodyTemplate,
+                                                step.EmailSubjectTemplate,
+                                                step.EmailBodyTemplate,
+                                                step.RequiresConsent))
+                                        .ToArray(),
+                                    sequence.StopWhen?.Select(condition =>
+                                            new FollowUpStopConditionConfiguration(
+                                                condition.Attribute,
+                                                condition.EqualsAny,
+                                                condition.ConsentStatus))
+                                        .ToArray()))
+                            .ToArray()),
+                Integrations is null
+                    ? null
+                    : new IntegrationConfiguration(
+                        Integrations.ManyChat is null
+                            ? null
+                            : new ManyChatIntegrationConfiguration(
+                                Integrations.ManyChat.Enabled,
+                                Integrations.ManyChat.ScheduleFollowUp,
+                                Integrations.ManyChat.MaxRequestsPerMinute,
+                                Integrations.ManyChat.RoutingActions is null
+                                    ? null
+                                    : new ManyChatRoutingActionsConfiguration(
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.Consultation),
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.MasterClass),
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.FollowUp),
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.None)))));
         }
     }
 
@@ -172,7 +253,40 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? TwilioAuthToken,
         string? EmailConnectionString,
         string? CrmCredentials,
-        string? BookingCredentials);
+        string? BookingCredentials,
+        string? ManyChatWebhookSecret,
+        string? ClassRegistrationWebhookSecret);
+
+    private sealed record IntegrationConfigurationDto(
+        ManyChatIntegrationConfigurationDto? ManyChat);
+
+    private sealed record ManyChatIntegrationConfigurationDto(
+        bool? Enabled,
+        bool? ScheduleFollowUp,
+        int? MaxRequestsPerMinute,
+        ManyChatRoutingActionsConfigurationDto? RoutingActions);
+
+    private sealed record ManyChatRoutingActionsConfigurationDto(
+        ManyChatRoutingActionConfigurationDto? Consultation,
+        ManyChatRoutingActionConfigurationDto? MasterClass,
+        ManyChatRoutingActionConfigurationDto? FollowUp,
+        ManyChatRoutingActionConfigurationDto? None);
+
+    private sealed record ManyChatRoutingActionConfigurationDto(
+        string? Type,
+        string? Label,
+        string? Url,
+        string? Message);
+
+    private static ManyChatRoutingActionConfiguration? ToRoutingAction(
+        ManyChatRoutingActionConfigurationDto? action) =>
+        action is null
+            ? null
+            : new ManyChatRoutingActionConfiguration(
+                action.Type,
+                action.Label,
+                action.Url,
+                action.Message);
 
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,
@@ -180,7 +294,46 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         ConfirmationTemplateConfigurationDto? ConfirmationTemplates,
         string? BusinessNotificationEmail,
         string? BusinessNotificationPhoneNumber,
-        bool? NotifyBusinessBySmsForUrgentOnly);
+        bool? NotifyBusinessBySmsForUrgentOnly,
+        BusinessSmsNotificationConfigurationDto? BusinessSmsNotification,
+        AppointmentReminderConfigurationDto? AppointmentReminders);
+
+    private static BusinessSmsNotificationConfiguration CreateBusinessSmsNotificationConfiguration(
+        CommunicationConfigurationDto? communication)
+    {
+        if (communication?.BusinessSmsNotification is not null)
+        {
+            return new BusinessSmsNotificationConfiguration(
+                communication.BusinessSmsNotification.Mode ?? BusinessSmsNotificationConfiguration.AlwaysMode,
+                communication.BusinessSmsNotification.Condition is null
+                    ? null
+                    : new BusinessSmsNotificationCondition(
+                        communication.BusinessSmsNotification.Condition.Attribute ?? string.Empty,
+                        communication.BusinessSmsNotification.Condition.EqualsAny ?? []));
+        }
+
+        if (communication?.NotifyBusinessBySmsForUrgentOnly is true)
+        {
+            return BusinessSmsNotificationConfiguration.Conditional(
+                "urgency",
+                ["urgent", "emergency", "asap", "same-day", "today"]);
+        }
+
+        return BusinessSmsNotificationConfiguration.Always();
+    }
+
+    private sealed record BusinessSmsNotificationConfigurationDto(
+        string? Mode,
+        BusinessSmsNotificationConditionDto? Condition);
+
+    private sealed record BusinessSmsNotificationConditionDto(
+        string? Attribute,
+        IReadOnlyCollection<string>? EqualsAny);
+
+    private sealed record AppointmentReminderConfigurationDto(
+        ConfirmationTemplateConfigurationDto? Templates,
+        IReadOnlyCollection<int>? ReminderOffsetsMinutes,
+        int? ReminderStalenessCutoffMinutes);
 
     private sealed record ConfirmationTemplateConfigurationDto(
         string? SmsBodyTemplate,
@@ -220,4 +373,42 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private sealed record TcpaWindowConfigurationDto(
         int? StartHour,
         int? EndHour);
+
+    private sealed record ClassAutomationConfigurationDto(
+        ClassNotificationTemplateConfigurationDto? RegistrationTemplates,
+        ClassNotificationTemplateConfigurationDto? ReminderTemplates,
+        IReadOnlyCollection<int>? ReminderOffsetsMinutes,
+        IReadOnlyCollection<string>? AllowedRegistrationOrigins,
+        int? ReminderStalenessCutoffMinutes,
+        int? MaxRegistrationsPerMinute);
+
+    private sealed record ClassNotificationTemplateConfigurationDto(
+        string? SmsBodyTemplate,
+        string? EmailSubjectTemplate,
+        string? EmailBodyTemplate);
+
+    private sealed record FollowUpAutomationConfigurationDto(
+        bool? Enabled,
+        int? StalenessCutoffMinutes,
+        int? MaxFollowUpsPerContactPerDay,
+        IReadOnlyCollection<FollowUpSequenceConfigurationDto>? Sequences);
+
+    private sealed record FollowUpSequenceConfigurationDto(
+        string? Id,
+        string? Trigger,
+        IReadOnlyCollection<FollowUpStepConfigurationDto>? Steps,
+        IReadOnlyCollection<FollowUpStopConditionConfigurationDto>? StopWhen);
+
+    private sealed record FollowUpStepConfigurationDto(
+        int? DelayMinutes,
+        string? Channel,
+        string? SmsBodyTemplate,
+        string? EmailSubjectTemplate,
+        string? EmailBodyTemplate,
+        string? RequiresConsent);
+
+    private sealed record FollowUpStopConditionConfigurationDto(
+        string? Attribute,
+        IReadOnlyCollection<string>? EqualsAny,
+        string? ConsentStatus);
 }

@@ -41,6 +41,12 @@ public sealed class JsonVerticalConfigurationProvider : IVerticalConfigurationPr
             ?? throw new ConfigurationException($"Vertical configuration '{verticalId}' is empty or invalid JSON.");
 
         var configuration = dto.ToDomain();
+        if (!string.Equals(configuration.VerticalId.Value, verticalId, StringComparison.Ordinal))
+        {
+            throw new ConfigurationException(
+                $"Vertical configuration '{verticalId}' has a mismatched verticalId.");
+        }
+
         var validation = configurationValidator.ValidateVertical(configuration);
         if (!validation.IsValid)
         {

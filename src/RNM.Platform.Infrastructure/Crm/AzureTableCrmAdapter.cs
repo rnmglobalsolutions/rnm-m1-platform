@@ -278,6 +278,7 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
                 ["Urgency"] = SafeValue(request.Urgency),
                 ["PreferredWindow"] = SafeValue(request.PreferredWindow),
                 ["BookingLabel"] = SafeValue(request.BookingLabel),
+                ["OnlineMeetingUrl"] = SafeTableString(request.OnlineMeetingUrl),
                 ["TimeZone"] = SafeValue(request.TimeZone),
                 ["BookingState"] = SafeValue(request.BookingState),
                 ["QualificationState"] = SafeValue(request.QualificationState),

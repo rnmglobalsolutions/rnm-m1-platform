@@ -1,4 +1,8 @@
+using RNM.Platform.Application.Classes;
+using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.FollowUps;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Qualification;
 
@@ -31,13 +35,22 @@ public sealed class CrmApplicationService
 
     private readonly ICrmAdapter crmAdapter;
     private readonly IEventLogger eventLogger;
+    private readonly ITenantConfigurationProvider? tenantConfigurationProvider;
+    private readonly IClassSessionStore? classSessionStore;
+    private readonly FollowUpSchedulingService? followUpSchedulingService;
 
     public CrmApplicationService(
         ICrmAdapter crmAdapter,
-        IEventLogger eventLogger)
+        IEventLogger eventLogger,
+        ITenantConfigurationProvider? tenantConfigurationProvider = null,
+        IClassSessionStore? classSessionStore = null,
+        FollowUpSchedulingService? followUpSchedulingService = null)
     {
         this.crmAdapter = crmAdapter;
         this.eventLogger = eventLogger;
+        this.tenantConfigurationProvider = tenantConfigurationProvider;
+        this.classSessionStore = classSessionStore;
+        this.followUpSchedulingService = followUpSchedulingService;
     }
 
     public async Task<CrmSyncResult> SyncBookedLeadAsync(
@@ -244,6 +257,8 @@ public sealed class CrmApplicationService
                 request,
                 cancellationToken)
             .ConfigureAwait(false);
+        await TryScheduleAppointmentRemindersAsync(request, contactId, cancellationToken)
+            .ConfigureAwait(false);
         return synced;
     }
 
@@ -296,7 +311,7 @@ public sealed class CrmApplicationService
                     request.ProviderContactId,
                     ProviderBookingId: null,
                     CrmTimelineEventTypes.FollowUpRequired,
-                    Source: "InboundVoice",
+                    Source: request.Source,
                     Summary: $"Follow-up required: {request.Reason}",
                     new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {
@@ -308,6 +323,8 @@ public sealed class CrmApplicationService
                 request.ProviderContactId,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        await TryScheduleFollowUpAutomationAsync(request, cancellationToken).ConfigureAwait(false);
 
         return result;
     }
@@ -640,6 +657,7 @@ public sealed class CrmApplicationService
             Urgency = GetFieldValue(request, "urgency"),
             PreferredWindow = request.PreferredWindow ?? GetFieldValue(request, "preferredTime"),
             BookingLabel = selectedSlot?.Label,
+            OnlineMeetingUrl = request.BookingDecision.OnlineMeetingUrl,
             StartsAt = selectedSlot?.StartsAt,
             EndsAt = selectedSlot?.EndsAt,
             TimeZone = request.TimeZone,
@@ -676,6 +694,153 @@ public sealed class CrmApplicationService
                 field => field.Key,
                 field => field.Value.Trim(),
                 StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task TryScheduleAppointmentRemindersAsync(
+        CrmPostBookingSyncRequest request,
+        string providerContactId,
+        CancellationToken cancellationToken)
+    {
+        if (tenantConfigurationProvider is null || classSessionStore is null)
+        {
+            return;
+        }
+
+        var selectedSlot = request.BookingDecision.SelectedSlot;
+        var now = DateTimeOffset.UtcNow;
+        if (selectedSlot is null
+            || string.IsNullOrWhiteSpace(request.BookingDecision.ProviderBookingId)
+            || selectedSlot.StartsAt <= now)
+        {
+            return;
+        }
+
+        try
+        {
+            var tenant = await tenantConfigurationProvider
+                .GetTenantConfigurationAsync(request.TenantId, cancellationToken)
+                .ConfigureAwait(false);
+            var reminderConfig = tenant.Communication.EffectiveAppointmentReminders;
+            var futureOffsets = reminderConfig.EffectiveReminderOffsetsMinutes
+                .Distinct()
+                .Where(offsetMinutes => offsetMinutes > 0 && selectedSlot.StartsAt.AddMinutes(-offsetMinutes) > now)
+                .ToArray();
+            if (futureOffsets.Length == 0)
+            {
+                return;
+            }
+
+            var leadData = request.QualificationResult.LeadData;
+
+            await classSessionStore
+                .ScheduleAppointmentRemindersAsync(
+                    new AppointmentReminderScheduleRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        providerContactId,
+                        request.BookingDecision.ProviderBookingId,
+                        GetFieldValue(request, "name"),
+                        leadData.CallerPhoneNumber,
+                        GetFieldValue(request, "email"),
+                        selectedSlot.Label,
+                        selectedSlot.StartsAt,
+                        selectedSlot.EndsAt,
+                        request.TimeZone ?? tenant.TimeZone,
+                        request.BookingDecision.OnlineMeetingUrl,
+                        futureOffsets,
+                        CreateAppointmentReminderAttributes(request)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            await TryAddTimelineEventAsync(
+                    CreateAppointmentReminderScheduledTimelineEvent(
+                        request,
+                        providerContactId,
+                        request.BookingDecision.ProviderBookingId,
+                        futureOffsets.Length),
+                    request,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            await LogAsync(
+                    TelemetryEventNames.CrmTimelineEventFailed,
+                    request.TenantId,
+                    request.CorrelationId,
+                    providerContactId,
+                    CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task TryScheduleFollowUpAutomationAsync(
+        CrmFollowUpRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (followUpSchedulingService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await followUpSchedulingService
+                .ScheduleAsync(
+                    new FollowUpScheduleRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        request.ProviderContactId,
+                        FollowUpTriggers.LeadFollowUpRequired,
+                        request.Reason)
+                    {
+                        CustomerName = request.CustomerName,
+                        CustomerPhoneNumber = request.CustomerPhoneNumber,
+                        CustomerEmail = request.CustomerEmail,
+                        Attributes = request.Attributes,
+                        TriggeredAt = request.LastInteractionAt
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            await LogAsync(
+                    TelemetryEventNames.FollowUpSendFailed,
+                    request.TenantId,
+                    request.CorrelationId,
+                    request.ProviderContactId,
+                    CrmFailureReason.AdapterFailure,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> CreateAppointmentReminderAttributes(CrmPostBookingSyncRequest request)
+    {
+        var attributes = request.QualificationResult.LeadData.Fields
+            .Where(field =>
+                ContactAttributeFields.Contains(field.Key)
+                && !string.IsNullOrWhiteSpace(field.Value))
+            .ToDictionary(
+                field => field.Key,
+                field => field.Value.Trim(),
+                StringComparer.OrdinalIgnoreCase);
+
+        AddIfPresent(attributes, "serviceType", request.ServiceType ?? GetFieldValue(request, "serviceNeed"));
+        AddIfPresent(attributes, "zipCode", request.QualificationResult.LeadData.ZipCode);
+        AddIfPresent(attributes, "timeZone", request.TimeZone);
+        AddIfPresent(attributes, "bookingProvider", request.BookingProvider);
+        return attributes;
     }
 
     private static CrmTimelineEventRequest CreateLeadQualifiedTimelineEvent(
@@ -741,6 +906,29 @@ public sealed class CrmApplicationService
                 ["marketingConsent"] = "not_granted",
                 ["bookingProvider"] = request.BookingProvider ?? string.Empty,
                 ["bookingLabel"] = request.BookingDecision.SelectedSlot?.Label ?? string.Empty
+            });
+    }
+
+    private static CrmTimelineEventRequest CreateAppointmentReminderScheduledTimelineEvent(
+        CrmPostBookingSyncRequest request,
+        string providerContactId,
+        string providerBookingId,
+        int configuredReminderCount)
+    {
+        return new CrmTimelineEventRequest(
+            request.TenantId,
+            request.CorrelationId,
+            providerContactId,
+            providerBookingId,
+            CrmTimelineEventTypes.AppointmentReminderScheduled,
+            "AppointmentReminder",
+            "Appointment reminders scheduled.",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["targetType"] = ReminderTargetTypes.Appointment,
+                ["targetId"] = providerBookingId,
+                ["configuredReminderCount"] = configuredReminderCount.ToString(),
+                ["bookingProvider"] = request.BookingProvider ?? string.Empty
             });
     }
 
@@ -968,6 +1156,14 @@ public sealed class CrmApplicationService
         if (!string.IsNullOrWhiteSpace(value))
         {
             noteLines.Add($"{label}: {value.Trim()}");
+        }
+    }
+
+    private static void AddIfPresent(IDictionary<string, string> values, string key, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
+        {
+            values[key.Trim()] = value.Trim();
         }
     }
 

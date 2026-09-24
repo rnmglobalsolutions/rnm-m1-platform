@@ -74,4 +74,25 @@ public static class TelemetryEventNames
     public const string OutboundCallStarted = "outbound.call.started";
     public const string OutboundCallFailed = "outbound.call.failed";
     public const string OutboundCallCompleted = "outbound.call.completed";
+    public const string ClassSessionUpserted = "class.session.upserted";
+    public const string ClassRegistrationRequested = "class.registration.requested";
+    public const string ClassRegistrationCompleted = "class.registration.completed";
+    public const string ClassRegistrationFailed = "class.registration.failed";
+    public const string ClassNotificationFailed = "class.notification.failed";
+    public const string ClassReminderRunRequested = "class.reminder_run.requested";
+    public const string ClassReminderRunCompleted = "class.reminder_run.completed";
+    public const string ClassReminderFailed = "class.reminder.failed";
+    public const string ClassReportRequested = "class.report.requested";
+    public const string ClassReportCompleted = "class.report.completed";
+    public const string FollowUpScheduled = "followup.scheduled";
+    public const string FollowUpRunRequested = "followup.run.requested";
+    public const string FollowUpRunCompleted = "followup.run.completed";
+    public const string FollowUpSendFailed = "followup.send.failed";
+    public const string LeadIntakeRequested = "lead_intake.requested";
+    public const string LeadIntakeAuthenticated = "lead_intake.authenticated";
+    public const string LeadIntakeDuplicate = "lead_intake.duplicate";
+    public const string LeadIntakeCompleted = "lead_intake.completed";
+    public const string LeadIntakeFailed = "lead_intake.failed";
+    public const string LeadIntakeBusinessNotificationQueued = "lead_intake.business_notification.queued";
+    public const string LeadIntakeBusinessNotificationFailed = "lead_intake.business_notification.failed";
 }

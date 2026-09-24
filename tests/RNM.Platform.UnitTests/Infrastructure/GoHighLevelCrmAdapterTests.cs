@@ -14,6 +14,73 @@ namespace RNM.Platform.UnitTests.Infrastructure;
 public sealed class GoHighLevelCrmAdapterTests
 {
     [Fact]
+    public async Task FindContactByPhoneOrEmailAsync_ReturnsNormalizedAttributesFromCustomFields()
+    {
+        var handler = new RecordingHttpMessageHandler(
+            HttpStatusCode.OK,
+            """
+            {
+              "contacts": [
+                {
+                  "id": "contact-123",
+                  "phone": "+13052445176",
+                  "email": "lead@example.com",
+                  "firstName": "Jane",
+                  "lastName": "Seller",
+                  "postalCode": "33131",
+                  "source": "zillow",
+                  "customFields": [
+                    { "fieldKey": "contact.intent", "value": "seller" },
+                    { "name": "targetPropertyAddress", "value": "123 Market St" },
+                    { "key": "assignedAgent", "value": "Alex Agent" }
+                  ]
+                }
+              ]
+            }
+            """);
+        var adapter = CreateAdapter(handler);
+
+        var result = await adapter.FindContactByPhoneOrEmailAsync(
+            new CrmContactLookupRequest("tenant-a", "corr-123", "+13052445176", "lead@example.com"),
+            CancellationToken.None);
+
+        Assert.True(result.Found);
+        Assert.Equal("contact-123", result.ProviderContactId);
+        Assert.NotNull(result.Contact);
+        Assert.Equal("Jane Seller", result.Contact.Name);
+        Assert.Equal("33131", result.Contact.ZipCode);
+        Assert.Equal("zillow", result.Contact.Attributes[CrmContactAttributeNames.LeadSource]);
+        Assert.Equal("seller", result.Contact.Attributes[CrmContactAttributeNames.Intent]);
+        Assert.Equal("123 Market St", result.Contact.Attributes[CrmContactAttributeNames.TargetPropertyAddress]);
+        Assert.Equal("Alex Agent", result.Contact.Attributes[CrmContactAttributeNames.AssignedAgent]);
+    }
+
+    [Fact]
+    public async Task FindContactByPhoneOrEmailAsync_ReturnsEmptyAttributes_WhenGoHighLevelHasNoCustomFields()
+    {
+        var handler = new RecordingHttpMessageHandler(
+            HttpStatusCode.OK,
+            """
+            {
+              "contact": {
+                "id": "contact-123",
+                "phone": "+13052445176",
+                "email": "lead@example.com"
+              }
+            }
+            """);
+        var adapter = CreateAdapter(handler);
+
+        var result = await adapter.FindContactByPhoneOrEmailAsync(
+            new CrmContactLookupRequest("tenant-a", "corr-123", "+13052445176", "lead@example.com"),
+            CancellationToken.None);
+
+        Assert.True(result.Found);
+        Assert.NotNull(result.Contact);
+        Assert.Empty(result.Contact.Attributes);
+    }
+
+    [Fact]
     public async Task AddInteractionNoteAsync_PostsNoteToContact()
     {
         var handler = new RecordingHttpMessageHandler(HttpStatusCode.Created);
@@ -101,10 +168,12 @@ public sealed class GoHighLevelCrmAdapterTests
     private sealed class RecordingHttpMessageHandler : HttpMessageHandler
     {
         private readonly HttpStatusCode statusCode;
+        private readonly string responseBody;
 
-        public RecordingHttpMessageHandler(HttpStatusCode statusCode)
+        public RecordingHttpMessageHandler(HttpStatusCode statusCode, string responseBody = "{}")
         {
             this.statusCode = statusCode;
+            this.responseBody = responseBody;
         }
 
         public Uri? RequestUri { get; private set; }
@@ -121,7 +190,7 @@ public sealed class GoHighLevelCrmAdapterTests
                 : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             return new HttpResponseMessage(statusCode)
             {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+                Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
             };
         }
     }

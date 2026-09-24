@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Classes;
+using RNM.Platform.Application.Ports.Classes;
 using RNM.Platform.Application.Ports.Messaging;
 using RNM.Platform.Infrastructure.Messaging;
 
@@ -13,15 +15,18 @@ public sealed class ConfirmationRetryFunction
     private readonly ISmsSender smsSender;
     private readonly IEmailSender emailSender;
     private readonly IEventLogger eventLogger;
+    private readonly IClassSessionStore? classSessionStore;
 
     public ConfirmationRetryFunction(
         ISmsSender smsSender,
         IEmailSender emailSender,
-        IEventLogger eventLogger)
+        IEventLogger eventLogger,
+        IClassSessionStore? classSessionStore = null)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
         this.eventLogger = eventLogger;
+        this.classSessionStore = classSessionStore;
     }
 
     [Function("ConfirmationRetry")]
@@ -51,9 +56,53 @@ public sealed class ConfirmationRetryFunction
                 cancellationToken)
             .ConfigureAwait(false);
 
+        if (succeeded)
+        {
+            await TryUpdateClassRegistrationStatusAsync(retry, cancellationToken).ConfigureAwait(false);
+        }
+
         if (!succeeded)
         {
             throw new InvalidOperationException("Confirmation retry provider call failed.");
+        }
+    }
+
+    private async Task TryUpdateClassRegistrationStatusAsync(
+        ConfirmationRetryRequest retry,
+        CancellationToken cancellationToken)
+    {
+        if (classSessionStore is null || string.IsNullOrWhiteSpace(retry.ClassRegistrationId))
+        {
+            return;
+        }
+
+        var smsStatus = retry.Kind is ConfirmationRetryKind.CustomerSms
+            ? ConfirmationChannelStatus.Sent.ToString()
+            : null;
+        var emailStatus = retry.Kind is ConfirmationRetryKind.CustomerEmail
+            ? ConfirmationChannelStatus.Sent.ToString()
+            : null;
+        if (smsStatus is null && emailStatus is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await classSessionStore
+                .UpdateRegistrationNotificationStatusAsync(
+                    new ClassNotificationStatusUpdate(
+                        retry.TenantId,
+                        retry.ClassRegistrationId,
+                        retry.CorrelationId,
+                        smsStatus,
+                        emailStatus),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Delivery already succeeded; a status projection failure must not resend the message.
         }
     }
 

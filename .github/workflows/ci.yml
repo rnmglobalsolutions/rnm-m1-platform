@@ -44,6 +44,17 @@ jobs:
       - name: Test
         run: dotnet test RNM.Platform.sln --configuration Release --no-build
 
+      - name: Validate tenant manifests
+        run: >-
+          dotnet run
+          --project tools/RNM.Platform.TenantPreflight/RNM.Platform.TenantPreflight.csproj
+          --configuration Release
+          --no-build
+          --
+          --all
+          --environment repository
+          --json
+
       - name: Validate Bicep syntax
         run: az bicep build --file infra/main.bicep
 

@@ -7,12 +7,16 @@ public sealed class ConfigurationValidator : IConfigurationValidator
     private const int MaxSmsTemplateLength = 320;
     private const int MaxEmailSubjectTemplateLength = 120;
     private const int MaxEmailBodyTemplateLength = 2000;
+    private const string SmsFollowUpChannel = "sms";
+    private const string EmailFollowUpChannel = "email";
 
     private static readonly HashSet<string> AllowedConfirmationTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "tenantId",
         "verticalId",
+        "businessName",
         "correlationId",
+        "campaignId",
         "customerName",
         "customerPhoneNumber",
         "customerEmail",
@@ -22,11 +26,50 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         "zipCode",
         "urgency",
         "providerBookingId",
+        "onlineMeetingUrl",
         "bookingLabel",
         "bookingStart",
         "bookingEnd",
         "bookingDate",
-        "bookingTime"
+        "bookingTime",
+        "timeZone"
+    };
+
+    private static readonly HashSet<string> AllowedClassTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tenantId",
+        "verticalId",
+        "businessName",
+        "correlationId",
+        "sessionId",
+        "registrationId",
+        "campaignId",
+        "classTitle",
+        "classStart",
+        "classEnd",
+        "classDate",
+        "classTime",
+        "timeZone",
+        "zoomUrl",
+        "customerName",
+        "customerPhoneNumber",
+        "customerEmail"
+    };
+
+    private static readonly HashSet<string> AllowedFollowUpTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tenantId",
+        "businessName",
+        "correlationId",
+        "providerContactId",
+        "customerName",
+        "customerPhoneNumber",
+        "customerEmail",
+        "sequenceId",
+        "stepIndex",
+        "triggerEventType",
+        "reason",
+        "campaignId"
     };
 
     public ConfigurationValidationResult ValidateTenant(TenantConfiguration tenantConfiguration)
@@ -129,8 +172,13 @@ public sealed class ConfigurationValidator : IConfigurationValidator
                 MaxEmailBodyTemplateLength);
         }
 
+        ValidateBusinessSmsNotification(errors, tenantConfiguration.Communication.BusinessSmsNotification);
+        ValidateAppointmentReminders(errors, tenantConfiguration.Communication.AppointmentReminders);
         ValidateReporting(errors, tenantConfiguration.Reporting);
         ValidateVoice(errors, tenantConfiguration.Voice);
+        ValidateClasses(errors, tenantConfiguration.Classes, tenantConfiguration.SecretNames);
+        ValidateFollowUps(errors, tenantConfiguration.FollowUps);
+        ValidateIntegrations(errors, tenantConfiguration.Integrations, tenantConfiguration.SecretNames);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -206,7 +254,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             }
 
             var token = template[(tokenStart + 2)..tokenEnd].Trim();
-            if (!AllowedConfirmationTokens.Contains(token))
+            if (!IsSupportedConfirmationToken(token))
             {
                 errors.Add($"{fieldName} contains unsupported template token '{token}'.");
             }
@@ -247,6 +295,126 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         if (reporting.Baseline?.AppointmentsPerWeek is < 0)
         {
             errors.Add("reporting.baseline.appointmentsPerWeek must be zero or greater.");
+        }
+    }
+
+    private static void ValidateAppointmentReminders(
+        ICollection<string> errors,
+        AppointmentReminderConfiguration? appointmentReminders)
+    {
+        if (appointmentReminders is null)
+        {
+            return;
+        }
+
+        ValidateConfirmationTemplate(
+            errors,
+            appointmentReminders.Templates?.SmsBodyTemplate,
+            "communication.appointmentReminders.templates.smsBodyTemplate",
+            MaxSmsTemplateLength);
+        ValidateConfirmationTemplate(
+            errors,
+            appointmentReminders.Templates?.EmailSubjectTemplate,
+            "communication.appointmentReminders.templates.emailSubjectTemplate",
+            MaxEmailSubjectTemplateLength);
+        ValidateConfirmationTemplate(
+            errors,
+            appointmentReminders.Templates?.EmailBodyTemplate,
+            "communication.appointmentReminders.templates.emailBodyTemplate",
+            MaxEmailBodyTemplateLength);
+
+        if (appointmentReminders.ReminderOffsetsMinutes?.Any(value => value <= 0) is true)
+        {
+            errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain positive minute values.");
+        }
+
+        if (appointmentReminders.ReminderOffsetsMinutes?.Count > 5)
+        {
+            errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain five values or fewer.");
+        }
+
+        if (appointmentReminders.ReminderStalenessCutoffMinutes is < 1)
+        {
+            errors.Add("communication.appointmentReminders.reminderStalenessCutoffMinutes must be one or greater.");
+        }
+    }
+
+    private static bool IsSupportedConfirmationToken(string token)
+    {
+        if (AllowedConfirmationTokens.Contains(token))
+        {
+            return true;
+        }
+
+        if (!token.StartsWith("attr.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var attributeName = token["attr.".Length..];
+        return attributeName.Length > 0
+            && attributeName.Any(char.IsLetterOrDigit)
+            && attributeName.All(character =>
+                char.IsLetterOrDigit(character)
+                || character is '_' or '-' or '.');
+    }
+
+    private static bool IsSupportedClassToken(string token)
+    {
+        if (AllowedClassTokens.Contains(token))
+        {
+            return true;
+        }
+
+        return IsSupportedAttributeToken(token);
+    }
+
+    private static bool IsSupportedAttributeToken(string token)
+    {
+        if (!token.StartsWith("attr.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var attributeName = token["attr.".Length..];
+        return attributeName.Length > 0
+            && attributeName.Any(char.IsLetterOrDigit)
+            && attributeName.All(character =>
+                char.IsLetterOrDigit(character)
+                || character is '_' or '-' or '.');
+    }
+
+    private static void ValidateBusinessSmsNotification(
+        ICollection<string> errors,
+        BusinessSmsNotificationConfiguration? configuration)
+    {
+        if (configuration is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(configuration.Mode, BusinessSmsNotificationConfiguration.AlwaysMode, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(configuration.Mode, BusinessSmsNotificationConfiguration.ConditionalMode, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add("communication.businessSmsNotification.mode must be always or conditional.");
+            return;
+        }
+
+        if (!string.Equals(configuration.Mode, BusinessSmsNotificationConfiguration.ConditionalMode, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (configuration.Condition is null)
+        {
+            errors.Add("communication.businessSmsNotification.condition is required for conditional mode.");
+            return;
+        }
+
+        AddRequired(errors, configuration.Condition.Attribute, "communication.businessSmsNotification.condition.attribute");
+        if (configuration.Condition.EqualsAny is null || configuration.Condition.EqualsAny.Count == 0)
+        {
+            errors.Add("communication.businessSmsNotification.condition.equalsAny must include at least one value.");
         }
     }
 
@@ -296,6 +464,260 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         }
     }
 
+    private static void ValidateClasses(
+        ICollection<string> errors,
+        ClassAutomationConfiguration? classes,
+        SecretNameConfiguration secretNames)
+    {
+        if (classes is null)
+        {
+            return;
+        }
+
+        AddRequired(errors, secretNames.ClassRegistrationWebhookSecret, "secretNames.classRegistrationWebhookSecret");
+
+        ValidateClassTemplate(
+            errors,
+            classes.RegistrationTemplates?.SmsBodyTemplate,
+            "classes.registrationTemplates.smsBodyTemplate",
+            MaxSmsTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.RegistrationTemplates?.EmailSubjectTemplate,
+            "classes.registrationTemplates.emailSubjectTemplate",
+            MaxEmailSubjectTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.RegistrationTemplates?.EmailBodyTemplate,
+            "classes.registrationTemplates.emailBodyTemplate",
+            MaxEmailBodyTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.ReminderTemplates?.SmsBodyTemplate,
+            "classes.reminderTemplates.smsBodyTemplate",
+            MaxSmsTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.ReminderTemplates?.EmailSubjectTemplate,
+            "classes.reminderTemplates.emailSubjectTemplate",
+            MaxEmailSubjectTemplateLength);
+        ValidateClassTemplate(
+            errors,
+            classes.ReminderTemplates?.EmailBodyTemplate,
+            "classes.reminderTemplates.emailBodyTemplate",
+            MaxEmailBodyTemplateLength);
+
+        if (classes.ReminderOffsetsMinutes?.Any(value => value <= 0) is true)
+        {
+            errors.Add("classes.reminderOffsetsMinutes must contain positive minute values.");
+        }
+
+        if (classes.ReminderOffsetsMinutes?.Count > 5)
+        {
+            errors.Add("classes.reminderOffsetsMinutes must contain five values or fewer.");
+        }
+
+        if (classes.ReminderStalenessCutoffMinutes is < 1)
+        {
+            errors.Add("classes.reminderStalenessCutoffMinutes must be one or greater.");
+        }
+
+        if (classes.MaxRegistrationsPerMinute is < 1 or > 1000)
+        {
+            errors.Add("classes.maxRegistrationsPerMinute must be between 1 and 1000.");
+        }
+    }
+
+    private static void ValidateClassTemplate(
+        ICollection<string> errors,
+        string? template,
+        string fieldName,
+        int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return;
+        }
+
+        if (template.Length > maxLength)
+        {
+            errors.Add($"{fieldName} must be {maxLength} characters or fewer.");
+        }
+
+        var searchIndex = 0;
+        while (searchIndex < template.Length)
+        {
+            var tokenStart = template.IndexOf("{{", searchIndex, StringComparison.Ordinal);
+            if (tokenStart < 0)
+            {
+                return;
+            }
+
+            var tokenEnd = template.IndexOf("}}", tokenStart + 2, StringComparison.Ordinal);
+            if (tokenEnd < 0)
+            {
+                errors.Add($"{fieldName} contains an unterminated template token.");
+                return;
+            }
+
+            var token = template[(tokenStart + 2)..tokenEnd].Trim();
+            if (!IsSupportedClassToken(token))
+            {
+                errors.Add($"{fieldName} contains unsupported template token '{token}'.");
+            }
+
+            searchIndex = tokenEnd + 2;
+        }
+    }
+
+    private static void ValidateFollowUps(
+        ICollection<string> errors,
+        FollowUpAutomationConfiguration? followUps)
+    {
+        if (followUps is null)
+        {
+            return;
+        }
+
+        if (followUps.StalenessCutoffMinutes is < 1)
+        {
+            errors.Add("followUps.stalenessCutoffMinutes must be one or greater.");
+        }
+
+        if (followUps.MaxFollowUpsPerContactPerDay is < 1 or > 10)
+        {
+            errors.Add("followUps.maxFollowUpsPerContactPerDay must be between 1 and 10.");
+        }
+
+        if (followUps.Enabled is true && followUps.EffectiveSequences.Count == 0)
+        {
+            errors.Add("followUps.sequences must include at least one sequence when follow-ups are enabled.");
+        }
+
+        if (followUps.EffectiveSequences.Count > 10)
+        {
+            errors.Add("followUps.sequences must contain ten sequences or fewer.");
+        }
+
+        foreach (var sequence in followUps.EffectiveSequences)
+        {
+            AddRequired(errors, sequence.Id, "followUps.sequences.id");
+            AddRequired(errors, sequence.Trigger, "followUps.sequences.trigger");
+            if (sequence.EffectiveSteps.Count == 0)
+            {
+                errors.Add($"followUps.sequences[{sequence.Id}].steps must include at least one step.");
+            }
+
+            if (sequence.EffectiveSteps.Count > 5)
+            {
+                errors.Add($"followUps.sequences[{sequence.Id}].steps must contain five steps or fewer.");
+            }
+
+            foreach (var step in sequence.EffectiveSteps)
+            {
+                if (step.DelayMinutes <= 0)
+                {
+                    errors.Add($"followUps.sequences[{sequence.Id}].steps.delayMinutes must be positive.");
+                }
+
+                var isSmsStep = string.Equals(step.Channel, SmsFollowUpChannel, StringComparison.OrdinalIgnoreCase);
+                var isEmailStep = string.Equals(step.Channel, EmailFollowUpChannel, StringComparison.OrdinalIgnoreCase);
+                if (!isSmsStep && !isEmailStep)
+                {
+                    errors.Add($"followUps.sequences[{sequence.Id}].steps.channel must be sms or email.");
+                }
+
+                if (isSmsStep)
+                {
+                    AddRequired(
+                        errors,
+                        step.SmsBodyTemplate,
+                        $"followUps.sequences[{sequence.Id}].steps.smsBodyTemplate");
+                }
+
+                if (isEmailStep)
+                {
+                    AddRequired(
+                        errors,
+                        step.EmailSubjectTemplate,
+                        $"followUps.sequences[{sequence.Id}].steps.emailSubjectTemplate");
+                    AddRequired(
+                        errors,
+                        step.EmailBodyTemplate,
+                        $"followUps.sequences[{sequence.Id}].steps.emailBodyTemplate");
+                }
+
+                ValidateFollowUpTemplate(
+                    errors,
+                    step.SmsBodyTemplate,
+                    $"followUps.sequences[{sequence.Id}].steps.smsBodyTemplate",
+                    MaxSmsTemplateLength);
+                ValidateFollowUpTemplate(
+                    errors,
+                    step.EmailSubjectTemplate,
+                    $"followUps.sequences[{sequence.Id}].steps.emailSubjectTemplate",
+                    MaxEmailSubjectTemplateLength);
+                ValidateFollowUpTemplate(
+                    errors,
+                    step.EmailBodyTemplate,
+                    $"followUps.sequences[{sequence.Id}].steps.emailBodyTemplate",
+                    MaxEmailBodyTemplateLength);
+            }
+        }
+    }
+
+    private static void ValidateFollowUpTemplate(
+        ICollection<string> errors,
+        string? template,
+        string fieldName,
+        int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return;
+        }
+
+        if (template.Length > maxLength)
+        {
+            errors.Add($"{fieldName} must be {maxLength} characters or fewer.");
+        }
+
+        var searchIndex = 0;
+        while (searchIndex < template.Length)
+        {
+            var tokenStart = template.IndexOf("{{", searchIndex, StringComparison.Ordinal);
+            if (tokenStart < 0)
+            {
+                return;
+            }
+
+            var tokenEnd = template.IndexOf("}}", tokenStart + 2, StringComparison.Ordinal);
+            if (tokenEnd < 0)
+            {
+                errors.Add($"{fieldName} contains an unterminated template token.");
+                return;
+            }
+
+            var token = template[(tokenStart + 2)..tokenEnd].Trim();
+            if (!IsSupportedFollowUpToken(token))
+            {
+                errors.Add($"{fieldName} contains unsupported template token '{token}'.");
+            }
+
+            searchIndex = tokenEnd + 2;
+        }
+    }
+
+    private static bool IsSupportedFollowUpToken(string token)
+    {
+        if (AllowedFollowUpTokens.Contains(token))
+        {
+            return true;
+        }
+
+        return IsSupportedAttributeToken(token);
+    }
+
     private static void ValidateAbsoluteUri(
         ICollection<string> errors,
         string? value,
@@ -310,5 +732,75 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         {
             errors.Add($"{fieldName} must be an absolute URL.");
         }
+    }
+
+    private static void ValidateIntegrations(
+        ICollection<string> errors,
+        IntegrationConfiguration? integrations,
+        SecretNameConfiguration secretNames)
+    {
+        var manyChat = integrations?.ManyChat;
+        if (manyChat is null)
+        {
+            return;
+        }
+
+        if (manyChat.Enabled is true)
+        {
+            AddRequired(errors, secretNames.ManyChatWebhookSecret, "secretNames.manyChatWebhookSecret");
+        }
+
+        if (manyChat.MaxRequestsPerMinute is < 1 or > 1000)
+        {
+            errors.Add("integrations.manyChat.maxRequestsPerMinute must be between 1 and 1000.");
+        }
+
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.Consultation,
+            "integrations.manyChat.routingActions.consultation");
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.MasterClass,
+            "integrations.manyChat.routingActions.masterClass");
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.FollowUp,
+            "integrations.manyChat.routingActions.followUp");
+        ValidateManyChatRoutingAction(
+            errors,
+            manyChat.RoutingActions?.None,
+            "integrations.manyChat.routingActions.none");
+    }
+
+    private static void ValidateManyChatRoutingAction(
+        ICollection<string> errors,
+        ManyChatRoutingActionConfiguration? action,
+        string fieldName)
+    {
+        if (action is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(action.Type)
+            && !string.Equals(action.Type, "link", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(action.Type, "message", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(action.Type, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"{fieldName}.type must be link, message, or none.");
+        }
+
+        if (action.Label?.Length > 80)
+        {
+            errors.Add($"{fieldName}.label must be 80 characters or fewer.");
+        }
+
+        if (action.Message?.Length > 500)
+        {
+            errors.Add($"{fieldName}.message must be 500 characters or fewer.");
+        }
+
+        ValidateAbsoluteUri(errors, action.Url, $"{fieldName}.url");
     }
 }

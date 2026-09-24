@@ -22,7 +22,9 @@ public sealed record BookingConfirmationRequest(
     string? Urgency = null,
     string? BusinessNotificationEmail = null,
     string? BusinessNotificationPhoneNumber = null,
-    bool NotifyBusinessBySms = false);
+    bool NotifyBusinessBySms = false,
+    string? BusinessName = null,
+    IReadOnlyDictionary<string, string>? ContactAttributes = null);
 
 public sealed record ConfirmationTemplateSet(
     string SmsBodyTemplate,
@@ -64,7 +66,10 @@ public sealed record ConfirmationChannelResult(
     ConfirmationChannel Channel,
     ConfirmationChannelStatus Status,
     ConfirmationFailureReason? FailureReason = null,
-    string? ProviderMessageId = null);
+    string? ProviderMessageId = null)
+{
+    public bool RetryScheduled { get; init; }
+}
 
 public enum ConfirmationChannel
 {
@@ -94,7 +99,11 @@ public enum ConfirmationFailureReason
     MissingBusinessEmail = 10,
     MissingBusinessSmsTemplate = 11,
     MissingBusinessEmailTemplate = 12,
-    ContactOptedOut = 13
+    ContactOptedOut = 13,
+    MarketingConsentNotGranted = 14,
+    OutsideSendWindow = 15,
+    ReminderStale = 16,
+    AlreadyProcessed = 17
 }
 
 public sealed record SmsMessageRequest(
@@ -126,7 +135,10 @@ public sealed record ConfirmationRetryRequest(
     ConfirmationRetryKind Kind,
     string Destination,
     string Body,
-    string? Subject = null);
+    string? Subject = null)
+{
+    public string? ClassRegistrationId { get; init; }
+}
 
 public enum ConfirmationRetryKind
 {

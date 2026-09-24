@@ -2,11 +2,14 @@ using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
+using System.Text.RegularExpressions;
 
 namespace RNM.Platform.Application.Confirmations;
 
 public sealed class ConfirmationApplicationService
 {
+    private static readonly Regex TemplateTokenRegex = new(@"\{\{\s*(?<token>[^{}]+?)\s*\}\}", RegexOptions.Compiled);
+
     private readonly ISmsSender smsSender;
     private readonly IEmailSender emailSender;
     private readonly IConfirmationRetryScheduler retryScheduler;
@@ -43,11 +46,16 @@ public sealed class ConfirmationApplicationService
             return new BookingConfirmationResult(smsSkipped, emailSkipped);
         }
 
-        var contactOptedOut = await IsCustomerOptedOutAsync(request, cancellationToken).ConfigureAwait(false);
-        var smsResult = await SendSmsAsync(request, contactOptedOut, cancellationToken).ConfigureAwait(false);
-        var emailResult = await SendEmailAsync(request, contactOptedOut, cancellationToken).ConfigureAwait(false);
-        var businessEmailResult = await SendBusinessEmailAsync(request, cancellationToken).ConfigureAwait(false);
-        var businessSmsResult = await SendBusinessSmsAsync(request, cancellationToken).ConfigureAwait(false);
+        var contact = await FindCustomerContactAsync(request, cancellationToken).ConfigureAwait(false);
+        var renderRequest = request with
+        {
+            ContactAttributes = MergeContactAttributes(request.ContactAttributes, contact?.Attributes)
+        };
+        var contactOptedOut = string.Equals(contact?.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
+        var smsResult = await SendSmsAsync(renderRequest, contactOptedOut, cancellationToken).ConfigureAwait(false);
+        var emailResult = await SendEmailAsync(renderRequest, contactOptedOut, cancellationToken).ConfigureAwait(false);
+        var businessEmailResult = await SendBusinessEmailAsync(renderRequest, cancellationToken).ConfigureAwait(false);
+        var businessSmsResult = await SendBusinessSmsAsync(renderRequest, cancellationToken).ConfigureAwait(false);
         return new BookingConfirmationResult(smsResult, emailResult, businessSmsResult, businessEmailResult);
     }
 
@@ -421,24 +429,100 @@ public sealed class ConfirmationApplicationService
         var startsAt = ConvertToLocal(request.BookingDecision.SelectedSlot?.StartsAt, zone);
         var endsAt = ConvertToLocal(request.BookingDecision.SelectedSlot?.EndsAt, zone);
 
-        return template
-            .Replace("{{tenantId}}", request.TenantId, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{verticalId}}", request.VerticalId, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{correlationId}}", request.CorrelationId, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{customerName}}", request.CustomerName ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{customerPhoneNumber}}", request.CustomerPhoneNumber ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{customerEmail}}", request.CustomerEmail ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{serviceType}}", request.ServiceType ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{propertyType}}", request.PropertyType ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{serviceAddress}}", request.ServiceAddress ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{zipCode}}", request.ZipCode ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{urgency}}", request.Urgency ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{providerBookingId}}", request.BookingDecision.ProviderBookingId ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{bookingLabel}}", request.BookingDecision.SelectedSlot?.Label ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{bookingStart}}", startsAt?.ToString("O") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{bookingEnd}}", endsAt?.ToString("O") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{bookingDate}}", startsAt?.ToString("yyyy-MM-dd") ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("{{bookingTime}}", startsAt?.ToString("HH:mm") ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        var tokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["tenantId"] = request.TenantId,
+            ["verticalId"] = request.VerticalId,
+            ["businessName"] = request.BusinessName ?? string.Empty,
+            ["correlationId"] = request.CorrelationId,
+            ["customerName"] = request.CustomerName ?? string.Empty,
+            ["customerPhoneNumber"] = request.CustomerPhoneNumber ?? string.Empty,
+            ["customerEmail"] = request.CustomerEmail ?? string.Empty,
+            ["serviceType"] = request.ServiceType ?? string.Empty,
+            ["propertyType"] = request.PropertyType ?? string.Empty,
+            ["serviceAddress"] = request.ServiceAddress ?? string.Empty,
+            ["zipCode"] = request.ZipCode ?? string.Empty,
+            ["urgency"] = request.Urgency ?? string.Empty,
+            ["providerBookingId"] = request.BookingDecision.ProviderBookingId ?? string.Empty,
+            ["onlineMeetingUrl"] = request.BookingDecision.OnlineMeetingUrl ?? string.Empty,
+            ["bookingLabel"] = request.BookingDecision.SelectedSlot?.Label ?? string.Empty,
+            ["bookingStart"] = startsAt?.ToString("O") ?? string.Empty,
+            ["bookingEnd"] = endsAt?.ToString("O") ?? string.Empty,
+            ["bookingDate"] = startsAt?.ToString("yyyy-MM-dd") ?? string.Empty,
+            ["bookingTime"] = startsAt?.ToString("HH:mm") ?? string.Empty,
+            ["timeZone"] = request.TimeZone
+        };
+
+        return TemplateTokenRegex.Replace(template, match =>
+        {
+            var token = match.Groups["token"].Value.Trim();
+            if (token.StartsWith("attr.", StringComparison.OrdinalIgnoreCase))
+            {
+                var attributeName = token["attr.".Length..];
+                return ResolveAttributeValue(request.ContactAttributes, attributeName);
+            }
+
+            return tokens.TryGetValue(token, out var value) ? value : string.Empty;
+        });
+    }
+
+    private static string ResolveAttributeValue(
+        IReadOnlyDictionary<string, string>? attributes,
+        string attributeName)
+    {
+        if (attributes is null || string.IsNullOrWhiteSpace(attributeName))
+        {
+            return string.Empty;
+        }
+
+        var trimmedAttributeName = attributeName.Trim();
+        if (attributes.TryGetValue(trimmedAttributeName, out var value))
+        {
+            return value;
+        }
+
+        var sanitizedAttributeName = SanitizeAttributeName(trimmedAttributeName);
+        return !string.Equals(sanitizedAttributeName, trimmedAttributeName, StringComparison.Ordinal)
+            && attributes.TryGetValue(sanitizedAttributeName, out var sanitizedValue)
+                ? sanitizedValue
+                : string.Empty;
+    }
+
+    private static string SanitizeAttributeName(string value)
+    {
+        var characters = value
+            .Where(char.IsLetterOrDigit)
+            .Take(48)
+            .ToArray();
+        return characters.Length == 0 ? string.Empty : new string(characters);
+    }
+
+    private static IReadOnlyDictionary<string, string> MergeContactAttributes(
+        IReadOnlyDictionary<string, string>? requestAttributes,
+        IReadOnlyDictionary<string, string>? crmAttributes)
+    {
+        var merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        AddAttributes(merged, crmAttributes);
+        AddAttributes(merged, requestAttributes);
+        return merged;
+    }
+
+    private static void AddAttributes(
+        IDictionary<string, string> target,
+        IReadOnlyDictionary<string, string>? source)
+    {
+        if (source is null)
+        {
+            return;
+        }
+
+        foreach (var item in source)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Key) && !string.IsNullOrWhiteSpace(item.Value))
+            {
+                target[item.Key.Trim()] = item.Value.Trim();
+            }
+        }
     }
 
     private static DateTimeOffset? ConvertToLocal(DateTimeOffset? value, TimeZoneInfo zone)
@@ -590,14 +674,14 @@ public sealed class ConfirmationApplicationService
         }
     }
 
-    private async Task<bool> IsCustomerOptedOutAsync(
+    private async Task<CrmContactRecord?> FindCustomerContactAsync(
         BookingConfirmationRequest request,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.CustomerPhoneNumber)
             && string.IsNullOrWhiteSpace(request.CustomerEmail))
         {
-            return false;
+            return null;
         }
 
         try
@@ -612,10 +696,7 @@ public sealed class ConfirmationApplicationService
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return string.Equals(
-                lookup.Contact?.ConsentStatus,
-                CrmConsentStatuses.OptedOut,
-                StringComparison.OrdinalIgnoreCase);
+            return lookup.Contact;
         }
         catch (OperationCanceledException)
         {
@@ -624,7 +705,7 @@ public sealed class ConfirmationApplicationService
         catch
         {
             // CRM lookup failures should not block a caller-requested appointment confirmation.
-            return false;
+            return null;
         }
     }
 }

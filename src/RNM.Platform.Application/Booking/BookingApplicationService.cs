@@ -146,7 +146,8 @@ public sealed class BookingApplicationService
             FailureReason: null,
             availabilityResult.Slots,
             availableSelectedSlot,
-            bookingResult.ProviderBookingId);
+            bookingResult.ProviderBookingId,
+            OnlineMeetingUrl: bookingResult.OnlineMeetingUrl);
 
         await LogAsync(TelemetryEventNames.BookingCreated, request, booked, cancellationToken)
             .ConfigureAwait(false);

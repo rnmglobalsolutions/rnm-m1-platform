@@ -91,6 +91,8 @@ public sealed record CrmBookingLinkRequest(
 
     public string? BookingLabel { get; init; }
 
+    public string? OnlineMeetingUrl { get; init; }
+
     public DateTimeOffset? StartsAt { get; init; }
 
     public DateTimeOffset? EndsAt { get; init; }
@@ -265,11 +267,22 @@ public sealed record CrmFollowUpRequest(
     string ProviderContactId,
     string Reason)
 {
+    public string Source { get; init; } = "InboundVoice";
+
     public string LeadStatus { get; init; } = CrmLeadStatuses.NeedsFollowUp;
 
     public DateTimeOffset? FollowUpAt { get; init; }
 
     public DateTimeOffset LastInteractionAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public string? CustomerName { get; init; }
+
+    public string? CustomerPhoneNumber { get; init; }
+
+    public string? CustomerEmail { get; init; }
+
+    public IReadOnlyDictionary<string, string> Attributes { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record CrmContactEnsureRequest(
@@ -355,9 +368,14 @@ public static class CrmLeadStatuses
 
 public static class CrmTimelineEventTypes
 {
+    public const string LeadIntakeReceived = "lead.intake.received";
     public const string LeadQualified = "lead.qualified";
     public const string LeadImported = "lead.imported";
     public const string BookingCreated = "booking.created";
+    public const string AppointmentReminderScheduled = "appointment.reminder.scheduled";
+    public const string AppointmentReminderSent = "appointment.reminder.sent";
+    public const string AppointmentReminderSkipped = "appointment.reminder.skipped";
+    public const string AppointmentReminderFailed = "appointment.reminder.failed";
     public const string FollowUpRequired = "followup.required";
     public const string OutboundAttemptRecorded = "outbound.attempt_recorded";
     public const string LeadReactivated = "lead.reactivated";
@@ -367,8 +385,18 @@ public static class CrmTimelineEventTypes
     public const string MarketingConsentInboundCallDeclined = "consent.marketing.inbound_call_declined";
     public const string MarketingConsentInboundCallBlockedOptedOut = "consent.marketing.inbound_call_blocked_opted_out";
     public const string MarketingConsentReversedFromOptOut = "consent.marketing.reversed_from_optout";
+    public const string MarketingConsentWebRegistrationGranted = "consent.marketing.web_registration_granted";
+    public const string MarketingConsentWebRegistrationDeclined = "consent.marketing.web_registration_declined";
+    public const string MarketingConsentWebRegistrationBlockedOptedOut = "consent.marketing.web_registration_blocked_opted_out";
+    public const string MarketingConsentExternalGranted = "consent.marketing.external_granted";
+    public const string MarketingConsentExternalDeclined = "consent.marketing.external_declined";
+    public const string MarketingConsentExternalBlockedOptedOut = "consent.marketing.external_blocked_opted_out";
     public const string SmsSent = "sms.sent";
     public const string EmailSent = "email.sent";
+    public const string FollowUpScheduled = "followup.scheduled";
+    public const string FollowUpSent = "followup.sent";
+    public const string FollowUpSkipped = "followup.skipped";
+    public const string FollowUpFailed = "followup.failed";
 }
 
 public static class CrmContactAttributeNames
@@ -384,6 +412,12 @@ public static class CrmContactAttributeNames
     public const string AssignedAgent = "assignedAgent";
     public const string ConsentStatus = "consentStatus";
     public const string ConsentOptedOutAt = "consentOptedOutAt";
+    public const string SourceSessionId = "sourceSessionId";
+    public const string SourceRegistrationId = "sourceRegistrationId";
+    public const string SourceFunnel = "sourceFunnel";
+    public const string ExternalSourceId = "externalSourceId";
+    public const string ConsentCapturedAt = "consentCapturedAt";
+    public const string ConsentTextVersion = "consentTextVersion";
 }
 
 public static class CrmOutboundLeadStatuses

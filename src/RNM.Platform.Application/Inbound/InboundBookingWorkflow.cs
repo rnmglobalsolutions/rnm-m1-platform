@@ -209,7 +209,13 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                             tenantId,
                             correlationId,
                             contactResult.ProviderContactId,
-                            CreateBookingFollowUpReason(bookingResult)),
+                            CreateBookingFollowUpReason(bookingResult))
+                        {
+                            CustomerName = GetFieldValue(qualificationResult, "name"),
+                            CustomerPhoneNumber = qualificationResult.LeadData.CallerPhoneNumber,
+                            CustomerEmail = GetFieldValue(qualificationResult, "email"),
+                            Attributes = CreateContactAttributes(qualificationResult, serviceType, urgency)
+                        },
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -262,6 +268,7 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            var contactAttributes = CreateContactAttributes(qualificationResult, serviceType, urgency);
             var confirmationResult = await confirmationApplicationService
                 .SendBookingConfirmationAsync(
                     new BookingConfirmationRequest(
@@ -282,7 +289,9 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                         urgency,
                         tenantConfiguration.Communication.BusinessNotificationEmail,
                         tenantConfiguration.Communication.BusinessNotificationPhoneNumber,
-                        ShouldNotifyBusinessBySms(tenantConfiguration.Communication, urgency)),
+                        ShouldNotifyBusinessBySms(tenantConfiguration.Communication, contactAttributes),
+                        tenantConfiguration.BusinessName,
+                        contactAttributes),
                     cancellationToken)
                 .ConfigureAwait(false);
             var confirmationState = GetConfirmationState(confirmationResult);
@@ -379,34 +388,58 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
 
     private static bool ShouldNotifyBusinessBySms(
         CommunicationConfiguration communication,
-        string? urgency)
+        IReadOnlyDictionary<string, string> contactAttributes)
     {
         if (string.IsNullOrWhiteSpace(communication.BusinessNotificationPhoneNumber))
         {
             return false;
         }
 
-        return !communication.NotifyBusinessBySmsForUrgentOnly || IsUrgent(urgency);
+        var notification = communication.EffectiveBusinessSmsNotification;
+        if (string.Equals(notification.Mode, BusinessSmsNotificationConfiguration.AlwaysMode, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.Equals(notification.Mode, BusinessSmsNotificationConfiguration.ConditionalMode, StringComparison.OrdinalIgnoreCase)
+            || notification.Condition is null
+            || string.IsNullOrWhiteSpace(notification.Condition.Attribute))
+        {
+            return false;
+        }
+
+        if (!contactAttributes.TryGetValue(notification.Condition.Attribute, out var attributeValue)
+            || string.IsNullOrWhiteSpace(attributeValue))
+        {
+            return false;
+        }
+
+        return notification.Condition.EqualsAny.Any(expected =>
+            string.Equals(attributeValue.Trim(), expected?.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsUrgent(string? urgency)
+    private static IReadOnlyDictionary<string, string> CreateContactAttributes(
+        QualificationResult qualificationResult,
+        string? serviceType,
+        string? urgency)
     {
-        if (string.IsNullOrWhiteSpace(urgency))
-        {
-            return false;
-        }
+        var attributes = new Dictionary<string, string>(qualificationResult.LeadData.Fields, StringComparer.OrdinalIgnoreCase);
+        AddContactAttribute(attributes, "serviceType", serviceType);
+        AddContactAttribute(attributes, "serviceNeed", serviceType ?? GetFieldValue(qualificationResult, "serviceNeed"));
+        AddContactAttribute(attributes, "zipCode", qualificationResult.LeadData.ZipCode);
+        AddContactAttribute(attributes, "urgency", urgency);
+        return attributes;
+    }
 
-        var normalized = urgency.Trim();
-        if (normalized.Equals("non_urgent", StringComparison.OrdinalIgnoreCase)
-            || normalized.Equals("not urgent", StringComparison.OrdinalIgnoreCase))
+    private static void AddContactAttribute(
+        IDictionary<string, string> attributes,
+        string key,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
         {
-            return false;
+            attributes[key] = value.Trim();
         }
-
-        return normalized.Equals("urgent", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("emergency", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("asap", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("same-day", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ConfirmationWorkflowState GetConfirmationState(
