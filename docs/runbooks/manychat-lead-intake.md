@@ -54,18 +54,26 @@ Body example (replace ManyChat field syntax with the corresponding bot fields):
 
 ```json
 {
-  "externalEventId": "meta-financial-education-{{contact.id}}",
+  "externalEventId": "financial-video-v1-{{contact.id}}",
   "externalContactId": "{{contact.id}}",
   "customerName": "{{contact.name}}",
   "customerPhoneNumber": "{{contact.phone}}",
   "customerEmail": "{{contact.email}}",
-  "campaignId": "meta-financial-education",
+  "campaignId": "financial-video-v1",
   "marketingConsentGranted": true,
   "consentCapturedAt": "{{consent_captured_at_iso}}",
-  "consentTextVersion": "meta-form-v1",
+  "consentTextVersion": "meta-video-funnel-v1",
   "attributes": {
-    "intent": "{{intent}}",
-    "sourceCampaign": "meta"
+    "funnelType": "financial_education",
+    "metaChannel": "instagram",
+    "triggerType": "comment_keyword",
+    "keyword": "PROTECCION",
+    "primaryGoal": "{{primary_goal}}",
+    "timeline": "{{timeline}}",
+    "currentProtection": "{{current_protection}}",
+    "monthlyRange": "{{monthly_range}}",
+    "state": "{{state}}",
+    "requestedNextStep": "{{requested_next_step}}"
   }
 }
 ```
@@ -83,6 +91,18 @@ to future marketing contact. In that case, send an ISO 8601 consent timestamp
 and a stable version/name for the displayed consent text. Missing evidence is
 rejected. Existing `opted_out` contacts remain opted out.
 
+M1 stores internal routing attributes on the CRM contact:
+
+- `leadClassification`
+- `classificationReasons`
+- `recommendedRoute`
+
+When the video funnel should send the user to a website page, ManyChat should
+use the `nextAction` fields returned by this endpoint. The website pages then
+submit through the public funnel endpoints documented in
+`meta-manychat-video-funnel.md`; browser JavaScript must not call this ManyChat
+webhook because it requires `X-RNM-ManyChat-Secret`.
+
 ## 4. Response handling
 
 - `200`: processed, or already completed as a duplicate.
@@ -96,13 +116,38 @@ rejected. Existing `opted_out` contacts remain opted out.
 Configure retries only for `202`, `429`, and `5xx`. Do not generate a new
 `externalEventId` during a retry.
 
+Successful responses include routing context:
+
+```json
+{
+  "accepted": true,
+  "duplicate": false,
+  "processing": false,
+  "followUpRequested": true,
+  "businessNotificationQueued": true,
+  "leadClassification": "ready_for_consultation",
+  "recommendedRoute": "consultation",
+  "classificationReasons": "requested_consultation",
+  "nextAction": {
+    "route": "consultation",
+    "type": "link",
+    "label": "Schedule a 1:1 consultation",
+    "url": "https://rnmglobalsolutions.com/consultation",
+    "message": "Based on your answers, the best next step is a short 1:1 consultation."
+  },
+  "tenantId": "rnm-insurance-agents",
+  "correlationId": "..."
+}
+```
+
 ## 5. Production verification
 
 1. Deploy the tenant config and application.
 2. Add the Key Vault secret and run tenant preflight/readiness.
 3. Send the Postman `ManyChat Lead Intake` request.
 4. Verify one contact in `RnmContacts` with `leadSource=ManyChat`, campaign,
-   external source id, consent status, and submitted attributes.
+   external source id, consent status, submitted attributes, classification,
+   and recommended route.
 5. Verify `lead.intake.received` and `consent.marketing.external_*` in
    `RnmTimelineEvents`.
 6. Verify business SMS/email messages are queued and delivered.

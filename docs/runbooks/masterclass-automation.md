@@ -1,7 +1,8 @@
 # Masterclass Automation v0.5 Runbook
 
 This runbook covers the MVP masterclass flow. M1 does not create Zoom meetings in
-this version. Create the Zoom meeting manually and store the join URL in M1.
+this version. Create the Zoom meeting manually and store the join URL in M1. The
+stored `zoomUrl` is shared by every registrant for the same `ClassSession`.
 
 ## Tenant Configuration
 
@@ -75,8 +76,9 @@ second runner.
 1. Create the Zoom meeting manually.
 2. Copy the Zoom join URL.
 3. Create or update the class session in M1.
-4. Register leads through a trusted funnel backend or an internal request. Meta
-   and ManyChat generic lead capture should use their dedicated intake webhook.
+4. Register leads through the public RNM website funnel endpoint, a trusted
+   server-to-server registration, or an internal request. Meta and ManyChat
+   generic lead capture should use their dedicated intake webhook first.
 5. Confirm the lead received email and, if consent was granted, SMS.
 6. Let the timer process reminders every five minutes, or run reminders manually.
 7. Check the class report.
@@ -102,7 +104,37 @@ Content-Type: application/json
 }
 ```
 
-## Register A Lead
+## Register A Lead From The Public Website
+
+The RNM website page `/masterclass/register` must call the public funnel
+endpoint. This endpoint is designed for browser JavaScript and does not require
+secrets in the frontend.
+
+```http
+POST /api/tenants/{tenantId}/funnels/masterclass/{classSessionId}/registrations
+Content-Type: application/json
+Origin: https://rnmglobalsolutions.com
+```
+
+```json
+{
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "financial-video-v1",
+  "funnelType": "financial_education",
+  "primaryGoal": "family_protection",
+  "timeline": "under_30_days",
+  "state": "TX",
+  "consentSms": true,
+  "consentEmail": true,
+  "companyWebsiteConfirm": ""
+}
+```
+
+Keep `companyWebsiteConfirm` as an empty hidden honeypot field.
+
+## Register A Lead Server-To-Server Or Internally
 
 ```http
 POST /api/tenants/{tenantId}/classes/{classSessionId}/registrations
@@ -110,12 +142,11 @@ X-RNM-Class-Registration-Secret: <tenant-secret>
 Content-Type: application/json
 ```
 
-`Origin` is used only for CORS and never authenticates a request. A browser must
-submit through a trusted funnel/server backend that adds the dedicated tenant
-secret. Never embed `X-RNM-Class-Registration-Secret` or `x-rnm-api-key` in
-browser JavaScript. Internal tests can use `x-rnm-api-key` instead. The endpoint
-also has a per-tenant, per-instance rate-limit guard; provider-side or edge rate
-limiting remains recommended before high-volume paid campaigns.
+`Origin` is used only for CORS and never authenticates a request. Never embed
+`X-RNM-Class-Registration-Secret` or `x-rnm-api-key` in browser JavaScript.
+Internal tests can use `x-rnm-api-key` instead. Server-side funnel integrations
+can use `X-RNM-Class-Registration-Secret`. The public website should prefer the
+public funnel endpoint above.
 
 ```json
 {
@@ -256,32 +287,34 @@ Para probarlo bien, hazlo en este orden:
 dotnet test RNM.Platform.sln --configuration Release
 ```
 
-Debe pasar todo. La última vez quedó en:
+Debe pasar todo:
 
 ```text
-The current unit test count reported by the command
-and all integration tests must pass with `0 failed`.
+All unit and integration tests must pass with `0 failed`.
 ```
 
 **2. Configura el tenant**
 En el tenant que vas a usar, confirma que existe:
 
 ```json
-"classes": {
-  "allowedRegistrationOrigins": [
-    "https://tu-funnel.com"
-  ],
-  "maxRegistrationsPerMinute": 60,
-  "reminderOffsetsMinutes": [1440, 60],
-  "registrationTemplates": {
-    "smsBodyTemplate": "...",
-    "emailSubjectTemplate": "...",
-    "emailBodyTemplate": "..."
-  },
-  "reminderTemplates": {
-    "smsBodyTemplate": "...",
-    "emailSubjectTemplate": "...",
-    "emailBodyTemplate": "..."
+{
+  "classes": {
+    "allowedRegistrationOrigins": [
+      "https://rnmglobalsolutions.com",
+      "https://www.rnmglobalsolutions.com"
+    ],
+    "maxRegistrationsPerMinute": 60,
+    "reminderOffsetsMinutes": [1440, 60],
+    "registrationTemplates": {
+      "smsBodyTemplate": "...",
+      "emailSubjectTemplate": "...",
+      "emailBodyTemplate": "..."
+    },
+    "reminderTemplates": {
+      "smsBodyTemplate": "...",
+      "emailSubjectTemplate": "...",
+      "emailBodyTemplate": "..."
+    }
   }
 }
 ```
@@ -328,6 +361,33 @@ Body:
 Verifica que responda OK y que exista en `RnmClassSessions`.
 
 **5. Registra un lead**
+
+Para probar como navegador desde la pagina publica:
+
+```http
+POST /api/tenants/{tenantId}/funnels/masterclass/{classSessionId}/registrations
+Content-Type: application/json
+Origin: https://rnmglobalsolutions.com
+```
+
+```json
+{
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "financial-video-v1",
+  "funnelType": "financial_education",
+  "primaryGoal": "family_protection",
+  "timeline": "under_30_days",
+  "state": "TX",
+  "consentSms": true,
+  "consentEmail": true,
+  "companyWebsiteConfirm": ""
+}
+```
+
+Para Postman/server-to-server usa el endpoint interno de registro:
+
 ```http
 POST /api/tenants/{tenantId}/classes/{classSessionId}/registrations
 Content-Type: application/json
@@ -414,9 +474,15 @@ Debe devolver conteos reales:
 - opted-out registrations
 
 **9. Prueba desde funnel real**
-El navegador envía el formulario a tu backend de confianza. Ese backend llama a
-M1 con `X-RNM-Class-Registration-Secret`. El `Origin` debe coincidir para recibir
-headers CORS, pero una solicitud sin secreto siempre debe devolver `401`.
+El navegador en `https://rnmglobalsolutions.com/masterclass/register` envia el
+formulario al endpoint publico:
+
+```text
+/api/tenants/rnm-insurance-agents/funnels/masterclass/{classSessionId}/registrations
+```
+
+No debe incluir `X-RNM-Class-Registration-Secret` ni `x-rnm-api-key`. El `Origin`
+debe coincidir con los origenes permitidos del tenant.
 
 **Criterio de éxito**
 El flujo está funcionando si puedes hacer esto completo:

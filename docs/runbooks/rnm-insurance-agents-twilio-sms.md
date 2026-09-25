@@ -241,22 +241,23 @@ M1.
 M1 no expone un endpoint para enviar SMS arbitrarios. Los mensajes se envían por
 flujos controlados: registros, bookings, confirmaciones, reminders y follow-ups.
 
-Para probar el registro de una masterclass:
+Para probar el registro de una masterclass desde el flujo publico del website:
 
 ```text
-POST /api/tenants/rnm-insurance-agents/classes/{classSessionId}/registrations
+POST /api/tenants/rnm-insurance-agents/funnels/masterclass/{classSessionId}/registrations
 ```
 
 Headers:
 
 ```text
-X-RNM-Class-Registration-Secret: <TENANT_CLASS_REGISTRATION_SECRET>
 Content-Type: application/json
+Origin: https://rnmglobalsolutions.com
 ```
 
-For an internal Postman test, `x-rnm-api-key` is also accepted. A funnel must
-call M1 from a trusted backend and use the tenant registration secret; never
-embed either secret in browser JavaScript.
+No incluyas `X-RNM-Class-Registration-Secret` ni `x-rnm-api-key` en JavaScript
+del website. For an internal Postman/server-to-server test, the direct class
+registration endpoint still accepts `x-rnm-api-key` or
+`X-RNM-Class-Registration-Secret`.
 
 Body de prueba:
 
@@ -265,14 +266,14 @@ Body de prueba:
   "customerName": "Test Lead",
   "customerPhoneNumber": "+1XXXXXXXXXX",
   "customerEmail": "test@example.com",
-  "campaignId": "sms-pilot",
-  "source": "Postman",
-  "marketingConsentGranted": true,
-  "consentCapturedAt": "2026-09-18T15:00:00Z",
-  "consentTextVersion": "class-registration-v1",
-  "attributes": {
-    "intent": "masterclass"
-  }
+  "campaignId": "financial-video-v1",
+  "funnelType": "financial_education",
+  "primaryGoal": "family_protection",
+  "timeline": "under_30_days",
+  "state": "TX",
+  "consentSms": true,
+  "consentEmail": true,
+  "companyWebsiteConfirm": ""
 }
 ```
 
