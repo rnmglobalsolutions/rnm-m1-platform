@@ -34,7 +34,7 @@ Key Vault using the exact name configured above. Example:
 openssl rand -base64 48
 az keyvault secret set \
   --vault-name <vault-name> \
-  --name tenant-rnm-insurance-agents-manychat-webhook-secret \
+  --name tenant-yartex-manychat-webhook-secret \
   --value '<generated-secret>'
 ```
 
@@ -46,7 +46,7 @@ preflight/readiness after adding the secret.
 Create an External Request action after the form or qualification step.
 
 - Method: `POST`
-- URL: `https://<function-app>.azurewebsites.net/api/tenants/rnm-insurance-agents/webhooks/manychat/leads`
+- URL: `https://<function-app>.azurewebsites.net/api/tenants/yartex/webhooks/manychat/leads`
 - Header `Content-Type`: `application/json`
 - Header `X-RNM-ManyChat-Secret`: the tenant secret
 
@@ -135,7 +135,7 @@ Successful responses include routing context:
     "url": "https://rnmglobalsolutions.com/consultation",
     "message": "Based on your answers, the best next step is a short 1:1 consultation."
   },
-  "tenantId": "rnm-insurance-agents",
+  "tenantId": "yartex",
   "correlationId": "..."
 }
 ```

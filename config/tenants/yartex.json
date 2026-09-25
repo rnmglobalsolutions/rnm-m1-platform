@@ -1,12 +1,12 @@
 {
-  "tenantId": "rnm-insurance-agents",
+  "tenantId": "yartex",
   "verticalId": "insurance-agents",
-  "businessName": "RNM Insurance Agent Network",
+  "businessName": "Yartex",
   "timeZone": "America/Chicago",
   "serviceArea": {
     "zipCodes": [],
     "cities": ["United States"],
-    "referralMessage": "RNM can review the request and follow up with next steps."
+    "referralMessage": "Yartex can review the request and follow up with next steps."
   },
   "providers": {
     "crmProvider": "AzureTable",
@@ -15,16 +15,16 @@
     "emailProvider": "SendGrid"
   },
   "secretNames": {
-    "crmApiKey": "tenant-rnm-insurance-agents-crm-credentials",
-    "bookingApiKey": "tenant-rnm-insurance-agents-google-calendar-credentials",
-    "crmCredentials": "tenant-rnm-insurance-agents-crm-credentials",
-    "bookingCredentials": "tenant-rnm-insurance-agents-google-calendar-credentials",
-    "voiceWebhookSecret": "tenant-rnm-insurance-agents-vapi-webhook-secret",
-    "twilioAccountSid": "tenant-rnm-insurance-agents-twilio-account-sid",
-    "twilioAuthToken": "tenant-rnm-insurance-agents-twilio-auth-token",
-    "emailConnectionString": "tenant-rnm-insurance-agents-email-connection",
-    "manyChatWebhookSecret": "tenant-rnm-insurance-agents-manychat-webhook-secret",
-    "classRegistrationWebhookSecret": "tenant-rnm-insurance-agents-class-registration-webhook-secret"
+    "crmApiKey": "tenant-yartex-crm-credentials",
+    "bookingApiKey": "tenant-yartex-google-calendar-credentials",
+    "crmCredentials": "tenant-yartex-crm-credentials",
+    "bookingCredentials": "tenant-yartex-google-calendar-credentials",
+    "voiceWebhookSecret": "tenant-yartex-vapi-webhook-secret",
+    "twilioAccountSid": "tenant-yartex-twilio-account-sid",
+    "twilioAuthToken": "tenant-yartex-twilio-auth-token",
+    "emailConnectionString": "tenant-yartex-email-connection",
+    "manyChatWebhookSecret": "tenant-yartex-manychat-webhook-secret",
+    "classRegistrationWebhookSecret": "tenant-yartex-class-registration-webhook-secret"
   },
   "integrations": {
     "manyChat": {
@@ -47,7 +47,7 @@
         "followUp": {
           "type": "message",
           "label": "Continue follow-up",
-          "message": "Thanks. RNM will send helpful next steps and follow up when you are ready."
+          "message": "Thanks. Yartex will send helpful next steps and follow up when you are ready."
         },
         "none": {
           "type": "none",
@@ -66,12 +66,12 @@
       "mode": "always"
     },
     "confirmationTemplates": {
-      "smsBodyTemplate": "RNM received your request. Our team will send the next step soon. Reply STOP to opt out.",
-      "emailSubjectTemplate": "RNM received your request",
-      "emailBodyTemplate": "Hi {{customerName}},\n\nRNM received your request and will follow up with the appropriate next step.\n\nReference: {{correlationId}}",
-      "businessSmsBodyTemplate": "New RNM lead\n{{customerName}}\n{{customerPhoneNumber}}\nFunnel: {{attr.funnelType}}\nClass: {{attr.leadClassification}}\nRoute: {{attr.recommendedRoute}}\nRef: {{correlationId}}",
-      "businessEmailSubjectTemplate": "New RNM lead: {{customerName}}",
-      "businessEmailBodyTemplate": "New RNM lead received\n\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nCampaign: {{campaignId}}\nFunnel: {{attr.funnelType}}\nMeta channel: {{attr.metaChannel}}\nTrigger: {{attr.triggerType}}\nKeyword: {{attr.keyword}}\nGoal: {{attr.primaryGoal}}\nTimeline: {{attr.timeline}}\nState: {{attr.state}}\nRequested next step: {{attr.requestedNextStep}}\nClassification: {{attr.leadClassification}}\nRecommended route: {{attr.recommendedRoute}}\nReasons: {{attr.classificationReasons}}\nReference: {{correlationId}}"
+      "smsBodyTemplate": "Yartex received your request. Our team will send the next step soon. Reply STOP to opt out.",
+      "emailSubjectTemplate": "Yartex received your request",
+      "emailBodyTemplate": "Hi {{customerName}},\n\nYartex received your request and will follow up with the appropriate next step.\n\nReference: {{correlationId}}",
+      "businessSmsBodyTemplate": "New Yartex lead\n{{customerName}}\n{{customerPhoneNumber}}\nFunnel: {{attr.funnelType}}\nClass: {{attr.leadClassification}}\nRoute: {{attr.recommendedRoute}}\nRef: {{correlationId}}",
+      "businessEmailSubjectTemplate": "New Yartex lead: {{customerName}}",
+      "businessEmailBodyTemplate": "New Yartex lead received\n\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nCampaign: {{campaignId}}\nFunnel: {{attr.funnelType}}\nMeta channel: {{attr.metaChannel}}\nTrigger: {{attr.triggerType}}\nKeyword: {{attr.keyword}}\nGoal: {{attr.primaryGoal}}\nTimeline: {{attr.timeline}}\nState: {{attr.state}}\nRequested next step: {{attr.requestedNextStep}}\nClassification: {{attr.leadClassification}}\nRecommended route: {{attr.recommendedRoute}}\nReasons: {{attr.classificationReasons}}\nReference: {{correlationId}}"
     }
   },
   "followUps": {
@@ -86,12 +86,12 @@
           {
             "delayMinutes": 30,
             "channel": "sms",
-            "smsBodyTemplate": "Hi {{customerName}}, this is RNM. We received your request and can help with the next step. Reply here when you can. Reply STOP to opt out."
+            "smsBodyTemplate": "Hi {{customerName}}, this is Yartex. We received your request and can help with the next step. Reply here when you can. Reply STOP to opt out."
           },
           {
             "delayMinutes": 1440,
             "channel": "email",
-            "emailSubjectTemplate": "Following up on your RNM request",
+            "emailSubjectTemplate": "Following up on your Yartex request",
             "emailBodyTemplate": "Hi {{customerName}},\n\nWe received your request and wanted to follow up with next steps.\n\nReference: {{correlationId}}\n\nReply to this email when you are ready."
           }
         ],
@@ -111,8 +111,7 @@
     "maxRegistrationsPerMinute": 60,
     "allowedRegistrationOrigins": [
       "https://rnmglobalsolutions.com",
-      "https://www.rnmglobalsolutions.com",
-      "https://insurance.rnmglobalsolutions.com"
+      "https://www.rnmglobalsolutions.com"
     ],
     "reminderOffsetsMinutes": [1440, 60],
     "reminderStalenessCutoffMinutes": 60,

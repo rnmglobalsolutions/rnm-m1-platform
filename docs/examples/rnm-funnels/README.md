@@ -17,7 +17,7 @@ Edit `config.js` before deployment:
 ```js
 window.RNM_FUNNEL_CONFIG = {
   API_BASE_URL: "https://<function-app>.azurewebsites.net/api",
-  TENANT_ID: "rnm-insurance-agents",
+  TENANT_ID: "yartex",
   MASTERCLASS_SESSION_ID: "replace-with-published-session-id"
 };
 ```

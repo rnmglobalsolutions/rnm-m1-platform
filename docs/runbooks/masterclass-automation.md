@@ -35,7 +35,7 @@ Also configure the dedicated server-to-server registration secret name:
 ```json
 {
   "secretNames": {
-    "classRegistrationWebhookSecret": "tenant-rnm-insurance-agents-class-registration-webhook-secret"
+    "classRegistrationWebhookSecret": "tenant-yartex-class-registration-webhook-secret"
   }
 }
 ```
@@ -46,7 +46,7 @@ random secret. M1 reads it at runtime; it is not stored in tenant JSON.
 Set `RNM_ACTIVE_TENANTS` in the Function App when reminder automation should run:
 
 ```text
-RNM_ACTIVE_TENANTS=rnm-insurance-agents
+RNM_ACTIVE_TENANTS=yartex
 ```
 
 Multiple tenants are comma-separated.
@@ -325,7 +325,7 @@ value in Key Vault before testing.
 Para reminders automáticos de masterclass, en Azure Function App agrega:
 
 ```text
-RNM_ACTIVE_TENANTS=rnm-insurance-agents
+RNM_ACTIVE_TENANTS=yartex
 ```
 
 o el tenant real de masterclass que estés probando. Kenny Commercial Real Estate
@@ -478,7 +478,7 @@ El navegador en `https://rnmglobalsolutions.com/masterclass/register` envia el
 formulario al endpoint publico:
 
 ```text
-/api/tenants/rnm-insurance-agents/funnels/masterclass/{classSessionId}/registrations
+/api/tenants/yartex/funnels/masterclass/{classSessionId}/registrations
 ```
 
 No debe incluir `X-RNM-Class-Registration-Secret` ni `x-rnm-api-key`. El `Origin`

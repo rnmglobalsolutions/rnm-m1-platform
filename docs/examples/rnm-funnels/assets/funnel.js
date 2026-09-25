@@ -1,7 +1,7 @@
 (function () {
   const config = window.RNM_FUNNEL_CONFIG || {};
   const apiBaseUrl = (config.API_BASE_URL || "").replace(/\/$/, "");
-  const tenantId = config.TENANT_ID || "rnm-insurance-agents";
+  const tenantId = config.TENANT_ID || "yartex";
 
   function endpoint(path) {
     if (!apiBaseUrl) {
