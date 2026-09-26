@@ -67,28 +67,28 @@ echo "Seeding sample HVAC tenant secrets into Key Vault: ${KEY_VAULT_NAME}"
 az keyvault secret set \
   --only-show-errors \
   --vault-name "${KEY_VAULT_NAME}" \
-  --name tenant-sample-hvac-vapi-webhook-secret \
+  --name rnm-tenant-sample-hvac-vapi-webhook-secret \
   --value "${VAPI_WEBHOOK_SECRET}" \
   --output none
 
 az keyvault secret set \
   --only-show-errors \
   --vault-name "${KEY_VAULT_NAME}" \
-  --name tenant-sample-hvac-twilio-account-sid \
+  --name rnm-tenant-sample-hvac-twilio-account-sid \
   --value "${TWILIO_ACCOUNT_SID}" \
   --output none
 
 az keyvault secret set \
   --only-show-errors \
   --vault-name "${KEY_VAULT_NAME}" \
-  --name tenant-sample-hvac-twilio-auth-token \
+  --name rnm-tenant-sample-hvac-twilio-auth-token \
   --value "${TWILIO_AUTH_TOKEN}" \
   --output none
 
 az keyvault secret set \
   --only-show-errors \
   --vault-name "${KEY_VAULT_NAME}" \
-  --name tenant-rnm-hvac-google-calendar-credentials \
+  --name rnm-tenant-sample-hvac-google-calendar-credentials \
   --file "${GOOGLE_CALENDAR_CREDENTIALS_FILE}" \
   --output none
 
@@ -96,7 +96,7 @@ if [[ -n "${EMAIL_CONNECTION_STRING:-}" ]]; then
   az keyvault secret set \
     --only-show-errors \
     --vault-name "${KEY_VAULT_NAME}" \
-    --name tenant-sample-hvac-email-connection \
+    --name rnm-tenant-sample-hvac-email-connection \
     --value "${EMAIL_CONNECTION_STRING}" \
     --output none
 fi

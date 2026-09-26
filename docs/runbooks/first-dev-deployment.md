@@ -86,10 +86,10 @@ Seed these secrets before a real end-to-end dev test:
 ```bash
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-internal-api-key --value '<INTERNAL_API_KEY>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-sendgrid-api-key --value '<SENDGRID_API_KEY>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-vapi-webhook-secret --value '<VAPI_WEBHOOK_SECRET>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-vapi-webhook-secret --value '<VAPI_WEBHOOK_SECRET>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
 ```
 
 For real tenants, use the generic script, which reads the required secret names from the tenant JSON through the preflight:
@@ -126,7 +126,7 @@ For Google Calendar, store the tenant booking credentials as JSON:
 ```bash
 az keyvault secret set \
   --vault-name <KEY_VAULT_NAME> \
-  --name tenant-rnm-hvac-google-calendar-credentials \
+  --name rnm-tenant-sample-hvac-google-calendar-credentials \
   --value '{
     "calendarId": "<GOOGLE_CALENDAR_ID>",
     "refreshToken": "<GOOGLE_OAUTH_REFRESH_TOKEN>",

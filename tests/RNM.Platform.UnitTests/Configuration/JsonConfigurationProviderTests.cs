@@ -39,12 +39,12 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "emailProvider": "SendGrid"
               },
               "secretNames": {
-                "crmApiKey": "tenant-a-crm-api-key",
-                "bookingApiKey": "tenant-a-booking-api-key",
-                "voiceWebhookSecret": "tenant-a-vapi-webhook-secret",
-                "twilioAccountSid": "tenant-a-twilio-account-sid",
-                "twilioAuthToken": "tenant-a-twilio-auth-token",
-                "emailConnectionString": "tenant-a-email-connection-string"
+                "crmApiKey": "rnm-tenant-a-crm-api-key",
+                "bookingApiKey": "rnm-tenant-a-booking-api-key",
+                "voiceWebhookSecret": "rnm-tenant-a-vapi-webhook-secret",
+                "twilioAccountSid": "rnm-tenant-a-twilio-account-sid",
+                "twilioAuthToken": "rnm-tenant-a-twilio-auth-token",
+                "emailConnectionString": "rnm-tenant-a-email-connection-string"
               },
               "communication": {
                 "smsFromPhoneNumber": "+15550001000",
@@ -71,8 +71,8 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         Assert.Equal("vertical-a", configuration.VerticalId.Value);
         Assert.Equal("Tenant A", configuration.BusinessName);
         Assert.Equal("Twilio", configuration.Providers.SmsProvider);
-        Assert.Equal("tenant-a-vapi-webhook-secret", configuration.SecretNames.VoiceWebhookSecret);
-        Assert.Equal("tenant-a-twilio-auth-token", configuration.SecretNames.TwilioAuthToken);
+        Assert.Equal("rnm-tenant-a-vapi-webhook-secret", configuration.SecretNames.VoiceWebhookSecret);
+        Assert.Equal("rnm-tenant-a-twilio-auth-token", configuration.SecretNames.TwilioAuthToken);
         Assert.Equal("+15550001000", configuration.Communication.SmsFromPhoneNumber);
         Assert.Equal("Configured SMS {{bookingDate}}", configuration.Communication.ConfirmationTemplates.SmsBodyTemplate);
     }
@@ -113,13 +113,13 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "emailProvider": "SendGrid"
               },
               "secretNames": {
-                "crmApiKey": "crm",
-                "bookingApiKey": "booking",
-                "voiceWebhookSecret": "voice",
-                "twilioAccountSid": "sid",
-                "twilioAuthToken": "token",
-                "emailConnectionString": "email",
-                "manyChatWebhookSecret": "tenant-a-manychat-secret"
+                "crmApiKey": "rnm-tenant-a-crm",
+                "bookingApiKey": "rnm-tenant-a-booking",
+                "voiceWebhookSecret": "rnm-tenant-a-voice",
+                "twilioAccountSid": "rnm-tenant-a-sid",
+                "twilioAuthToken": "rnm-tenant-a-token",
+                "emailConnectionString": "rnm-tenant-a-email",
+                "manyChatWebhookSecret": "rnm-tenant-a-manychat-secret"
               },
               "communication": {
                 "smsFromPhoneNumber": "+15550001000",
@@ -165,7 +165,7 @@ public sealed class JsonConfigurationProviderTests : IDisposable
 
         var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
 
-        Assert.Equal("tenant-a-manychat-secret", configuration.SecretNames.ManyChatWebhookSecret);
+        Assert.Equal("rnm-tenant-a-manychat-secret", configuration.SecretNames.ManyChatWebhookSecret);
         Assert.True(configuration.Integrations?.ManyChat?.EffectiveEnabled);
         Assert.False(configuration.Integrations?.ManyChat?.EffectiveScheduleFollowUp);
         Assert.Equal(75, configuration.Integrations?.ManyChat?.EffectiveMaxRequestsPerMinute);
@@ -250,12 +250,12 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "emailProvider": "SendGrid"
               },
               "secretNames": {
-                "crmApiKey": "crm",
-                "bookingApiKey": "booking",
-                "voiceWebhookSecret": "vapi",
-                "twilioAccountSid": "sid",
-                "twilioAuthToken": "token",
-                "emailConnectionString": "email"
+                "crmApiKey": "rnm-tenant-a-crm",
+                "bookingApiKey": "rnm-tenant-a-booking",
+                "voiceWebhookSecret": "rnm-tenant-a-vapi",
+                "twilioAccountSid": "rnm-tenant-a-sid",
+                "twilioAuthToken": "rnm-tenant-a-token",
+                "emailConnectionString": "rnm-tenant-a-email"
               },
               "communication": {
                 "smsFromPhoneNumber": "+15550001000",
@@ -308,12 +308,12 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "emailProvider": "SendGrid"
               },
               "secretNames": {
-                "crmApiKey": "crm",
-                "bookingApiKey": "booking",
-                "voiceWebhookSecret": "vapi",
-                "twilioAccountSid": "sid",
-                "twilioAuthToken": "token",
-                "emailConnectionString": "email"
+                "crmApiKey": "rnm-tenant-a-crm",
+                "bookingApiKey": "rnm-tenant-a-booking",
+                "voiceWebhookSecret": "rnm-tenant-a-vapi",
+                "twilioAccountSid": "rnm-tenant-a-sid",
+                "twilioAuthToken": "rnm-tenant-a-token",
+                "emailConnectionString": "rnm-tenant-a-email"
               },
               "communication": {
                 "smsFromPhoneNumber": "+15550001000",
@@ -456,13 +456,13 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "emailProvider": "SendGrid"
               },
               "secretNames": {
-                "crmApiKey": "crm",
-                "bookingApiKey": "booking",
-                "voiceWebhookSecret": "voice",
-                "twilioAccountSid": "sid",
-                "twilioAuthToken": "token",
-                "emailConnectionString": "email",
-                "manyChatWebhookSecret": "tenant-a-manychat-secret"
+                "crmApiKey": "rnm-tenant-a-crm",
+                "bookingApiKey": "rnm-tenant-a-booking",
+                "voiceWebhookSecret": "rnm-tenant-a-voice",
+                "twilioAccountSid": "rnm-tenant-a-sid",
+                "twilioAuthToken": "rnm-tenant-a-token",
+                "emailConnectionString": "rnm-tenant-a-email",
+                "manyChatWebhookSecret": "rnm-tenant-a-manychat-secret"
               },
               "communication": {
                 "smsFromPhoneNumber": "+15550001000",
@@ -505,12 +505,12 @@ public sealed class JsonConfigurationProviderTests : IDisposable
             "emailProvider": "SendGrid"
           },
           "secretNames": {
-            "crmApiKey": "crm",
-            "bookingApiKey": "booking",
-            "voiceWebhookSecret": "vapi",
-            "twilioAccountSid": "sid",
-            "twilioAuthToken": "token",
-            "emailConnectionString": "email"
+            "crmApiKey": "rnm-tenant-a-crm",
+            "bookingApiKey": "rnm-tenant-a-booking",
+            "voiceWebhookSecret": "rnm-tenant-a-vapi",
+            "twilioAccountSid": "rnm-tenant-a-sid",
+            "twilioAuthToken": "rnm-tenant-a-token",
+            "emailConnectionString": "rnm-tenant-a-email"
           },
           "communication": {
             "smsFromPhoneNumber": "+15550001000",

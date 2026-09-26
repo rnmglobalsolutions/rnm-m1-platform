@@ -114,6 +114,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         AddRequired(errors, tenantConfiguration.SecretNames.TwilioAccountSid, "secretNames.twilioAccountSid");
         AddRequired(errors, tenantConfiguration.SecretNames.TwilioAuthToken, "secretNames.twilioAuthToken");
         AddRequired(errors, tenantConfiguration.SecretNames.EmailConnectionString, "secretNames.emailConnectionString");
+        ValidateSecretNames(errors, tenantConfiguration.SecretNames);
 
         AddRequired(errors, tenantConfiguration.Communication.SmsFromPhoneNumber, "communication.smsFromPhoneNumber");
         if (tenantConfiguration.Communication.SmsRetryStalenessCutoffMinutes is < 1)
@@ -219,6 +220,23 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         LeadClassificationPolicy.Validate(verticalConfiguration.LeadClassification, "leadClassification", errors);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
+    }
+
+    private static void ValidateSecretNames(ICollection<string> errors, SecretNameConfiguration secretNames)
+    {
+        foreach (var (field, name) in secretNames.Configured())
+        {
+            if (!name.StartsWith(SecretNameConfiguration.RequiredPrefix, StringComparison.Ordinal))
+            {
+                errors.Add($"secretNames.{field} must start with '{SecretNameConfiguration.RequiredPrefix}'.");
+            }
+
+            // Key Vault secret names: 1-127 characters, letters, digits and '-' only.
+            if (name.Length > 127 || !name.All(character => char.IsAsciiLetterOrDigit(character) || character == '-'))
+            {
+                errors.Add($"secretNames.{field} must be a valid Key Vault secret name (letters, digits and '-', up to 127 characters).");
+            }
+        }
     }
 
     private static void AddRequired(ICollection<string> errors, string? value, string fieldName)

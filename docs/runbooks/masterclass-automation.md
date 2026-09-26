@@ -35,7 +35,7 @@ Also configure the dedicated server-to-server registration secret name:
 ```json
 {
   "secretNames": {
-    "classRegistrationWebhookSecret": "tenant-yartex-class-registration-webhook-secret"
+    "classRegistrationWebhookSecret": "rnm-tenant-yartex-class-registration-webhook-secret"
   }
 }
 ```

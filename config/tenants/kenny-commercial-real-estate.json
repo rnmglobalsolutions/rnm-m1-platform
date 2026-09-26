@@ -15,14 +15,14 @@
     "emailProvider": "SendGrid"
   },
   "secretNames": {
-    "crmApiKey": "tenant-kenny-crm-credentials",
-    "bookingApiKey": "tenant-kenny-google-calendar-credentials",
-    "crmCredentials": "tenant-kenny-crm-credentials",
-    "bookingCredentials": "tenant-kenny-google-calendar-credentials",
-    "voiceWebhookSecret": "tenant-kenny-vapi-webhook-secret",
-    "twilioAccountSid": "tenant-kenny-twilio-account-sid",
-    "twilioAuthToken": "tenant-kenny-twilio-auth-token",
-    "emailConnectionString": "tenant-kenny-email-connection"
+    "crmApiKey": "rnm-tenant-kenny-crm-credentials",
+    "bookingApiKey": "rnm-tenant-kenny-google-calendar-credentials",
+    "crmCredentials": "rnm-tenant-kenny-crm-credentials",
+    "bookingCredentials": "rnm-tenant-kenny-google-calendar-credentials",
+    "voiceWebhookSecret": "rnm-tenant-kenny-vapi-webhook-secret",
+    "twilioAccountSid": "rnm-tenant-kenny-twilio-account-sid",
+    "twilioAuthToken": "rnm-tenant-kenny-twilio-auth-token",
+    "emailConnectionString": "rnm-tenant-kenny-email-connection"
   },
   "communication": {
     "smsFromPhoneNumber": "+1XXXXXXXXXX",

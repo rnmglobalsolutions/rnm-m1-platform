@@ -34,7 +34,37 @@ public sealed record SecretNameConfiguration(
     string? CrmCredentials = null,
     string? BookingCredentials = null,
     string? ManyChatWebhookSecret = null,
-    string? ClassRegistrationWebhookSecret = null);
+    string? ClassRegistrationWebhookSecret = null)
+{
+    /// <summary>
+    /// Every tenant Key Vault secret name must start with this prefix, so tenant secrets are
+    /// recognizable and separable from platform secrets (rnm-internal-api-key, rnm-sendgrid-api-key).
+    /// </summary>
+    public const string RequiredPrefix = "rnm-tenant-";
+
+    /// <summary>
+    /// Configured secret names keyed by their JSON field name; unset optional names are omitted.
+    /// </summary>
+    public IEnumerable<(string Field, string Name)> Configured()
+    {
+        (string Field, string? Name)[] all =
+        [
+            ("crmApiKey", CrmApiKey),
+            ("bookingApiKey", BookingApiKey),
+            ("voiceWebhookSecret", VoiceWebhookSecret),
+            ("twilioAccountSid", TwilioAccountSid),
+            ("twilioAuthToken", TwilioAuthToken),
+            ("emailConnectionString", EmailConnectionString),
+            ("crmCredentials", CrmCredentials),
+            ("bookingCredentials", BookingCredentials),
+            ("manyChatWebhookSecret", ManyChatWebhookSecret),
+            ("classRegistrationWebhookSecret", ClassRegistrationWebhookSecret)
+        ];
+        return all
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+            .Select(entry => (entry.Field, entry.Name!));
+    }
+}
 
 public sealed record IntegrationConfiguration(
     ManyChatIntegrationConfiguration? ManyChat = null);

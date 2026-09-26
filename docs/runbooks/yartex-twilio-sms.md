@@ -120,15 +120,15 @@ Referencia oficial:
 Crear exactamente estos secretos en el Key Vault del ambiente correspondiente:
 
 ```text
-tenant-yartex-twilio-account-sid
-tenant-yartex-twilio-auth-token
+rnm-tenant-yartex-twilio-account-sid
+rnm-tenant-yartex-twilio-auth-token
 ```
 
 Valores esperados:
 
 ```text
-tenant-yartex-twilio-account-sid = ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-tenant-yartex-twilio-auth-token = <SUBACCOUNT_AUTH_TOKEN>
+rnm-tenant-yartex-twilio-account-sid = ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+rnm-tenant-yartex-twilio-auth-token = <SUBACCOUNT_AUTH_TOKEN>
 ```
 
 Usar Azure Portal cuando sea posible para evitar colocar el Auth Token en el

@@ -65,6 +65,39 @@ Do not interpret local `valid` as runtime readiness. The preflight cannot prove
 that a secret exists, Managed Identity can read it, a provider accepts it, or
 the Function App has the deployed app settings.
 
+## Secret Naming Rule
+
+Every Key Vault secret name in a tenant's `secretNames` must start with
+`rnm-tenant-`, use only letters, digits and `-`, and be at most 127 characters.
+Use `rnm-tenant-<tenant>-<purpose>`, for example
+`rnm-tenant-yartex-twilio-auth-token`. The prefix separates tenant secrets from
+platform secrets (`rnm-internal-api-key`, `rnm-sendgrid-api-key`). Loading the
+tenant JSON and the preflight both fail with
+`secretNames.<field> must start with 'rnm-tenant-'` when the rule is broken.
+
+### Renaming existing secrets
+
+When a tenant's secret names change, copy each value to the new name in every
+environment's Key Vault **before** deploying the new tenant JSON, then delete
+the old name once readiness is green. Values are piped, never printed:
+
+```bash
+KV=<KEY_VAULT_NAME>
+while read -r old new; do
+  az keyvault secret set --vault-name "$KV" --name "$new" --only-show-errors --output none \
+    --file <(az keyvault secret show --vault-name "$KV" --name "$old" --query value -o tsv | tr -d '\n')
+  echo "copied $old -> $new"
+done <<'MAP'
+tenant-sample-hvac-vapi-webhook-secret rnm-tenant-sample-hvac-vapi-webhook-secret
+tenant-sample-hvac-twilio-account-sid rnm-tenant-sample-hvac-twilio-account-sid
+tenant-sample-hvac-twilio-auth-token rnm-tenant-sample-hvac-twilio-auth-token
+tenant-rnm-hvac-google-calendar-credentials rnm-tenant-sample-hvac-google-calendar-credentials
+MAP
+```
+
+The map above is the `rnm-tenant-` migration for the sample HVAC tenant in dev.
+Yartex and Kenny had no secrets in any vault at the time of the rename.
+
 ## Seed The Tenant Secrets
 
 The same required-secret list drives the seeding script, one environment at a

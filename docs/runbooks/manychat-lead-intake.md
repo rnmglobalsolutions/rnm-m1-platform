@@ -10,7 +10,7 @@ Enable the integration in `config/tenants/<tenantId>.json`:
 
 ```json
 "secretNames": {
-  "manyChatWebhookSecret": "tenant-<tenantId>-manychat-webhook-secret"
+  "manyChatWebhookSecret": "rnm-tenant-<tenantId>-manychat-webhook-secret"
 },
 "integrations": {
   "manyChat": {
@@ -34,7 +34,7 @@ Key Vault using the exact name configured above. Example:
 openssl rand -base64 48
 az keyvault secret set \
   --vault-name <vault-name> \
-  --name tenant-yartex-manychat-webhook-secret \
+  --name rnm-tenant-yartex-manychat-webhook-secret \
   --value '<generated-secret>'
 ```
 

@@ -15,16 +15,16 @@
     "emailProvider": "SendGrid"
   },
   "secretNames": {
-    "crmApiKey": "tenant-yartex-crm-credentials",
-    "bookingApiKey": "tenant-yartex-google-calendar-credentials",
-    "crmCredentials": "tenant-yartex-crm-credentials",
-    "bookingCredentials": "tenant-yartex-google-calendar-credentials",
-    "voiceWebhookSecret": "tenant-yartex-vapi-webhook-secret",
-    "twilioAccountSid": "tenant-yartex-twilio-account-sid",
-    "twilioAuthToken": "tenant-yartex-twilio-auth-token",
-    "emailConnectionString": "tenant-yartex-email-connection",
-    "manyChatWebhookSecret": "tenant-yartex-manychat-webhook-secret",
-    "classRegistrationWebhookSecret": "tenant-yartex-class-registration-webhook-secret"
+    "crmApiKey": "rnm-tenant-yartex-crm-credentials",
+    "bookingApiKey": "rnm-tenant-yartex-google-calendar-credentials",
+    "crmCredentials": "rnm-tenant-yartex-crm-credentials",
+    "bookingCredentials": "rnm-tenant-yartex-google-calendar-credentials",
+    "voiceWebhookSecret": "rnm-tenant-yartex-vapi-webhook-secret",
+    "twilioAccountSid": "rnm-tenant-yartex-twilio-account-sid",
+    "twilioAuthToken": "rnm-tenant-yartex-twilio-auth-token",
+    "emailConnectionString": "rnm-tenant-yartex-email-connection",
+    "manyChatWebhookSecret": "rnm-tenant-yartex-manychat-webhook-secret",
+    "classRegistrationWebhookSecret": "rnm-tenant-yartex-class-registration-webhook-secret"
   },
   "integrations": {
     "manyChat": {

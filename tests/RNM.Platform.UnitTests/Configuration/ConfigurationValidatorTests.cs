@@ -263,6 +263,40 @@ public sealed class ConfigurationValidatorTests
         Assert.True(result.IsValid);
     }
 
+    [Theory]
+    [InlineData("tenant-a-twilio-auth-token", "must start with 'rnm-tenant-'")]
+    [InlineData("rnm-tenant-a_twilio_token", "must be a valid Key Vault secret name")]
+    public void ValidateTenant_ReturnsErrors_WhenSecretNameBreaksTheNamingRule(string secretName, string expectedError)
+    {
+        var validator = new ConfigurationValidator();
+        var configuration = CreateValidTenantConfiguration() with
+        {
+            SecretNames = CreateValidTenantConfiguration().SecretNames with { TwilioAuthToken = secretName }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error =>
+            error.StartsWith("secretNames.twilioAuthToken", StringComparison.Ordinal)
+            && error.Contains(expectedError, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_ChecksOptionalSecretNamesWhenConfigured()
+    {
+        var validator = new ConfigurationValidator();
+        var configuration = CreateValidTenantConfiguration() with
+        {
+            SecretNames = CreateValidTenantConfiguration().SecretNames with { ManyChatWebhookSecret = "manychat-secret" }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.Contains(result.Errors, error =>
+            error == "secretNames.manyChatWebhookSecret must start with 'rnm-tenant-'.");
+    }
+
     [Fact]
     public void ValidateTenant_ReturnsErrors_WhenManyChatRoutingUrlIsInvalid()
     {
@@ -271,7 +305,7 @@ public sealed class ConfigurationValidatorTests
         {
             SecretNames = CreateValidTenantConfiguration().SecretNames with
             {
-                ManyChatWebhookSecret = "manychat-secret"
+                ManyChatWebhookSecret = "rnm-tenant-a-manychat-secret"
             },
             Integrations = new IntegrationConfiguration(
                 new ManyChatIntegrationConfiguration(
@@ -357,12 +391,12 @@ public sealed class ConfigurationValidatorTests
             new ServiceAreaConfiguration(["75001"], [], null),
             new ProviderConfiguration("Crm", "Booking", "Sms", "Email"),
             new SecretNameConfiguration(
-                "crm-api-key",
-                "booking-api-key",
-                "vapi-webhook-secret",
-                "twilio-account-sid",
-                "twilio-auth-token",
-                "email-connection-string"),
+                "rnm-tenant-a-crm-api-key",
+                "rnm-tenant-a-booking-api-key",
+                "rnm-tenant-a-vapi-webhook-secret",
+                "rnm-tenant-a-twilio-account-sid",
+                "rnm-tenant-a-twilio-auth-token",
+                "rnm-tenant-a-email-connection-string"),
             new CommunicationConfiguration(
                 "+15550001000",
                 "booking@example.com",

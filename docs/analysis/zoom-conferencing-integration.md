@@ -76,7 +76,7 @@ Booking credentials are resolved through `GetBookingCredentialsSecretName`, whic
 
 Secrets are read from Azure Key Vault using `DefaultAzureCredential`; the secret provider is read-only. Evidence: `src/RNM.Platform.Infrastructure/Secrets/KeyVaultSecretProvider.cs:7`, `src/RNM.Platform.Infrastructure/Secrets/KeyVaultSecretProvider.cs:11`, `src/RNM.Platform.Infrastructure/Secrets/KeyVaultSecretProvider.cs:26`, `src/RNM.Platform.Infrastructure/Secrets/KeyVaultSecretProvider.cs:37`.
 
-Kenny's current tenant config uses Google Calendar as booking provider and points booking credentials at `tenant-kenny-google-calendar-credentials`. Evidence: `config/tenants/kenny-commercial-real-estate.json:11`, `config/tenants/kenny-commercial-real-estate.json:13`, `config/tenants/kenny-commercial-real-estate.json:17`, `config/tenants/kenny-commercial-real-estate.json:21`.
+Kenny's current tenant config uses Google Calendar as booking provider and points booking credentials at `rnm-tenant-kenny-google-calendar-credentials`. Evidence: `config/tenants/kenny-commercial-real-estate.json:11`, `config/tenants/kenny-commercial-real-estate.json:13`, `config/tenants/kenny-commercial-real-estate.json:17`, `config/tenants/kenny-commercial-real-estate.json:21`.
 
 ### Appointment/contact model
 
@@ -234,7 +234,7 @@ Illustrative only:
 {
   "conferencing": {
     "provider": "Zoom",
-    "credentialsSecretName": "tenant-kenny-zoom-credentials",
+    "credentialsSecretName": "rnm-tenant-kenny-zoom-credentials",
     "hostUserId": "kenny@example.com",
     "meetingDefaults": {
       "waitingRoom": true,
