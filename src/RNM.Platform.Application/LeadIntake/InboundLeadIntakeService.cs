@@ -160,7 +160,7 @@ public sealed class InboundLeadIntakeService
             }
 
             var followUpRequested = false;
-            if (request.ScheduleFollowUp)
+            if (request.ScheduleFollowUp && classification.ScheduleFollowUp)
             {
                 var followUp = await crmApplicationService.MarkFollowUpRequiredAsync(
                         new CrmFollowUpRequest(
@@ -210,7 +210,10 @@ public sealed class InboundLeadIntakeService
                 businessNotificationQueued,
                 GetAttribute(attributes, "leadClassification"),
                 GetAttribute(attributes, "recommendedRoute"),
-                GetAttribute(attributes, "classificationReasons"));
+                GetAttribute(attributes, "classificationReasons"))
+            {
+                LeadTemperature = classification.Tier
+            };
         }
         catch (OperationCanceledException)
         {
@@ -487,7 +490,10 @@ public sealed class InboundLeadIntakeService
             [CrmContactAttributeNames.ExternalSourceId] = request.ExternalContactId,
             ["leadClassification"] = classification.Classification,
             ["classificationReasons"] = string.Join(",", classification.Reasons),
-            ["recommendedRoute"] = classification.Route
+            ["recommendedRoute"] = classification.Route,
+            ["leadTemperature"] = classification.Tier,
+            ["classificationRuleId"] = classification.RuleId,
+            ["classificationRulesetVersion"] = classification.RulesetVersion
         };
         AddIfPresent(attributes, CrmContactAttributeNames.CampaignId, request.CampaignId);
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentCapturedAt, request.ConsentCapturedAt?.ToUniversalTime().ToString("O"));

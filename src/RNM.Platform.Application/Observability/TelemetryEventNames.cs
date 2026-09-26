@@ -98,6 +98,7 @@ public static class TelemetryEventNames
     public const string LeadIntakeFailed = "lead_intake.failed";
     public const string LeadIntakeConsentEvidenceMissing = "lead_intake.consent_evidence_missing";
     public const string LeadClassificationFallback = "lead_intake.classification.fallback";
+    public const string LeadClassificationUnexpectedValue = "lead_intake.classification.unexpected_value";
     public const string LeadIntakeBusinessNotificationQueued = "lead_intake.business_notification.queued";
     public const string LeadIntakeBusinessNotificationFailed = "lead_intake.business_notification.failed";
 }

@@ -31,7 +31,21 @@ public sealed class LeadClassifier
         CancellationToken cancellationToken)
     {
         var policy = await ResolvePolicyAsync(tenantId, correlationId, cancellationToken).ConfigureAwait(false);
-        return LeadClassificationPolicy.Evaluate(policy, attributes, consentStatus);
+        var decision = LeadClassificationPolicy.Evaluate(policy, attributes, consentStatus);
+        if (decision.UnexpectedAttributes.Count > 0)
+        {
+            // Attribute names only: values come from the lead source and are not logged.
+            await LogAsync(
+                    TelemetryEventNames.LeadClassificationUnexpectedValue,
+                    tenantId,
+                    correlationId,
+                    ("attributes", string.Join(",", decision.UnexpectedAttributes)),
+                    ("ruleId", decision.RuleId),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return decision;
     }
 
     private async Task<ResolvedLeadClassification> ResolvePolicyAsync(
@@ -53,32 +67,38 @@ public sealed class LeadClassifier
                 return resolution.Policy;
             }
 
-            await LogFallbackAsync(tenantId, correlationId, "config_invalid", cancellationToken).ConfigureAwait(false);
+            await LogAsync(TelemetryEventNames.LeadClassificationFallback, tenantId, correlationId, ("reason", "config_invalid"), default, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            await LogFallbackAsync(tenantId, correlationId, "config_unavailable", cancellationToken).ConfigureAwait(false);
+            await LogAsync(TelemetryEventNames.LeadClassificationFallback, tenantId, correlationId, ("reason", "config_unavailable"), default, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return LeadClassificationPolicy.PlatformDefault;
     }
 
-    private async Task LogFallbackAsync(
+    private async Task LogAsync(
+        string eventName,
         string tenantId,
         string correlationId,
-        string reason,
+        (string Name, string Value) first,
+        (string Name, string Value)? second,
         CancellationToken cancellationToken)
     {
         try
         {
-            await eventLogger.LogEventAsync(
-                    TelemetryEventNames.LeadClassificationFallback,
-                    new SafeTelemetryProperties()
-                        .Add("tenantId", tenantId)
-                        .Add("correlationId", correlationId)
-                        .Add("reason", reason)
-                        .ToDictionary(),
-                    cancellationToken)
+            var properties = new SafeTelemetryProperties()
+                .Add("tenantId", tenantId)
+                .Add("correlationId", correlationId)
+                .Add(first.Name, first.Value);
+            if (second is { } extra)
+            {
+                properties.Add(extra.Name, extra.Value);
+            }
+
+            await eventLogger.LogEventAsync(eventName, properties.ToDictionary(), cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

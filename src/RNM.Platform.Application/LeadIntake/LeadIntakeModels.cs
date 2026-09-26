@@ -34,7 +34,10 @@ public sealed record InboundLeadIntakeResult(
     string? LeadClassification = null,
     string? RecommendedRoute = null,
     string? ClassificationReasons = null,
-    string? FailureCode = null);
+    string? FailureCode = null)
+{
+    public string? LeadTemperature { get; init; }
+}
 
 public sealed record InboundLeadReceiptClaimRequest(
     string TenantId,

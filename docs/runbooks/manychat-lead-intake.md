@@ -118,17 +118,40 @@ M1 stores internal routing attributes on the CRM contact:
 Classification rules are configuration, not code. The vertical file
 (`config/verticals/{verticalId}.json`, block `leadClassification`) holds the
 default rules: ordered rules per `funnelType` value, where the first match
-assigns a tier (`hot`, `warm`, `cold`, `disqualified`) and each tier maps to a
-`classification` label and a `route`. A tenant can add its own
-`leadClassification` block to override individual tiers or replace a whole
-funnel. Routes are an open set: any lowercase token (for example `nurture`)
-is valid, as long as the tenant defines a matching
-`integrations.manyChat.routingActions` entry. Opt-out always wins, produces the
-`none` route, and is not configurable. Run the tenant preflight after any rule
-change; it reports the `leadClassification` and `leadClassification.routes`
-checks. If the
+assigns a tier (`hot`, `warm`, `cold`, `disqualified`). Each tier maps to a
+`classification` label, a `route`, and `scheduleFollowUp` (default `true`). A
+tenant can add its own `leadClassification` block to override individual tiers
+or replace a whole funnel.
+
+- **Life insurance** (`life-insurance`): hot → `consultation`, warm and cold →
+  `master_class`, disqualified → `none` with no follow-up.
+- **Verticals without rules**: every lead is cold and routed to `nurture`.
+- **Opt-out always wins** (consent `opted_out`, `requestedNextStep` of
+  `opted_out`/`no_contact`, or `communicationOptOut` of `true`/`yes`): route
+  `none`, no follow-up. The tier the rules assigned is still stored for
+  reporting. This is not configurable.
+- **Normalization**: values are compared trimmed, case-insensitive, with runs of
+  spaces, `-` and `_` treated as `_` (`"30-90 Days"` matches `30_90_days`).
+  Stored values are not rewritten.
+- **Expected values**: a funnel may declare `fields` (attribute → allowed
+  values). A value outside that list still classifies normally, but M1 logs
+  `lead_intake.classification.unexpected_value` with the attribute name only.
+  Watch this event after changing a ManyChat flow.
+- **Routes** are an open set: any lowercase token (for example `nurture`) is
+  valid, as long as the tenant defines a matching
+  `integrations.manyChat.routingActions` entry.
+
+M1 stores `leadTemperature`, `classificationRuleId`, and
+`classificationRulesetVersion` on the contact next to the classification, and
+returns `leadTemperature` in the response. Follow-up sequences can differ by
+tier: a sequence with trigger `followup.required.{tier}` (for example
+`followup.required.cold`) replaces the generic `followup.required` sequences for
+leads of that tier.
+
+Run the tenant preflight after any rule change; it reports the
+`leadClassification` and `leadClassification.routes` checks. If the
 configuration cannot be loaded at runtime, the lead is still processed with the
-platform default (`follow_up`) and M1 logs
+platform default (cold, `nurture`) and M1 logs
 `lead_intake.classification.fallback`.
 
 When the video funnel should send the user to a website page, ManyChat should

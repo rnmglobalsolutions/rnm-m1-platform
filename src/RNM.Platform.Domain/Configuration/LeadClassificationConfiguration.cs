@@ -9,19 +9,26 @@ public sealed record LeadClassificationConfiguration(
     IReadOnlyDictionary<string, LeadTierProfile> Tiers,
     LeadClassificationOutcome? MissingFunnel,
     LeadClassificationOutcome? UnknownFunnel,
-    IReadOnlyDictionary<string, LeadFunnelRuleSet> Funnels);
+    IReadOnlyDictionary<string, LeadFunnelRuleSet> Funnels,
+    string? Version = null);
 
 /// <summary>
-/// What a tier means for one vertical or tenant: the classification label stored on the lead and the route it takes.
+/// What a tier means for one vertical or tenant: the classification label stored on the lead, the route it takes,
+/// and whether it enters the follow-up automation (default true).
 /// </summary>
-public sealed record LeadTierProfile(string Classification, string Route);
+public sealed record LeadTierProfile(string Classification, string Route, bool? ScheduleFollowUp = null)
+{
+    public bool EffectiveScheduleFollowUp => ScheduleFollowUp ?? true;
+}
 
 /// <summary>
 /// Ordered rules for one funnel; the first matching rule wins, otherwise the fallback applies.
+/// <see cref="Fields"/> optionally declares the expected values per attribute so drift in a lead source is visible.
 /// </summary>
 public sealed record LeadFunnelRuleSet(
     IReadOnlyList<LeadClassificationRule> Rules,
-    LeadClassificationOutcome? Fallback);
+    LeadClassificationOutcome? Fallback,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Fields = null);
 
 public sealed record LeadClassificationRule(
     string Id,

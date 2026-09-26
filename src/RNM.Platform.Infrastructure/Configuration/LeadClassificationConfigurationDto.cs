@@ -11,7 +11,8 @@ internal sealed record LeadClassificationConfigurationDto(
     IReadOnlyDictionary<string, LeadTierProfileDto?>? Tiers,
     LeadClassificationOutcomeDto? MissingFunnel,
     LeadClassificationOutcomeDto? UnknownFunnel,
-    IReadOnlyDictionary<string, LeadFunnelRuleSetDto?>? Funnels)
+    IReadOnlyDictionary<string, LeadFunnelRuleSetDto?>? Funnels,
+    string? Version)
 {
     public LeadClassificationConfiguration ToDomain() =>
         new(
@@ -19,7 +20,7 @@ internal sealed record LeadClassificationConfigurationDto(
             ToCaseInsensitive(
                 Tiers,
                 "tiers",
-                tier => new LeadTierProfile(tier?.Classification ?? string.Empty, tier?.Route ?? string.Empty)),
+                tier => new LeadTierProfile(tier?.Classification ?? string.Empty, tier?.Route ?? string.Empty, tier?.ScheduleFollowUp)),
             MissingFunnel?.ToDomain(),
             UnknownFunnel?.ToDomain(),
             ToCaseInsensitive(
@@ -27,7 +28,11 @@ internal sealed record LeadClassificationConfigurationDto(
                 "funnels",
                 funnel => new LeadFunnelRuleSet(
                     (funnel?.Rules ?? []).Select(rule => rule.ToDomain()).ToArray(),
-                    funnel?.Fallback?.ToDomain())));
+                    funnel?.Fallback?.ToDomain(),
+                    funnel?.Fields is null
+                        ? null
+                        : new Dictionary<string, IReadOnlyList<string>>(funnel.Fields, StringComparer.OrdinalIgnoreCase))),
+            Version);
 
     private static IReadOnlyDictionary<string, TDomain> ToCaseInsensitive<TDto, TDomain>(
         IReadOnlyDictionary<string, TDto>? source,
@@ -48,11 +53,12 @@ internal sealed record LeadClassificationConfigurationDto(
     }
 }
 
-internal sealed record LeadTierProfileDto(string? Classification, string? Route);
+internal sealed record LeadTierProfileDto(string? Classification, string? Route, bool? ScheduleFollowUp);
 
 internal sealed record LeadFunnelRuleSetDto(
     IReadOnlyList<LeadClassificationRuleDto>? Rules,
-    LeadClassificationOutcomeDto? Fallback);
+    LeadClassificationOutcomeDto? Fallback,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Fields);
 
 internal sealed record LeadClassificationRuleDto(
     string? Id,

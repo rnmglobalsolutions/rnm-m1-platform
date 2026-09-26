@@ -198,6 +198,7 @@ public sealed class ManyChatLeadWebhookFunction
                 followUpRequested = result.FollowUpRequested,
                 businessNotificationQueued = result.BusinessNotificationQueued,
                 leadClassification = result.LeadClassification,
+                leadTemperature = result.LeadTemperature,
                 recommendedRoute = result.RecommendedRoute,
                 classificationReasons = result.ClassificationReasons,
                 nextAction = ResolveNextAction(result.RecommendedRoute, integration.RoutingActions),

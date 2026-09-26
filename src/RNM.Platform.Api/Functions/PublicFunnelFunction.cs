@@ -161,6 +161,7 @@ public sealed class PublicFunnelFunction
             {
                 received = true,
                 leadClassification = result.LeadClassification,
+                leadTemperature = result.LeadTemperature,
                 recommendedRoute = result.RecommendedRoute,
                 classificationReasons = result.ClassificationReasons,
                 correlationId

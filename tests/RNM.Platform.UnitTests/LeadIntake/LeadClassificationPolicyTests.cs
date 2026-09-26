@@ -66,10 +66,130 @@ public sealed class LeadClassificationPolicyTests
 
         var decision = LeadClassificationPolicy.Evaluate(policy, NearTermFinancialLead, CrmConsentStatuses.OptedOut);
 
-        Assert.Null(decision.Tier);
+        Assert.Equal(LeadTiers.Hot, decision.Tier);
+        Assert.False(decision.ScheduleFollowUp);
         Assert.Equal("opted_out", decision.Classification);
         Assert.Equal(LeadRoutes.None, decision.Route);
         Assert.Equal(LeadClassificationPolicy.OptOutRuleId, decision.RuleId);
+    }
+
+    [Theory]
+    [InlineData("  30-90 Days ", "30_90_days")]
+    [InlineData("Master Class", "master_class")]
+    [InlineData("under__30--days", "under_30_days")]
+    [InlineData("consultation", "consultation")]
+    public void Normalize_CanonicalizesCaseAndSeparators(string value, string expected) =>
+        Assert.Equal(expected, LeadClassificationPolicy.Normalize(value));
+
+    [Fact]
+    public async Task Evaluate_NormalizedValueMatchesRule()
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("life-insurance");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+        var lead = new Dictionary<string, string>(NearTermFinancialLead) { ["funnelType"] = "Financial Education", ["timeline"] = "30-90 days" };
+
+        var decision = LeadClassificationPolicy.Evaluate(policy, lead, CrmConsentStatuses.OptIn);
+
+        Assert.Equal("fe-near-term-with-goal", decision.RuleId);
+        Assert.Equal(LeadTiers.Hot, decision.Tier);
+        Assert.Empty(decision.UnexpectedAttributes);
+    }
+
+    [Fact]
+    public async Task Evaluate_LifeInsuranceColdLead_GoesToMasterClass()
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("life-insurance");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+        var lead = new Dictionary<string, string> { ["funnelType"] = "financial_education" };
+
+        var decision = LeadClassificationPolicy.Evaluate(policy, lead, CrmConsentStatuses.OptIn);
+
+        Assert.Equal(LeadTiers.Cold, decision.Tier);
+        Assert.Equal(LeadRoutes.MasterClass, decision.Route);
+        Assert.True(decision.ScheduleFollowUp);
+        Assert.Equal("life-insurance-2026-09-26", decision.RulesetVersion);
+    }
+
+    [Fact]
+    public async Task Evaluate_DisqualifiedLead_DoesNotScheduleFollowUp()
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("life-insurance");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+        var lead = new Dictionary<string, string> { ["funnelType"] = "business_opportunity", ["incomeExpectation"] = "guaranteed_income" };
+
+        var decision = LeadClassificationPolicy.Evaluate(policy, lead, CrmConsentStatuses.OptIn);
+
+        Assert.Equal(LeadTiers.Disqualified, decision.Tier);
+        Assert.Equal(LeadRoutes.None, decision.Route);
+        Assert.False(decision.ScheduleFollowUp);
+    }
+
+    [Theory]
+    [InlineData("requestedNextStep", "no_contact")]
+    [InlineData("communicationOptOut", "Yes")]
+    public async Task Evaluate_OptOutSignal_KeepsTierAndStopsFollowUp(string attribute, string value)
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("life-insurance");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+        var lead = new Dictionary<string, string>(NearTermFinancialLead) { [attribute] = value };
+
+        var decision = LeadClassificationPolicy.Evaluate(policy, lead, CrmConsentStatuses.OptIn);
+
+        Assert.Equal(LeadTiers.Hot, decision.Tier);
+        Assert.Equal(LeadRoutes.None, decision.Route);
+        Assert.Equal(LeadClassificationPolicy.OptOutRuleId, decision.RuleId);
+        Assert.False(decision.ScheduleFollowUp);
+    }
+
+    [Fact]
+    public async Task Classifier_ValueOutsideDeclaredCatalog_IsReportedByAttributeName()
+    {
+        var logger = new FakeEventLogger();
+        var classifier = RepositoryConfiguration.Classifier(new FakeTenantConfigurationProvider(), logger);
+        var lead = new Dictionary<string, string>(NearTermFinancialLead) { ["timeline"] = "someday-maybe" };
+
+        var decision = await classifier.ClassifyAsync("tenant-a", "corr-1", lead, CrmConsentStatuses.OptIn, CancellationToken.None);
+
+        Assert.Equal(["timeline"], decision.UnexpectedAttributes);
+        Assert.Contains(logger.Events, item =>
+            item.EventName == "lead_intake.classification.unexpected_value"
+            && item.Properties.GetValueOrDefault("attributes") == "timeline"
+            && !item.Properties.Values.Contains("someday-maybe"));
+    }
+
+    [Fact]
+    public void Validate_CatalogMissingARuleValue_IsReported()
+    {
+        var configuration = Config(funnels: new()
+        {
+            ["financial_education"] = new(
+                [new LeadClassificationRule(
+                    "near-term",
+                    new LeadRuleCondition([new LeadRulePredicate("timeline", ["this_week", "next_year"], null, null)], []),
+                    new LeadClassificationOutcome(LeadTiers.Cold, ["near_term"]))],
+                new LeadClassificationOutcome(LeadTiers.Cold, ["fallback"]),
+                new Dictionary<string, IReadOnlyList<string>> { ["timeline"] = ["This Week"] })
+        });
+        var errors = new List<string>();
+
+        LeadClassificationPolicy.Validate(configuration, "leadClassification", errors);
+
+        Assert.Equal(["leadClassification.funnels.financial_education.fields.timeline does not list 'next_year', which a rule compares against."], errors);
+    }
+
+    [Fact]
+    public void Resolve_FunnelsThatNormalizeToSameKey_AreReported()
+    {
+        var fallback = new LeadClassificationOutcome(LeadTiers.Cold, ["fallback"]);
+        var tenant = Config(funnels: new()
+        {
+            ["financial_education"] = new([], fallback),
+            ["Financial-Education"] = new([], fallback)
+        });
+
+        var resolution = LeadClassificationPolicy.Resolve(vertical: null, tenant);
+
+        Assert.Contains(resolution.Errors, error => error.Contains("normalizes to 'financial_education'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -80,8 +200,9 @@ public sealed class LeadClassificationPolicyTests
 
         Assert.True(resolution.IsValid);
         Assert.Equal(LeadTiers.Cold, decision.Tier);
-        Assert.Equal(LeadRoutes.FollowUp, decision.Route);
+        Assert.Equal(LeadRoutes.Nurture, decision.Route);
         Assert.Equal(["unknown_funnel_type"], decision.Reasons);
+        Assert.Equal(LeadClassificationPolicy.PlatformDefaultVersion, decision.RulesetVersion);
     }
 
     [Fact]
@@ -159,7 +280,7 @@ public sealed class LeadClassificationPolicyTests
         var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
 
         Assert.Equal(
-            [LeadRoutes.Consultation, LeadRoutes.FollowUp, LeadRoutes.MasterClass, LeadRoutes.None],
+            [LeadRoutes.Consultation, LeadRoutes.MasterClass, LeadRoutes.None],
             LeadClassificationPolicy.ReachableRoutes(policy));
     }
 
@@ -220,8 +341,9 @@ public sealed class LeadClassificationPolicyTests
         var optedIn = await classifier.ClassifyAsync("tenant-a", "corr-2", NearTermFinancialLead, CrmConsentStatuses.OptIn, CancellationToken.None);
 
         Assert.Equal(LeadRoutes.None, optedOut.Route);
+        Assert.False(optedOut.ScheduleFollowUp);
         Assert.Equal(LeadTiers.Cold, optedIn.Tier);
-        Assert.Equal(LeadRoutes.FollowUp, optedIn.Route);
+        Assert.Equal(LeadRoutes.Nurture, optedIn.Route);
         Assert.Contains(logger.Events, item =>
             item.EventName == "lead_intake.classification.fallback"
             && item.Properties.GetValueOrDefault("reason") == "config_unavailable");

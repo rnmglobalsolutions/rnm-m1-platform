@@ -83,6 +83,43 @@ public sealed class InboundLeadIntakeServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_StoresTemperatureRuleAndVersionOnContact()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest(new Dictionary<string, string>
+        {
+            ["funnelType"] = "financial_education",
+            ["requestedNextStep"] = "consultation"
+        });
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.Equal(LeadTiers.Hot, result.LeadTemperature);
+        var attributes = fixture.Crm.Upserts.Single().Attributes;
+        Assert.Equal(LeadTiers.Hot, attributes["leadTemperature"]);
+        Assert.Equal("fe-requested-consultation", attributes["classificationRuleId"]);
+        Assert.Equal("life-insurance-2026-09-26", attributes["classificationRulesetVersion"]);
+    }
+
+    [Theory]
+    [InlineData("business_opportunity", "incomeExpectation", "guaranteed_income", false)]
+    [InlineData("financial_education", "requestedNextStep", "no_contact", false)]
+    [InlineData("financial_education", "requestedNextStep", "master_class", true)]
+    public async Task ProcessAsync_FollowUpFollowsTheClassification(string funnel, string attribute, string value, bool expectedFollowUp)
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest(new Dictionary<string, string> { ["funnelType"] = funnel, [attribute] = value }) with
+        {
+            ScheduleFollowUp = true
+        };
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(expectedFollowUp, result.FollowUpRequested);
+    }
+
+    [Fact]
     public async Task ProcessAsync_ExistingOptedOutCannotBeReversedByManyChat()
     {
         var fixture = new Fixture();

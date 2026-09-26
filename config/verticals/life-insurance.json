@@ -22,17 +22,24 @@
     "addressFields": ["serviceAddress", "targetPropertyAddress"]
   },
   "leadClassification": {
+    "version": "life-insurance-2026-09-26",
     "funnelAttribute": "funnelType",
     "tiers": {
       "hot": { "classification": "ready_for_consultation", "route": "consultation" },
       "warm": { "classification": "education_needed", "route": "master_class" },
-      "cold": { "classification": "follow_up", "route": "follow_up" },
-      "disqualified": { "classification": "not_qualified", "route": "none" }
+      "cold": { "classification": "follow_up", "route": "master_class" },
+      "disqualified": { "classification": "not_qualified", "route": "none", "scheduleFollowUp": false }
     },
     "missingFunnel": { "tier": "cold", "reasons": ["missing_funnel_type"] },
     "unknownFunnel": { "tier": "cold", "reasons": ["unknown_funnel_type"] },
     "funnels": {
       "financial_education": {
+        "fields": {
+          "requestedNextStep": ["consultation", "master_class", "follow_up", "opted_out", "no_contact"],
+          "timeline": ["this_week", "under_30_days", "30_90_days", "over_90_days", "just_learning", "learning_only"],
+          "primaryGoal": ["family_protection", "life_insurance", "retirement_planning", "business_opportunity", "not_sure", "education"],
+          "currentProtection": ["none", "employer_only", "personal_policy", "not_sure"]
+        },
         "rules": [
           {
             "id": "fe-requested-consultation",
@@ -66,6 +73,10 @@
         "fallback": { "tier": "cold", "reasons": ["financial_interest_needs_follow_up"] }
       },
       "business_opportunity": {
+        "fields": {
+          "requestedNextStep": ["consultation", "intro_call", "master_class", "follow_up", "opted_out", "no_contact"],
+          "timeline": ["this_week", "under_30_days", "30_90_days", "over_90_days", "just_learning", "learning_only"]
+        },
         "rules": [
           {
             "id": "bo-incompatible-expectation",

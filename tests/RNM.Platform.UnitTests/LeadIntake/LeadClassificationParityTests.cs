@@ -6,13 +6,14 @@ namespace RNM.Platform.UnitTests.LeadIntake;
 
 /// <summary>
 /// Proves config/verticals/life-insurance.json reproduces the hardcoded rules it replaced, for every
-/// combination of the known attribute values (plus casing, blanks and unknown values).
+/// combination of the known attribute values (plus casing, separators, blanks and unknown values),
+/// except for the deliberate changes listed in <see cref="ApplyAgreedChanges"/>.
 /// </summary>
 public sealed class LeadClassificationParityTests
 {
     private static readonly string?[] Consents = [CrmConsentStatuses.OptIn, CrmConsentStatuses.Unknown, CrmConsentStatuses.OptedOut];
-    private static readonly string?[] RequestedNextSteps = [null, " ", "consultation", "CONSULTATION", "master_class", "intro_call", "follow_up", "opted_out", "no_contact", "other"];
-    private static readonly string?[] Timelines = [null, "this_week", "under_30_days", "30_90_days", "over_90_days", "just_learning", "learning_only", "Under_30_Days", "later"];
+    private static readonly string?[] RequestedNextSteps = [null, " ", "consultation", "CONSULTATION", "master_class", "Master Class", "intro_call", "follow_up", "opted_out", "no-contact", "other"];
+    private static readonly string?[] Timelines = [null, "this_week", "under_30_days", "30_90_days", "30-90 days", "over_90_days", "just_learning", "learning_only", "Under_30_Days", "later"];
 
     [Fact]
     public async Task FinancialEducation_MatchesLegacyRules()
@@ -104,7 +105,11 @@ public sealed class LeadClassificationParityTests
             .Where(pair => pair.Value is not null)
             .ToDictionary(pair => pair.Key, pair => pair.Value!, StringComparer.OrdinalIgnoreCase);
 
-        var expected = LegacyClassifier.Classify(attributes, consent);
+        var normalized = attributes.ToDictionary(
+            pair => pair.Key,
+            pair => LeadClassificationPolicy.Normalize(pair.Value),
+            StringComparer.OrdinalIgnoreCase);
+        var expected = ApplyAgreedChanges(LegacyClassifier.Classify(normalized, consent));
         var actual = LeadClassificationPolicy.Evaluate(policy, attributes, consent);
 
         var context = $"consent={consent}; {string.Join("; ", attributes.Select(pair => $"{pair.Key}={pair.Value}"))}";
@@ -112,6 +117,17 @@ public sealed class LeadClassificationParityTests
         Assert.True(expected.Route == actual.Route, $"route {expected.Route} != {actual.Route} for {context}");
         Assert.True(expected.Reasons.SequenceEqual(actual.Reasons), $"reasons [{string.Join(",", expected.Reasons)}] != [{string.Join(",", actual.Reasons)}] for {context}");
     }
+
+    /// <summary>
+    /// Behavior changes agreed for PR3, applied on top of the legacy result:
+    /// - value normalization (applied to the legacy input above: "30-90 days" matches "30_90_days");
+    /// - cold leads (legacy "follow_up") are routed to the master class in the life-insurance vertical.
+    /// </summary>
+    private static (string Classification, string Route, IReadOnlyList<string> Reasons) ApplyAgreedChanges(
+        (string Classification, string Route, IReadOnlyList<string> Reasons) legacy) =>
+        legacy.Classification == "follow_up"
+            ? legacy with { Route = "master_class" }
+            : legacy;
 
     /// <summary>
     /// Verbatim copy of the hardcoded ClassifyLead logic removed from InboundLeadIntakeService (commit 571852f).

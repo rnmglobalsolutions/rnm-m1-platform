@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Domain.Configuration;
 
@@ -11,7 +12,8 @@ public sealed record ResolvedLeadClassification(
     IReadOnlyDictionary<string, LeadTierProfile> Tiers,
     LeadClassificationOutcome MissingFunnel,
     LeadClassificationOutcome UnknownFunnel,
-    IReadOnlyDictionary<string, LeadFunnelRuleSet> Funnels);
+    IReadOnlyDictionary<string, LeadFunnelRuleSet> Funnels,
+    string Version);
 
 public sealed record LeadClassificationResolution(
     ResolvedLeadClassification Policy,
@@ -21,14 +23,23 @@ public sealed record LeadClassificationResolution(
 }
 
 /// <summary>
-/// Result of classifying one lead. <see cref="Tier"/> is null when the platform opt-out invariant decided.
+/// Result of classifying one lead. On opt-out the tier the rules assigned is kept for reporting, while
+/// classification, route and follow-up are overridden by the platform invariant.
 /// </summary>
 public sealed record LeadClassificationDecision(
-    string? Tier,
+    string Tier,
     string Classification,
     string Route,
     IReadOnlyList<string> Reasons,
-    string RuleId);
+    string RuleId,
+    bool ScheduleFollowUp,
+    string RulesetVersion)
+{
+    /// <summary>
+    /// Declared funnel fields whose value is outside the declared catalog (names only, never values).
+    /// </summary>
+    public IReadOnlyList<string> UnexpectedAttributes { get; init; } = [];
+}
 
 public static class LeadClassificationPolicy
 {
@@ -41,6 +52,9 @@ public static class LeadClassificationPolicy
     public const int MaxValuesPerPredicate = 50;
     public const int MaxValueLength = 128;
     public const int MaxTokenLength = 64;
+    public const int MaxFieldsPerFunnel = 30;
+    public const string PlatformDefaultVersion = "platform-default";
+    private static readonly Regex SeparatorRuns = new(@"[\s\-_]+", RegexOptions.Compiled);
 
     /// <summary>
     /// Used when neither vertical nor tenant configures classification, and as the safe fallback
@@ -50,11 +64,19 @@ public static class LeadClassificationPolicy
         "funnelType",
         new Dictionary<string, LeadTierProfile>(StringComparer.OrdinalIgnoreCase)
         {
-            [LeadTiers.Cold] = new("follow_up", LeadRoutes.FollowUp)
+            [LeadTiers.Cold] = new("follow_up", LeadRoutes.Nurture)
         },
         new LeadClassificationOutcome(LeadTiers.Cold, ["missing_funnel_type"]),
         new LeadClassificationOutcome(LeadTiers.Cold, ["unknown_funnel_type"]),
-        new Dictionary<string, LeadFunnelRuleSet>(StringComparer.OrdinalIgnoreCase));
+        new Dictionary<string, LeadFunnelRuleSet>(StringComparer.Ordinal),
+        PlatformDefaultVersion);
+
+    /// <summary>
+    /// Canonical form used for every comparison: trimmed, lowercase, and runs of spaces, '-' or '_' collapsed to '_'
+    /// (so "30-90 Days" matches "30_90_days"). It only widens matches; stored values are never rewritten.
+    /// </summary>
+    public static string Normalize(string value) =>
+        SeparatorRuns.Replace(value.Trim().ToLowerInvariant(), "_");
 
     public static LeadClassificationResolution Resolve(
         LeadClassificationConfiguration? vertical,
@@ -65,8 +87,8 @@ public static class LeadClassificationPolicy
         Validate(tenant, "tenant.leadClassification", errors);
 
         var tiers = new Dictionary<string, LeadTierProfile>(PlatformDefault.Tiers, StringComparer.OrdinalIgnoreCase);
-        var funnels = new Dictionary<string, LeadFunnelRuleSet>(StringComparer.OrdinalIgnoreCase);
-        foreach (var layer in new[] { vertical, tenant })
+        var funnels = new Dictionary<string, LeadFunnelRuleSet>(StringComparer.Ordinal);
+        foreach (var (layer, path) in new[] { (vertical, "vertical"), (tenant, "tenant") })
         {
             foreach (var (tier, profile) in layer?.Tiers ?? new Dictionary<string, LeadTierProfile>())
             {
@@ -74,9 +96,16 @@ public static class LeadClassificationPolicy
             }
 
             // A tenant funnel replaces the vertical funnel entirely so its rule order stays predictable.
+            var layerKeys = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (funnel, ruleSet) in layer?.Funnels ?? new Dictionary<string, LeadFunnelRuleSet>())
             {
-                funnels[funnel] = ruleSet;
+                var key = Normalize(funnel);
+                if (!layerKeys.Add(key))
+                {
+                    errors.Add($"{path}.leadClassification.funnels has more than one funnel that normalizes to '{key}'.");
+                }
+
+                funnels[key] = ruleSet;
             }
         }
 
@@ -85,7 +114,8 @@ public static class LeadClassificationPolicy
             tiers,
             tenant?.MissingFunnel ?? vertical?.MissingFunnel ?? PlatformDefault.MissingFunnel,
             tenant?.UnknownFunnel ?? vertical?.UnknownFunnel ?? PlatformDefault.UnknownFunnel,
-            funnels);
+            funnels,
+            ComposeVersion(vertical?.Version, tenant?.Version));
 
         foreach (var (path, outcome) in EnumerateOutcomes(policy))
         {
@@ -103,34 +133,64 @@ public static class LeadClassificationPolicy
         IReadOnlyDictionary<string, string> attributes,
         string consentStatus)
     {
-        // Platform invariant: a person who opted out is never routed to promotional follow-up.
+        var decision = EvaluateRules(policy, attributes);
+
+        // Platform invariant, applied last so the tier survives for reporting: a person who opted out
+        // gets no promotional route and never enters follow-up automation.
         if (string.Equals(consentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase)
             || Matches(attributes, "requestedNextStep", ["opted_out", "no_contact"])
             || Matches(attributes, "communicationOptOut", ["true", "yes"]))
         {
-            return new LeadClassificationDecision(null, "opted_out", LeadRoutes.None, ["consent_not_available"], OptOutRuleId);
+            return decision with
+            {
+                Classification = "opted_out",
+                Route = LeadRoutes.None,
+                Reasons = ["consent_not_available"],
+                RuleId = OptOutRuleId,
+                ScheduleFollowUp = false
+            };
         }
 
+        return decision;
+    }
+
+    private static LeadClassificationDecision EvaluateRules(
+        ResolvedLeadClassification policy,
+        IReadOnlyDictionary<string, string> attributes)
+    {
         var funnel = GetAttribute(attributes, policy.FunnelAttribute);
         if (funnel is null)
         {
             return Decide(policy, policy.MissingFunnel, MissingFunnelRuleId);
         }
 
-        if (!policy.Funnels.TryGetValue(funnel, out var ruleSet))
+        var funnelKey = Normalize(funnel);
+        if (!policy.Funnels.TryGetValue(funnelKey, out var ruleSet))
         {
             return Decide(policy, policy.UnknownFunnel, UnknownFunnelRuleId);
         }
 
-        foreach (var rule in ruleSet.Rules)
+        var matched = ruleSet.Rules.FirstOrDefault(rule => IsMatch(rule.When, attributes));
+        var decision = matched is null
+            ? Decide(policy, ruleSet.Fallback!, $"{funnelKey}.fallback")
+            : Decide(policy, matched.Then!, matched.Id);
+        return decision with { UnexpectedAttributes = FindUnexpectedAttributes(ruleSet, attributes) };
+    }
+
+    private static IReadOnlyList<string> FindUnexpectedAttributes(
+        LeadFunnelRuleSet ruleSet,
+        IReadOnlyDictionary<string, string> attributes)
+    {
+        if (ruleSet.Fields is null)
         {
-            if (IsMatch(rule.When, attributes))
-            {
-                return Decide(policy, rule.Then!, rule.Id);
-            }
+            return [];
         }
 
-        return Decide(policy, ruleSet.Fallback!, $"{funnel.ToLowerInvariant()}.fallback");
+        return ruleSet.Fields
+            .Where(field => GetAttribute(attributes, field.Key) is not null && !Matches(attributes, field.Key, field.Value))
+            .Select(field => field.Key)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
     }
 
     /// <summary>
@@ -192,6 +252,11 @@ public static class LeadClassificationPolicy
         if (configuration.FunnelAttribute is not null && !IsValidAttributeName(configuration.FunnelAttribute))
         {
             errors.Add($"{path}.funnelAttribute must be a valid attribute name.");
+        }
+
+        if (configuration.Version is not null && !IsValidRuleId(configuration.Version))
+        {
+            errors.Add($"{path}.version must be a token of letters, digits, '-', '_' or '.'.");
         }
 
         foreach (var (tier, profile) in configuration.Tiers)
@@ -258,6 +323,52 @@ public static class LeadClassificationPolicy
         }
 
         ValidateOutcome(ruleSet.Fallback, $"{path}.fallback", errors, required: true);
+        ValidateFields(ruleSet, path, errors);
+    }
+
+    /// <summary>
+    /// A declared field catalog must list every value its funnel's rules compare against,
+    /// otherwise a rule could never match a value the catalog calls valid (or vice versa).
+    /// </summary>
+    private static void ValidateFields(LeadFunnelRuleSet ruleSet, string path, ICollection<string> errors)
+    {
+        if (ruleSet.Fields is null)
+        {
+            return;
+        }
+
+        if (ruleSet.Fields.Count > MaxFieldsPerFunnel)
+        {
+            errors.Add($"{path}.fields must not exceed {MaxFieldsPerFunnel} attributes.");
+        }
+
+        foreach (var (attribute, values) in ruleSet.Fields)
+        {
+            var fieldPath = $"{path}.fields.{attribute}";
+            if (!IsValidAttributeName(attribute))
+            {
+                errors.Add($"{fieldPath} must be keyed by a valid attribute name.");
+            }
+
+            if (values.Count == 0
+                || values.Count > MaxValuesPerPredicate
+                || values.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > MaxValueLength))
+            {
+                errors.Add($"{fieldPath} must list 1 to {MaxValuesPerPredicate} values of 1 to {MaxValueLength} characters.");
+                continue;
+            }
+
+            var catalog = values.Select(Normalize).ToHashSet(StringComparer.Ordinal);
+            var predicates = ruleSet.Rules.SelectMany(rule => rule.When.All.Concat(rule.When.Any));
+            foreach (var predicate in predicates.Where(predicate =>
+                         string.Equals(predicate.Attribute, attribute, StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var value in (predicate.In ?? predicate.NotIn ?? []).Where(value => !catalog.Contains(Normalize(value))))
+                {
+                    errors.Add($"{fieldPath} does not list '{value}', which a rule compares against.");
+                }
+            }
+        }
     }
 
     private static void ValidateCondition(LeadRuleCondition condition, string path, ICollection<string> errors)
@@ -375,7 +486,14 @@ public static class LeadClassificationPolicy
         string ruleId)
     {
         var profile = policy.Tiers[outcome.Tier];
-        return new LeadClassificationDecision(outcome.Tier, profile.Classification, profile.Route, outcome.Reasons, ruleId);
+        return new LeadClassificationDecision(
+            outcome.Tier,
+            profile.Classification,
+            profile.Route,
+            outcome.Reasons,
+            ruleId,
+            profile.EffectiveScheduleFollowUp,
+            policy.Version);
     }
 
     private static bool IsMatch(LeadRuleCondition condition, IReadOnlyDictionary<string, string> attributes) =>
@@ -397,8 +515,22 @@ public static class LeadClassificationPolicy
     private static bool Matches(IReadOnlyDictionary<string, string> attributes, string name, IReadOnlyList<string> values)
     {
         var current = GetAttribute(attributes, name);
-        return current is not null
-            && values.Any(value => string.Equals(current, value, StringComparison.OrdinalIgnoreCase));
+        if (current is null)
+        {
+            return false;
+        }
+
+        var normalized = Normalize(current);
+        return values.Any(value => string.Equals(normalized, Normalize(value), StringComparison.Ordinal));
+    }
+
+    private static string ComposeVersion(string? verticalVersion, string? tenantVersion)
+    {
+        var parts = new[] { verticalVersion, tenantVersion }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Select(part => part!.Trim())
+            .ToArray();
+        return parts.Length == 0 ? PlatformDefaultVersion : string.Join("+", parts);
     }
 
     private static string? GetAttribute(IReadOnlyDictionary<string, string> attributes, string name) =>
