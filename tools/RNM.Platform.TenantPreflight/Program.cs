@@ -137,6 +137,15 @@ internal static class TenantPreflightProgram
                 classification.IsValid
                     ? $"Effective lead classification is valid ({classification.Policy.Funnels.Count} funnel(s))."
                     : string.Join(" ", classification.Errors));
+
+            var routingErrors = LeadClassificationPolicy.ValidateRouting(classification.Policy, tenant);
+            Add(
+                checks,
+                "leadClassification.routes",
+                routingErrors.Count == 0,
+                routingErrors.Count == 0
+                    ? $"Every reachable route is actionable: {string.Join(", ", LeadClassificationPolicy.ReachableRoutes(classification.Policy))}."
+                    : string.Join(" ", routingErrors));
         }
         catch (Exception exception) when (exception is ConfigurationException or JsonException or IOException)
         {

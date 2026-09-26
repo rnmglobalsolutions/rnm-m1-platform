@@ -58,12 +58,26 @@ public static class LeadTiers
     public static readonly IReadOnlyList<string> All = [Hot, Warm, Cold, Disqualified];
 }
 
+/// <summary>
+/// Routes are an open set: any lowercase token is a valid route as long as the tenant can act on it.
+/// These constants are the routes the platform itself refers to.
+/// </summary>
 public static class LeadRoutes
 {
     public const string Consultation = "consultation";
     public const string MasterClass = "master_class";
     public const string FollowUp = "follow_up";
+    public const string Nurture = "nurture";
+
+    /// <summary>
+    /// No promotional next step. Produced by the opt-out invariant, so it never needs a routing action.
+    /// </summary>
     public const string None = "none";
 
-    public static readonly IReadOnlyList<string> All = [Consultation, MasterClass, FollowUp, None];
+    public const int MaxLength = 64;
+
+    public static bool IsValid(string? route) =>
+        !string.IsNullOrWhiteSpace(route)
+        && route.Length <= MaxLength
+        && route.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '_');
 }

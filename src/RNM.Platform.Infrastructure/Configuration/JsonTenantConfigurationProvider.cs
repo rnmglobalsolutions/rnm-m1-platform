@@ -237,11 +237,7 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                 Integrations.ManyChat.MaxRequestsPerMinute,
                                 Integrations.ManyChat.RoutingActions is null
                                     ? null
-                                    : new ManyChatRoutingActionsConfiguration(
-                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.Consultation),
-                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.MasterClass),
-                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.FollowUp),
-                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.None)))),
+                                    : ToRoutingActions(Integrations.ManyChat.RoutingActions))),
                 LeadClassification?.ToDomain());
         }
     }
@@ -277,13 +273,7 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         bool? Enabled,
         bool? ScheduleFollowUp,
         int? MaxRequestsPerMinute,
-        ManyChatRoutingActionsConfigurationDto? RoutingActions);
-
-    private sealed record ManyChatRoutingActionsConfigurationDto(
-        ManyChatRoutingActionConfigurationDto? Consultation,
-        ManyChatRoutingActionConfigurationDto? MasterClass,
-        ManyChatRoutingActionConfigurationDto? FollowUp,
-        ManyChatRoutingActionConfigurationDto? None);
+        IReadOnlyDictionary<string, ManyChatRoutingActionConfigurationDto?>? RoutingActions);
 
     private sealed record ManyChatRoutingActionConfigurationDto(
         string? Type,
@@ -291,15 +281,37 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? Url,
         string? Message);
 
-    private static ManyChatRoutingActionConfiguration? ToRoutingAction(
-        ManyChatRoutingActionConfigurationDto? action) =>
-        action is null
-            ? null
-            : new ManyChatRoutingActionConfiguration(
-                action.Type,
-                action.Label,
-                action.Url,
-                action.Message);
+    // Keys written before routes became an open set used camelCase names for these routes.
+    private static readonly IReadOnlyDictionary<string, string> LegacyRouteKeys =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["masterClass"] = LeadRoutes.MasterClass,
+            ["followUp"] = LeadRoutes.FollowUp
+        };
+
+    private static ManyChatRoutingActionsConfiguration ToRoutingActions(
+        IReadOnlyDictionary<string, ManyChatRoutingActionConfigurationDto?> actions)
+    {
+        var byRoute = new Dictionary<string, ManyChatRoutingActionConfiguration>(StringComparer.Ordinal);
+        foreach (var (key, action) in actions)
+        {
+            var route = LegacyRouteKeys.GetValueOrDefault(key, key);
+            if (action is null)
+            {
+                continue;
+            }
+
+            if (!byRoute.TryAdd(
+                    route,
+                    new ManyChatRoutingActionConfiguration(action.Type, action.Label, action.Url, action.Message)))
+            {
+                throw new ConfigurationException(
+                    $"integrations.manyChat.routingActions defines route '{route}' more than once.");
+            }
+        }
+
+        return new ManyChatRoutingActionsConfiguration(byRoute);
+    }
 
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,

@@ -207,19 +207,14 @@ public sealed class ManyChatLeadWebhookFunction
             correlationId);
     }
 
-    private static ManyChatNextAction ResolveNextAction(
+    internal static ManyChatNextAction ResolveNextAction(
         string? recommendedRoute,
         ManyChatRoutingActionsConfiguration? actions)
     {
-        var route = string.IsNullOrWhiteSpace(recommendedRoute) ? "follow_up" : recommendedRoute.Trim();
-        var configured = route.ToLowerInvariant() switch
-        {
-            "consultation" => actions?.Consultation,
-            "master_class" => actions?.MasterClass,
-            "follow_up" => actions?.FollowUp,
-            "none" => actions?.None,
-            _ => actions?.FollowUp
-        };
+        var route = string.IsNullOrWhiteSpace(recommendedRoute) ? LeadRoutes.FollowUp : recommendedRoute.Trim();
+        // Preflight requires an action for every reachable route; the follow-up action is only a safety net.
+        var configured = actions?.For(route)
+            ?? (route == LeadRoutes.None ? null : actions?.For(LeadRoutes.FollowUp));
 
         return new ManyChatNextAction(
             route,
@@ -230,7 +225,7 @@ public sealed class ManyChatLeadWebhookFunction
     }
 
     private static string DefaultActionType(string route) =>
-        string.Equals(route, "none", StringComparison.OrdinalIgnoreCase)
+        string.Equals(route, LeadRoutes.None, StringComparison.OrdinalIgnoreCase)
             ? "none"
             : "message";
 
@@ -341,7 +336,7 @@ public sealed class ManyChatLeadWebhookFunction
             capturedAt,
             "ManyChat");
 
-    private sealed record ManyChatNextAction(
+    internal sealed record ManyChatNextAction(
         string Route,
         string Type,
         string? Label,

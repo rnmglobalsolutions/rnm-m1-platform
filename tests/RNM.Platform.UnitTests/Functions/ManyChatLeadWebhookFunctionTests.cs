@@ -49,6 +49,28 @@ public sealed class ManyChatLeadWebhookFunctionTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("nurture", "message", "Stay in touch.")]
+    [InlineData("master_class", "link", "Join the class.")]
+    [InlineData("property_tour", "message", "We will follow up.")]
+    [InlineData(null, "message", "We will follow up.")]
+    [InlineData("none", "none", null)]
+    public void ResolveNextAction_UsesActionConfiguredForTheRoute(string? route, string expectedType, string? expectedMessage)
+    {
+        var actions = new ManyChatRoutingActionsConfiguration(new Dictionary<string, ManyChatRoutingActionConfiguration>
+        {
+            ["nurture"] = new("message", Message: "Stay in touch."),
+            ["master_class"] = new("link", Url: "https://example.com/class", Message: "Join the class."),
+            ["follow_up"] = new("message", Message: "We will follow up.")
+        });
+
+        var action = ManyChatLeadWebhookFunction.ResolveNextAction(route, actions);
+
+        Assert.Equal(route ?? "follow_up", action.Route);
+        Assert.Equal(expectedType, action.Type);
+        Assert.Equal(expectedMessage, action.Message);
+    }
+
     private static ManyChatLeadWebhookFunction CreateFunction(bool enabled) =>
         new(
             intakeService: null!,

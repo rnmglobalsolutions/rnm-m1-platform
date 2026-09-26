@@ -104,7 +104,7 @@ public sealed class LeadClassificationPolicyTests
     public void Validate_ReportsStructuralErrors()
     {
         var configuration = Config(
-            tiers: new() { ["lukewarm"] = new("Bad Label", "call_now") },
+            tiers: new() { ["lukewarm"] = new("Bad Label", "Call Now") },
             funnels: new()
             {
                 ["financial_education"] = new(
@@ -123,7 +123,7 @@ public sealed class LeadClassificationPolicyTests
 
         Assert.Contains(errors, error => error.Contains("tiers.lukewarm is not a supported tier", StringComparison.Ordinal));
         Assert.Contains(errors, error => error.Contains("classification must be a lowercase token", StringComparison.Ordinal));
-        Assert.Contains(errors, error => error.Contains("route must be one of", StringComparison.Ordinal));
+        Assert.Contains(errors, error => error.Contains("route must be a lowercase token", StringComparison.Ordinal));
         Assert.Contains(errors, error => error.Contains("at least one predicate", StringComparison.Ordinal));
         Assert.Contains(errors, error => error.Contains("is duplicated", StringComparison.Ordinal));
         Assert.Contains(errors, error => error.Contains("exactly one of 'in', 'notIn' or 'present'", StringComparison.Ordinal));
@@ -145,9 +145,69 @@ public sealed class LeadClassificationPolicyTests
             var vertical = await RepositoryConfiguration.LoadVerticalAsync(tenant.VerticalId.Value);
 
             var resolution = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant.LeadClassification);
+            var routingErrors = LeadClassificationPolicy.ValidateRouting(resolution.Policy, tenant);
 
             Assert.True(resolution.IsValid, $"{tenantId}: {string.Join(" ", resolution.Errors)}");
+            Assert.True(routingErrors.Count == 0, $"{tenantId}: {string.Join(" ", routingErrors)}");
         }
+    }
+
+    [Fact]
+    public async Task ReachableRoutes_ListsOnlyRoutesTheLifeInsurancePolicyCanProduce()
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("life-insurance");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+
+        Assert.Equal(
+            [LeadRoutes.Consultation, LeadRoutes.FollowUp, LeadRoutes.MasterClass, LeadRoutes.None],
+            LeadClassificationPolicy.ReachableRoutes(policy));
+    }
+
+    [Fact]
+    public void ValidateRouting_CustomRouteWithoutManyChatAction_IsReported()
+    {
+        var tenant = Config(tiers: new() { [LeadTiers.Cold] = new("stay_in_touch", LeadRoutes.Nurture) });
+        var policy = LeadClassificationPolicy.Resolve(vertical: null, tenant).Policy;
+
+        var errors = LeadClassificationPolicy.ValidateRouting(policy, TenantWith(manyChatRoutes: [LeadRoutes.FollowUp]));
+
+        Assert.Contains(errors, error => error.Contains("Route 'nurture' has no integrations.manyChat.routingActions entry", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateRouting_CustomRouteWithManyChatAction_IsValid()
+    {
+        var tenant = Config(tiers: new() { [LeadTiers.Cold] = new("stay_in_touch", LeadRoutes.Nurture) });
+        var policy = LeadClassificationPolicy.Resolve(vertical: null, tenant).Policy;
+
+        var errors = LeadClassificationPolicy.ValidateRouting(policy, TenantWith(manyChatRoutes: [LeadRoutes.Nurture]));
+
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public async Task ValidateRouting_MasterClassRouteWithoutClasses_IsReported()
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("life-insurance");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+
+        var errors = LeadClassificationPolicy.ValidateRouting(policy, TenantWith(manyChatRoutes: null) with { Classes = null });
+
+        Assert.Contains(errors, error => error.Contains("Route 'master_class' requires the tenant 'classes' configuration", StringComparison.Ordinal));
+    }
+
+    private static TenantConfiguration TenantWith(string[]? manyChatRoutes)
+    {
+        var tenant = new FakeTenantConfigurationProvider().GetTenantConfigurationAsync("tenant-a", CancellationToken.None).Result;
+        return tenant with
+        {
+            Integrations = manyChatRoutes is null
+                ? null
+                : new IntegrationConfiguration(new ManyChatIntegrationConfiguration(
+                    Enabled: true,
+                    RoutingActions: new ManyChatRoutingActionsConfiguration(
+                        manyChatRoutes.ToDictionary(route => route, _ => new ManyChatRoutingActionConfiguration("message", Message: "Hi")))))
+        };
     }
 
     [Fact]

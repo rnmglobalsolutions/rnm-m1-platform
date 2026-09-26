@@ -190,7 +190,12 @@ Use `nextAction.type` to decide how to render the response:
 - `none`: do not send a promotional CTA.
 
 The action values are configured per tenant under
-`integrations.manyChat.routingActions`.
+`integrations.manyChat.routingActions`, keyed by route (`consultation`,
+`master_class`, `follow_up`, `none`, or any other route the classification
+rules produce, such as `nurture`). The older keys `masterClass` and `followUp`
+are still accepted. The tenant preflight check `leadClassification.routes`
+fails when a route the rules can produce has no routing action, or when
+`master_class` is reachable without a `classes` configuration.
 
 For `yartex`, the intended production pages are:
 

@@ -794,22 +794,16 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("integrations.manyChat.maxRequestsPerMinute must be between 1 and 1000.");
         }
 
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.Consultation,
-            "integrations.manyChat.routingActions.consultation");
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.MasterClass,
-            "integrations.manyChat.routingActions.masterClass");
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.FollowUp,
-            "integrations.manyChat.routingActions.followUp");
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.None,
-            "integrations.manyChat.routingActions.none");
+        foreach (var (route, action) in manyChat.RoutingActions?.ByRoute ?? new Dictionary<string, ManyChatRoutingActionConfiguration>())
+        {
+            var fieldName = $"integrations.manyChat.routingActions.{route}";
+            if (!LeadRoutes.IsValid(route))
+            {
+                errors.Add($"{fieldName} must be keyed by a lowercase route token of letters, digits or '_'.");
+            }
+
+            ValidateManyChatRoutingAction(errors, action, fieldName);
+        }
     }
 
     private static void ValidateManyChatRoutingAction(

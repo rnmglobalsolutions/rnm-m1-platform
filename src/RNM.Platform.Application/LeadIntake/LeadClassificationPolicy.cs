@@ -134,6 +134,52 @@ public static class LeadClassificationPolicy
     }
 
     /// <summary>
+    /// Checks that every route the policy can produce is actionable for this tenant:
+    /// a ManyChat routing action when ManyChat is enabled, and class automation for <c>master_class</c>.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateRouting(ResolvedLeadClassification policy, TenantConfiguration tenant)
+    {
+        var errors = new List<string>();
+        var manyChat = tenant.Integrations?.ManyChat;
+        foreach (var route in ReachableRoutes(policy))
+        {
+            if (route == LeadRoutes.None)
+            {
+                continue;
+            }
+
+            if (manyChat?.EffectiveEnabled is true && manyChat.RoutingActions?.For(route) is null)
+            {
+                errors.Add($"Route '{route}' has no integrations.manyChat.routingActions entry.");
+            }
+
+            if (route == LeadRoutes.MasterClass && tenant.Classes is null)
+            {
+                errors.Add($"Route '{route}' requires the tenant 'classes' configuration.");
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// Routes the policy can actually produce: those of tiers used by an outcome, plus the opt-out route.
+    /// </summary>
+    public static IReadOnlyCollection<string> ReachableRoutes(ResolvedLeadClassification policy)
+    {
+        var routes = new SortedSet<string>(StringComparer.Ordinal) { LeadRoutes.None };
+        foreach (var (_, outcome) in EnumerateOutcomes(policy))
+        {
+            if (outcome is not null && policy.Tiers.TryGetValue(outcome.Tier, out var profile))
+            {
+                routes.Add(profile.Route);
+            }
+        }
+
+        return routes;
+    }
+
+    /// <summary>
     /// Structural validation of one configuration block. Cross-block checks (tier coverage) run in <see cref="Resolve"/>.
     /// </summary>
     public static void Validate(LeadClassificationConfiguration? configuration, string path, ICollection<string> errors)
@@ -161,9 +207,9 @@ public static class LeadClassificationPolicy
                 errors.Add($"{tierPath}.classification must be a lowercase token.");
             }
 
-            if (!LeadRoutes.All.Contains(profile.Route, StringComparer.Ordinal))
+            if (!LeadRoutes.IsValid(profile.Route))
             {
-                errors.Add($"{tierPath}.route must be one of: {string.Join(", ", LeadRoutes.All)}.");
+                errors.Add($"{tierPath}.route must be a lowercase token of letters, digits or '_'.");
             }
         }
 

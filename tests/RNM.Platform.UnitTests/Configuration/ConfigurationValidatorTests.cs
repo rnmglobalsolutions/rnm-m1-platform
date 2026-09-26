@@ -277,11 +277,14 @@ public sealed class ConfigurationValidatorTests
                 new ManyChatIntegrationConfiguration(
                     Enabled: true,
                     RoutingActions: new ManyChatRoutingActionsConfiguration(
-                        Consultation: new ManyChatRoutingActionConfiguration(
-                            "link",
-                            "Book",
-                            "not-a-url",
-                            "Book a consultation."))))
+                        new Dictionary<string, ManyChatRoutingActionConfiguration>
+                        {
+                            ["consultation"] = new(
+                                "link",
+                                "Book",
+                                "not-a-url",
+                                "Book a consultation.")
+                        })))
         };
 
         var result = validator.ValidateTenant(configuration);

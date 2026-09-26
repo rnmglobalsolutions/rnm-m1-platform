@@ -38,13 +38,13 @@
           "url": "https://rnmglobalsolutions.com/consultation",
           "message": "Based on your answers, the best next step is a short 1:1 consultation."
         },
-        "masterClass": {
+        "master_class": {
           "type": "link",
           "label": "Register for the master class",
           "url": "https://rnmglobalsolutions.com/masterclass/register",
           "message": "Based on your answers, the best next step is the master class."
         },
-        "followUp": {
+        "follow_up": {
           "type": "message",
           "label": "Continue follow-up",
           "message": "Thanks. Yartex will send helpful next steps and follow up when you are ready."

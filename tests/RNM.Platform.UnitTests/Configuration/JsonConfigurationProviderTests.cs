@@ -169,10 +169,66 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         Assert.True(configuration.Integrations?.ManyChat?.EffectiveEnabled);
         Assert.False(configuration.Integrations?.ManyChat?.EffectiveScheduleFollowUp);
         Assert.Equal(75, configuration.Integrations?.ManyChat?.EffectiveMaxRequestsPerMinute);
-        Assert.Equal("Book consultation", configuration.Integrations?.ManyChat?.RoutingActions?.Consultation?.Label);
-        Assert.Equal("https://example.com/class", configuration.Integrations?.ManyChat?.RoutingActions?.MasterClass?.Url);
-        Assert.Equal("message", configuration.Integrations?.ManyChat?.RoutingActions?.FollowUp?.Type);
-        Assert.Equal("none", configuration.Integrations?.ManyChat?.RoutingActions?.None?.Type);
+        Assert.Equal("Book consultation", configuration.Integrations?.ManyChat?.RoutingActions?.For("consultation")?.Label);
+        Assert.Equal("https://example.com/class", configuration.Integrations?.ManyChat?.RoutingActions?.For("master_class")?.Url);
+        Assert.Equal("message", configuration.Integrations?.ManyChat?.RoutingActions?.For("follow_up")?.Type);
+        Assert.Equal("none", configuration.Integrations?.ManyChat?.RoutingActions?.For("none")?.Type);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_LoadsRoutingActionForAnyRouteToken()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            ManyChatTenantJson("""
+                  "routingActions": {
+                    "nurture": { "type": "message", "message": "We will stay in touch." },
+                    "master_class": { "type": "link", "url": "https://example.com/class" }
+                  }
+            """));
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
+
+        Assert.Equal("We will stay in touch.", configuration.Integrations?.ManyChat?.RoutingActions?.For("nurture")?.Message);
+        Assert.Equal("https://example.com/class", configuration.Integrations?.ManyChat?.RoutingActions?.For("master_class")?.Url);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_RejectsLegacyAndCanonicalKeyForSameRoute()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            ManyChatTenantJson("""
+                  "routingActions": {
+                    "masterClass": { "type": "link", "url": "https://example.com/a" },
+                    "master_class": { "type": "link", "url": "https://example.com/b" }
+                  }
+            """));
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var exception = await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None));
+
+        Assert.Contains("'master_class' more than once", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_RejectsRoutingActionWithInvalidRouteKey()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            ManyChatTenantJson("""
+                  "routingActions": {
+                    "Book Now": { "type": "message", "message": "Hi" }
+                  }
+            """));
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var exception = await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None));
+
+        Assert.Contains("routingActions.Book Now must be keyed by a lowercase route token", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -384,6 +440,49 @@ public sealed class JsonConfigurationProviderTests : IDisposable
             Directory.Delete(configRoot, recursive: true);
         }
     }
+
+    private static string ManyChatTenantJson(string routingActions) =>
+        """
+            {
+              "tenantId": "tenant-a",
+              "verticalId": "vertical-a",
+              "businessName": "Tenant A",
+              "timeZone": "America/Chicago",
+              "serviceArea": { "zipCodes": ["75001"], "cities": [] },
+              "providers": {
+                "crmProvider": "AzureTable",
+                "bookingProvider": "GoogleCalendar",
+                "smsProvider": "Twilio",
+                "emailProvider": "SendGrid"
+              },
+              "secretNames": {
+                "crmApiKey": "crm",
+                "bookingApiKey": "booking",
+                "voiceWebhookSecret": "voice",
+                "twilioAccountSid": "sid",
+                "twilioAuthToken": "token",
+                "emailConnectionString": "email",
+                "manyChatWebhookSecret": "tenant-a-manychat-secret"
+              },
+              "communication": {
+                "smsFromPhoneNumber": "+15550001000",
+                "confirmationTemplates": { "smsBodyTemplate": "Received" },
+                "appointmentReminders": {
+                  "templates": null,
+                  "reminderOffsetsMinutes": null,
+                  "reminderStalenessCutoffMinutes": null
+                }
+              },
+              "integrations": {
+                "manyChat": {
+                  "enabled": true,
+                  "scheduleFollowUp": false,
+                  "maxRequestsPerMinute": 75,
+                  {routingActions}
+                }
+              }
+            }
+            """.Replace("{routingActions}", routingActions, StringComparison.Ordinal);
 
     private static string CreateTenantJson(string tenantId, string zipCodes)
     {

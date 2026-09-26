@@ -52,11 +52,15 @@ public sealed record ManyChatIntegrationConfiguration(
     public int EffectiveMaxRequestsPerMinute => MaxRequestsPerMinute ?? 120;
 }
 
+/// <summary>
+/// ManyChat next action per classification route, keyed by route token (for example <c>master_class</c>).
+/// </summary>
 public sealed record ManyChatRoutingActionsConfiguration(
-    ManyChatRoutingActionConfiguration? Consultation = null,
-    ManyChatRoutingActionConfiguration? MasterClass = null,
-    ManyChatRoutingActionConfiguration? FollowUp = null,
-    ManyChatRoutingActionConfiguration? None = null);
+    IReadOnlyDictionary<string, ManyChatRoutingActionConfiguration> ByRoute)
+{
+    public ManyChatRoutingActionConfiguration? For(string route) =>
+        ByRoute.TryGetValue(route, out var action) ? action : null;
+}
 
 public sealed record ManyChatRoutingActionConfiguration(
     string? Type = null,
