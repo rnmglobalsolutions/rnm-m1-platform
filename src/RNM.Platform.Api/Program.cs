@@ -106,6 +106,7 @@ var host = new HostBuilder()
         services.AddSingleton<PilotReportingService>();
         services.AddSingleton<OutboundCampaignRunService>();
         services.AddSingleton<LeadCsvImportService>();
+        services.AddSingleton<LeadClassifier>();
         services.AddSingleton<InboundLeadIntakeService>();
         services.AddSingleton<IInboundLeadReceiptStore, AzureTableInboundLeadReceiptStore>();
         services.AddSingleton<IConfirmationRetryScheduler, AzureQueueConfirmationRetryScheduler>();

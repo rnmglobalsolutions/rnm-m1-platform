@@ -91,7 +91,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         VoiceConfigurationDto? Voice,
         ClassAutomationConfigurationDto? Classes,
         FollowUpAutomationConfigurationDto? FollowUps,
-        IntegrationConfigurationDto? Integrations)
+        IntegrationConfigurationDto? Integrations,
+        LeadClassificationConfigurationDto? LeadClassification)
     {
         public TenantConfiguration ToDomain()
         {
@@ -240,7 +241,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                         ToRoutingAction(Integrations.ManyChat.RoutingActions.Consultation),
                                         ToRoutingAction(Integrations.ManyChat.RoutingActions.MasterClass),
                                         ToRoutingAction(Integrations.ManyChat.RoutingActions.FollowUp),
-                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.None)))));
+                                        ToRoutingAction(Integrations.ManyChat.RoutingActions.None)))),
+                LeadClassification?.ToDomain());
         }
     }
 

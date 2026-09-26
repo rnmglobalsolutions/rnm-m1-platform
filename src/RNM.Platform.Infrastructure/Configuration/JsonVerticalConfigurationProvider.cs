@@ -62,7 +62,8 @@ public sealed class JsonVerticalConfigurationProvider : IVerticalConfigurationPr
         string? DisplayName,
         IReadOnlyCollection<string>? QualificationFields,
         IReadOnlyCollection<string>? SupportedCallTypes,
-        ServiceAreaFieldAliasesDto? ServiceAreaFieldAliases)
+        ServiceAreaFieldAliasesDto? ServiceAreaFieldAliases,
+        LeadClassificationConfigurationDto? LeadClassification)
     {
         public VerticalConfiguration ToDomain()
         {
@@ -74,7 +75,8 @@ public sealed class JsonVerticalConfigurationProvider : IVerticalConfigurationPr
                 SupportedCallTypes ?? [],
                 new ServiceAreaFieldAliasConfiguration(
                     ServiceAreaFieldAliases?.ZipCodeFields ?? defaultAliases.ZipCodeFields,
-                    ServiceAreaFieldAliases?.AddressFields ?? defaultAliases.AddressFields));
+                    ServiceAreaFieldAliases?.AddressFields ?? defaultAliases.AddressFields),
+                LeadClassification?.ToDomain());
         }
     }
 

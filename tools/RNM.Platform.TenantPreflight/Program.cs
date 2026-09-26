@@ -1,6 +1,7 @@
 using System.Net.Mail;
 using System.Text.Json;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.Providers;
@@ -127,6 +128,15 @@ internal static class TenantPreflightProgram
                 matches
                     ? "Vertical JSON loaded and passed domain validation."
                     : "Vertical id does not match the referenced configuration filename.");
+
+            var classification = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant.LeadClassification);
+            Add(
+                checks,
+                "leadClassification",
+                classification.IsValid,
+                classification.IsValid
+                    ? $"Effective lead classification is valid ({classification.Policy.Funnels.Count} funnel(s))."
+                    : string.Join(" ", classification.Errors));
         }
         catch (Exception exception) when (exception is ConfigurationException or JsonException or IOException)
         {

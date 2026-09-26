@@ -1,3 +1,4 @@
+using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Configuration;
@@ -183,6 +184,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         ValidateClasses(errors, tenantConfiguration.Classes, tenantConfiguration.SecretNames);
         ValidateFollowUps(errors, tenantConfiguration.FollowUps);
         ValidateIntegrations(errors, tenantConfiguration.Integrations, tenantConfiguration.SecretNames);
+        LeadClassificationPolicy.Validate(tenantConfiguration.LeadClassification, "leadClassification", errors);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -213,6 +215,8 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         {
             errors.Add("serviceAreaFieldAliases.addressFields must include at least one field.");
         }
+
+        LeadClassificationPolicy.Validate(verticalConfiguration.LeadClassification, "leadClassification", errors);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }

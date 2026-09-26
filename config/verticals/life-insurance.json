@@ -20,5 +20,96 @@
   "serviceAreaFieldAliases": {
     "zipCodeFields": ["zipCode", "zip", "postalCode"],
     "addressFields": ["serviceAddress", "targetPropertyAddress"]
+  },
+  "leadClassification": {
+    "funnelAttribute": "funnelType",
+    "tiers": {
+      "hot": { "classification": "ready_for_consultation", "route": "consultation" },
+      "warm": { "classification": "education_needed", "route": "master_class" },
+      "cold": { "classification": "follow_up", "route": "follow_up" },
+      "disqualified": { "classification": "not_qualified", "route": "none" }
+    },
+    "missingFunnel": { "tier": "cold", "reasons": ["missing_funnel_type"] },
+    "unknownFunnel": { "tier": "cold", "reasons": ["unknown_funnel_type"] },
+    "funnels": {
+      "financial_education": {
+        "rules": [
+          {
+            "id": "fe-requested-consultation",
+            "when": { "all": [{ "attribute": "requestedNextStep", "in": ["consultation"] }] },
+            "then": { "tier": "hot", "reasons": ["requested_consultation"] }
+          },
+          {
+            "id": "fe-requested-master-class",
+            "when": { "all": [{ "attribute": "requestedNextStep", "in": ["master_class"] }] },
+            "then": { "tier": "warm", "reasons": ["requested_master_class"] }
+          },
+          {
+            "id": "fe-near-term-with-goal",
+            "when": {
+              "all": [{ "attribute": "timeline", "in": ["this_week", "under_30_days", "30_90_days"] }],
+              "any": [{ "present": "primaryGoal" }, { "present": "currentProtection" }]
+            },
+            "then": { "tier": "hot", "reasons": ["near_term_financial_timeline", "financial_goal_present"] }
+          },
+          {
+            "id": "fe-education-or-longer-timeline",
+            "when": {
+              "any": [
+                { "attribute": "timeline", "in": ["learning_only", "just_learning", "over_90_days"] },
+                { "attribute": "primaryGoal", "in": ["not_sure", "education"] }
+              ]
+            },
+            "then": { "tier": "warm", "reasons": ["education_or_longer_timeline"] }
+          }
+        ],
+        "fallback": { "tier": "cold", "reasons": ["financial_interest_needs_follow_up"] }
+      },
+      "business_opportunity": {
+        "rules": [
+          {
+            "id": "bo-incompatible-expectation",
+            "when": {
+              "any": [
+                { "attribute": "incomeExpectation", "in": ["guaranteed_income", "money_fast"] },
+                { "attribute": "willingToLicense", "in": ["false", "no"] }
+              ]
+            },
+            "then": { "tier": "disqualified", "reasons": ["incompatible_business_expectation"] }
+          },
+          {
+            "id": "bo-requested-intro-call",
+            "when": {
+              "all": [
+                { "attribute": "requestedNextStep", "in": ["consultation", "intro_call"] },
+                { "attribute": "weeklyAvailability", "notIn": ["less_than_5", "none"] }
+              ]
+            },
+            "then": { "tier": "hot", "reasons": ["requested_intro_call", "availability_present"] }
+          },
+          {
+            "id": "bo-education-needed",
+            "when": {
+              "any": [
+                { "attribute": "requestedNextStep", "in": ["master_class"] },
+                { "attribute": "experienceLevel", "in": ["new_to_industry", "some_interest"] }
+              ]
+            },
+            "then": { "tier": "warm", "reasons": ["business_education_needed"] }
+          },
+          {
+            "id": "bo-near-term-with-availability",
+            "when": {
+              "all": [
+                { "attribute": "timeline", "in": ["this_week", "under_30_days"] },
+                { "attribute": "weeklyAvailability", "notIn": ["less_than_5", "none"] }
+              ]
+            },
+            "then": { "tier": "hot", "reasons": ["near_term_business_timeline", "availability_present"] }
+          }
+        ],
+        "fallback": { "tier": "cold", "reasons": ["business_interest_needs_follow_up"] }
+      }
+    }
   }
 }

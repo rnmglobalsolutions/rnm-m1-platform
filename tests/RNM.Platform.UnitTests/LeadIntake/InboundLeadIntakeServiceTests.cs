@@ -206,12 +206,14 @@ public sealed class InboundLeadIntakeServiceTests
         public Fixture()
         {
             var logger = new NullEventLogger();
+            var tenants = new TenantProvider();
             Service = new InboundLeadIntakeService(
                 Receipt,
                 Crm,
                 new CrmApplicationService(Crm, logger),
-                new TenantProvider(),
+                tenants,
                 Scheduler,
+                RepositoryConfiguration.Classifier(tenants, logger),
                 logger);
         }
 

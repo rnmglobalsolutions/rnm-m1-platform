@@ -115,6 +115,18 @@ M1 stores internal routing attributes on the CRM contact:
 - `classificationReasons`
 - `recommendedRoute`
 
+Classification rules are configuration, not code. The vertical file
+(`config/verticals/{verticalId}.json`, block `leadClassification`) holds the
+default rules: ordered rules per `funnelType` value, where the first match
+assigns a tier (`hot`, `warm`, `cold`, `disqualified`) and each tier maps to a
+`classification` label and a `route`. A tenant can add its own
+`leadClassification` block to override individual tiers or replace a whole
+funnel. Opt-out always wins and is not configurable. Run the tenant preflight
+after any rule change; it reports the `leadClassification` check. If the
+configuration cannot be loaded at runtime, the lead is still processed with the
+platform default (`follow_up`) and M1 logs
+`lead_intake.classification.fallback`.
+
 When the video funnel should send the user to a website page, ManyChat should
 use the `nextAction` fields returned by this endpoint. The website pages then
 submit through the public funnel endpoints documented in

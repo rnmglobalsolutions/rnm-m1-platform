@@ -15,7 +15,8 @@ public sealed record TenantConfiguration(
     VoiceConfiguration? Voice = null,
     ClassAutomationConfiguration? Classes = null,
     FollowUpAutomationConfiguration? FollowUps = null,
-    IntegrationConfiguration? Integrations = null);
+    IntegrationConfiguration? Integrations = null,
+    LeadClassificationConfiguration? LeadClassification = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,

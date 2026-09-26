@@ -222,6 +222,7 @@ public sealed class PublicFunnelFunctionTests
                 new CrmApplicationService(Crm, logger),
                 tenantProvider,
                 retryScheduler,
+                RepositoryConfiguration.Classifier(tenantProvider, logger),
                 logger);
             var classRegistrationService = new ClassRegistrationService(
                 tenantProvider,
