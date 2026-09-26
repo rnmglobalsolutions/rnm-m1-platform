@@ -59,10 +59,13 @@ public sealed class LeadCsvImportFunctionTests
 
     private static LeadCsvImportFunction CreateFunction()
     {
+        var tenants = new StubTenantConfigurationProvider();
+        var logger = new StubEventLogger();
         var service = new LeadCsvImportService(
-            new StubTenantConfigurationProvider(),
+            tenants,
             new InMemoryCrmAdapter(),
-            new StubEventLogger());
+            RepositoryConfiguration.Classifier(tenants, logger, "residential-real-estate"),
+            logger);
 
         return new LeadCsvImportFunction(
             service,

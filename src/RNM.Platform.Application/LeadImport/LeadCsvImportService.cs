@@ -2,14 +2,26 @@ using System.Globalization;
 using System.Text;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Crm;
+using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Crm;
+using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.LeadImport;
 
 public sealed class LeadCsvImportService
 {
     private const int MaxFieldLength = 512;
+    private const int MaxExtraColumns = 25;
+    private const int MaxColumnNameLength = 64;
+
+    // Columns with a dedicated meaning; every other valid header is imported as a contact attribute
+    // so vertical classification rules can use it (for example timeline or preApproved).
+    private static readonly HashSet<string> KnownColumns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "firstName", "lastName", "phone", "email", "leadSource", "intent", "targetPropertyAddress",
+        "assignedAgent", "estimatedValue", "timeZone", "consentStatus", "consentBasis"
+    };
     private static readonly HashSet<string> AllowedIntentValues = new(StringComparer.OrdinalIgnoreCase)
     {
         CrmIntentValues.Buyer,
@@ -20,15 +32,18 @@ public sealed class LeadCsvImportService
 
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
     private readonly ICrmAdapter crmAdapter;
+    private readonly LeadClassifier leadClassifier;
     private readonly IEventLogger eventLogger;
 
     public LeadCsvImportService(
         ITenantConfigurationProvider tenantConfigurationProvider,
         ICrmAdapter crmAdapter,
+        LeadClassifier leadClassifier,
         IEventLogger eventLogger)
     {
         this.tenantConfigurationProvider = tenantConfigurationProvider;
         this.crmAdapter = crmAdapter;
+        this.leadClassifier = leadClassifier;
         this.eventLogger = eventLogger;
     }
 
@@ -40,6 +55,12 @@ public sealed class LeadCsvImportService
             .GetTenantConfigurationAsync(request.TenantId, cancellationToken)
             .ConfigureAwait(false);
         var parsed = ParseCsv(request.CsvContent);
+        // Resolved once per import; each row is then classified in memory.
+        var classificationPolicy = await leadClassifier
+            .ResolvePolicyAsync(request.TenantId, request.CorrelationId, cancellationToken)
+            .ConfigureAwait(false);
+        var temperatures = new Dictionary<string, int>(StringComparer.Ordinal);
+        var unexpectedValues = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var created = 0;
         var updated = 0;
         var skipped = parsed.Errors.Count;
@@ -71,6 +92,9 @@ public sealed class LeadCsvImportService
             // The import's consentStatus covers outbound calls and SMS; email eligibility stays as the contact has it today.
             var finalSmsConsent = PreserveStrongestConsent(lookup.Contact?.SmsConsentStatus, row.ConsentStatus);
             var emailConsent = lookup.Contact?.EmailConsentStatus ?? CrmConsentStatuses.Unknown;
+            var attributes = CreateAttributes(request, row, finalConsent, finalSmsConsent, emailConsent);
+            var classification = LeadClassificationPolicy.Evaluate(classificationPolicy, attributes, finalConsent);
+            classification.WriteTo(attributes);
             var upsert = await crmAdapter
                 .UpsertContactAsync(
                     new CrmContactUpsertRequest(
@@ -82,7 +106,7 @@ public sealed class LeadCsvImportService
                         NormalizeOptional(row.Email),
                         $"{row.FirstName} {row.LastName}".Trim(),
                         ZipCode: null,
-                        CreateAttributes(request, row, finalConsent, finalSmsConsent, emailConsent))
+                        attributes)
                     {
                         LeadStatus = CrmOutboundLeadStatuses.New,
                         NeedsFollowUp = false,
@@ -108,6 +132,12 @@ public sealed class LeadCsvImportService
             }
 
             IncrementConsentBreakdown(finalConsent, ref optIn, ref unknown, ref optedOut);
+            temperatures[classification.Tier] = temperatures.GetValueOrDefault(classification.Tier) + 1;
+            foreach (var attribute in classification.UnexpectedAttributes)
+            {
+                unexpectedValues[attribute] = unexpectedValues.GetValueOrDefault(attribute) + 1;
+            }
+
             await AddImportedTimelineEventAsync(request, row, upsert.ProviderContactId, finalConsent, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -121,20 +151,30 @@ public sealed class LeadCsvImportService
             updated,
             skipped,
             new LeadCsvConsentBreakdown(optIn, unknown, optedOut),
-            errors);
+            errors)
+        {
+            TemperatureBreakdown = new LeadCsvTemperatureBreakdown(
+                temperatures.GetValueOrDefault(LeadTiers.Hot),
+                temperatures.GetValueOrDefault(LeadTiers.Warm),
+                temperatures.GetValueOrDefault(LeadTiers.Cold),
+                temperatures.GetValueOrDefault(LeadTiers.Disqualified)),
+            IgnoredColumns = parsed.IgnoredColumns,
+            UnexpectedValues = unexpectedValues
+        };
 
         await LogImportCompletedAsync(result, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
-    private static IReadOnlyDictionary<string, string> CreateAttributes(
+    private static Dictionary<string, string> CreateAttributes(
         LeadCsvImportRequest request,
         ParsedLeadCsvRow row,
         string finalConsent,
         string smsConsent,
         string emailConsent)
     {
-        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        // Extra columns go in first so the platform-managed values below always win.
+        var attributes = new Dictionary<string, string>(row.ExtraAttributes, StringComparer.OrdinalIgnoreCase)
         {
             [CrmContactAttributeNames.LeadSource] = NormalizeOptional(row.LeadSource) ?? request.DefaultLeadSource,
             [CrmContactAttributeNames.CampaignId] = request.CampaignId,
@@ -283,6 +323,12 @@ public sealed class LeadCsvImportService
                 .Add("consentOptIn", result.ConsentBreakdown.OptIn.ToString(CultureInfo.InvariantCulture))
                 .Add("consentUnknown", result.ConsentBreakdown.Unknown.ToString(CultureInfo.InvariantCulture))
                 .Add("consentOptedOut", result.ConsentBreakdown.OptedOut.ToString(CultureInfo.InvariantCulture))
+                .Add("temperatureHot", result.TemperatureBreakdown.Hot.ToString(CultureInfo.InvariantCulture))
+                .Add("temperatureWarm", result.TemperatureBreakdown.Warm.ToString(CultureInfo.InvariantCulture))
+                .Add("temperatureCold", result.TemperatureBreakdown.Cold.ToString(CultureInfo.InvariantCulture))
+                .Add("temperatureDisqualified", result.TemperatureBreakdown.Disqualified.ToString(CultureInfo.InvariantCulture))
+                .Add("unexpectedValueAttributes", string.Join(",", result.UnexpectedValues.Keys))
+                .Add("ignoredColumns", string.Join(",", result.IgnoredColumns))
                 .ToDictionary(),
             cancellationToken);
     }
@@ -291,20 +337,21 @@ public sealed class LeadCsvImportService
     {
         if (string.IsNullOrWhiteSpace(csvContent))
         {
-            return new LeadCsvParseResult(0, [], [new LeadCsvImportError(0, "csv body is empty")]);
+            return new LeadCsvParseResult(0, [], [new LeadCsvImportError(0, "csv body is empty")], []);
         }
 
         using var reader = new StringReader(csvContent);
         var headerLine = reader.ReadLine();
         if (string.IsNullOrWhiteSpace(headerLine))
         {
-            return new LeadCsvParseResult(0, [], [new LeadCsvImportError(0, "csv header is missing")]);
+            return new LeadCsvParseResult(0, [], [new LeadCsvImportError(0, "csv header is missing")], []);
         }
 
         var headers = ParseCsvLine(headerLine)
             .Select((name, index) => new { Name = name.Trim(), Index = index })
             .Where(header => !string.IsNullOrWhiteSpace(header.Name))
             .ToDictionary(header => header.Name, header => header.Index, StringComparer.OrdinalIgnoreCase);
+        var (extraColumns, ignoredColumns) = SelectExtraColumns(headers.Keys);
         var rows = new List<ParsedLeadCsvRow>();
         var errors = new List<LeadCsvImportError>();
         var rowNumber = 1;
@@ -351,10 +398,51 @@ public sealed class LeadCsvImportService
                 Truncate(GetValue(headers, values, "assignedAgent")),
                 Truncate(GetValue(headers, values, "estimatedValue")),
                 Truncate(GetValue(headers, values, "timeZone")),
-                NormalizeConsent(GetValue(headers, values, "consentStatus"))));
+                NormalizeConsent(GetValue(headers, values, "consentStatus")),
+                ReadExtraAttributes(headers, values, extraColumns)));
         }
 
-        return new LeadCsvParseResult(rowNumber - 1, rows, errors);
+        return new LeadCsvParseResult(rowNumber - 1, rows, errors, ignoredColumns);
+    }
+
+    private static (IReadOnlyList<string> Extra, IReadOnlyList<string> Ignored) SelectExtraColumns(IEnumerable<string> headers)
+    {
+        var extra = new List<string>();
+        var ignored = new List<string>();
+        foreach (var header in headers.Where(header => !KnownColumns.Contains(header)))
+        {
+            var valid = header.Length <= MaxColumnNameLength
+                && header.All(character => char.IsLetterOrDigit(character) || character is '_' or '-' or '.')
+                && !CrmContactAttributeNames.PlatformManaged.Contains(header);
+            if (valid && extra.Count < MaxExtraColumns)
+            {
+                extra.Add(header);
+            }
+            else
+            {
+                ignored.Add(header);
+            }
+        }
+
+        return (extra, ignored);
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadExtraAttributes(
+        IReadOnlyDictionary<string, int> headers,
+        IReadOnlyList<string> values,
+        IReadOnlyList<string> extraColumns)
+    {
+        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var column in extraColumns)
+        {
+            var value = Truncate(GetValue(headers, values, column));
+            if (value is not null)
+            {
+                attributes[column] = value;
+            }
+        }
+
+        return attributes;
     }
 
     private static IReadOnlyList<string> ParseCsvLine(string line)
@@ -418,7 +506,8 @@ public sealed class LeadCsvImportService
     private sealed record LeadCsvParseResult(
         int TotalRows,
         IReadOnlyCollection<ParsedLeadCsvRow> Rows,
-        IReadOnlyCollection<LeadCsvImportError> Errors);
+        IReadOnlyCollection<LeadCsvImportError> Errors,
+        IReadOnlyCollection<string> IgnoredColumns);
 }
 
 public static class LeadPhoneNormalizer

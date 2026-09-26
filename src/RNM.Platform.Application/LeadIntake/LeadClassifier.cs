@@ -48,7 +48,11 @@ public sealed class LeadClassifier
         return decision;
     }
 
-    private async Task<ResolvedLeadClassification> ResolvePolicyAsync(
+    /// <summary>
+    /// Resolves the tenant's effective policy once, for batch callers that evaluate many leads
+    /// with <see cref="LeadClassificationPolicy.Evaluate"/>. Never throws for configuration problems.
+    /// </summary>
+    public async Task<ResolvedLeadClassification> ResolvePolicyAsync(
         string tenantId,
         string correlationId,
         CancellationToken cancellationToken)

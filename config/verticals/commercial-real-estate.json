@@ -24,5 +24,355 @@
   "serviceAreaFieldAliases": {
     "zipCodeFields": ["zipCode", "zip", "postalCode", "serviceZipCode"],
     "addressFields": ["serviceAddress", "targetPropertyAddress"]
+  },
+  "leadClassification": {
+    "version": "commercial-real-estate-2026-09-26",
+    "funnelAttribute": "intent",
+    "tiers": {
+      "hot": {
+        "classification": "ready_to_transact",
+        "route": "consultation"
+      },
+      "warm": {
+        "classification": "active_planning",
+        "route": "consultation"
+      },
+      "cold": {
+        "classification": "long_horizon",
+        "route": "nurture"
+      },
+      "disqualified": {
+        "classification": "not_a_fit",
+        "route": "none",
+        "scheduleFollowUp": false
+      }
+    },
+    "missingFunnel": {
+      "tier": "cold",
+      "reasons": [
+        "missing_intent"
+      ]
+    },
+    "unknownFunnel": {
+      "tier": "cold",
+      "reasons": [
+        "unknown_intent"
+      ]
+    },
+    "funnels": {
+      "renter": {
+        "fields": {
+          "timeline": [
+            "under_6_months",
+            "6_12_months",
+            "12_18_months",
+            "over_18_months",
+            "exploring"
+          ],
+          "decisionMaker": [
+            "yes",
+            "no"
+          ],
+          "propertyType": [
+            "office",
+            "retail",
+            "industrial",
+            "multifamily",
+            "land",
+            "mixed_use",
+            "residential"
+          ]
+        },
+        "rules": [
+          {
+            "id": "tenant-residential-request",
+            "when": {
+              "all": [
+                {
+                  "attribute": "propertyType",
+                  "in": [
+                    "residential"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "disqualified",
+              "reasons": [
+                "residential_referral"
+              ]
+            }
+          },
+          {
+            "id": "tenant-lease-expiring-decision-maker",
+            "when": {
+              "all": [
+                {
+                  "attribute": "timeline",
+                  "in": [
+                    "under_6_months"
+                  ]
+                },
+                {
+                  "attribute": "decisionMaker",
+                  "in": [
+                    "yes"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "hot",
+              "reasons": [
+                "lease_expiring",
+                "decision_maker"
+              ]
+            }
+          },
+          {
+            "id": "tenant-planning-window",
+            "when": {
+              "all": [
+                {
+                  "attribute": "timeline",
+                  "in": [
+                    "under_6_months",
+                    "6_12_months",
+                    "12_18_months"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "warm",
+              "reasons": [
+                "within_planning_window"
+              ]
+            }
+          }
+        ],
+        "fallback": {
+          "tier": "cold",
+          "reasons": [
+            "long_lease_horizon"
+          ]
+        }
+      },
+      "buyer": {
+        "fields": {
+          "timeline": [
+            "under_6_months",
+            "6_12_months",
+            "12_18_months",
+            "over_18_months",
+            "exploring"
+          ],
+          "exchange1031": [
+            "yes",
+            "no"
+          ],
+          "capitalReady": [
+            "yes",
+            "no"
+          ],
+          "propertyType": [
+            "office",
+            "retail",
+            "industrial",
+            "multifamily",
+            "land",
+            "mixed_use",
+            "residential"
+          ]
+        },
+        "rules": [
+          {
+            "id": "investor-residential-request",
+            "when": {
+              "all": [
+                {
+                  "attribute": "propertyType",
+                  "in": [
+                    "residential"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "disqualified",
+              "reasons": [
+                "residential_referral"
+              ]
+            }
+          },
+          {
+            "id": "investor-1031-exchange",
+            "when": {
+              "all": [
+                {
+                  "attribute": "exchange1031",
+                  "in": [
+                    "yes"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "hot",
+              "reasons": [
+                "1031_exchange_deadline"
+              ]
+            }
+          },
+          {
+            "id": "investor-capital-ready",
+            "when": {
+              "all": [
+                {
+                  "attribute": "capitalReady",
+                  "in": [
+                    "yes"
+                  ]
+                },
+                {
+                  "attribute": "timeline",
+                  "in": [
+                    "under_6_months"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "hot",
+              "reasons": [
+                "capital_ready",
+                "near_term"
+              ]
+            }
+          },
+          {
+            "id": "investor-planning-window",
+            "when": {
+              "all": [
+                {
+                  "attribute": "timeline",
+                  "in": [
+                    "under_6_months",
+                    "6_12_months"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "warm",
+              "reasons": [
+                "within_planning_window"
+              ]
+            }
+          }
+        ],
+        "fallback": {
+          "tier": "cold",
+          "reasons": [
+            "exploring_investment"
+          ]
+        }
+      },
+      "seller": {
+        "fields": {
+          "timeline": [
+            "under_6_months",
+            "6_12_months",
+            "12_18_months",
+            "over_18_months",
+            "exploring"
+          ],
+          "hasVacancy": [
+            "yes",
+            "no"
+          ],
+          "propertyType": [
+            "office",
+            "retail",
+            "industrial",
+            "multifamily",
+            "land",
+            "mixed_use",
+            "residential"
+          ]
+        },
+        "rules": [
+          {
+            "id": "owner-residential-request",
+            "when": {
+              "all": [
+                {
+                  "attribute": "propertyType",
+                  "in": [
+                    "residential"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "disqualified",
+              "reasons": [
+                "residential_referral"
+              ]
+            }
+          },
+          {
+            "id": "owner-vacancy-or-near-term-sale",
+            "when": {
+              "any": [
+                {
+                  "attribute": "hasVacancy",
+                  "in": [
+                    "yes"
+                  ]
+                },
+                {
+                  "attribute": "timeline",
+                  "in": [
+                    "under_6_months"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "hot",
+              "reasons": [
+                "vacancy_or_near_term_sale"
+              ]
+            }
+          },
+          {
+            "id": "owner-planning-window",
+            "when": {
+              "all": [
+                {
+                  "attribute": "timeline",
+                  "in": [
+                    "6_12_months"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "tier": "warm",
+              "reasons": [
+                "within_planning_window"
+              ]
+            }
+          }
+        ],
+        "fallback": {
+          "tier": "cold",
+          "reasons": [
+            "no_disposition_timeline"
+          ]
+        }
+      }
+    }
   }
 }

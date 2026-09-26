@@ -208,9 +208,9 @@ public sealed class InboundLeadIntakeService
                 upsert.ProviderContactId,
                 followUpRequested,
                 businessNotificationQueued,
-                GetAttribute(attributes, "leadClassification"),
-                GetAttribute(attributes, "recommendedRoute"),
-                GetAttribute(attributes, "classificationReasons"))
+                GetAttribute(attributes, CrmContactAttributeNames.LeadClassification),
+                GetAttribute(attributes, CrmContactAttributeNames.RecommendedRoute),
+                GetAttribute(attributes, CrmContactAttributeNames.ClassificationReasons))
             {
                 LeadTemperature = classification.Tier
             };
@@ -487,14 +487,9 @@ public sealed class InboundLeadIntakeService
             [CrmContactAttributeNames.LeadSource] = request.Source,
             [CrmContactAttributeNames.LeadStatus] = CrmOutboundLeadStatuses.New,
             [CrmContactAttributeNames.ConsentStatus] = consent,
-            [CrmContactAttributeNames.ExternalSourceId] = request.ExternalContactId,
-            ["leadClassification"] = classification.Classification,
-            ["classificationReasons"] = string.Join(",", classification.Reasons),
-            ["recommendedRoute"] = classification.Route,
-            ["leadTemperature"] = classification.Tier,
-            ["classificationRuleId"] = classification.RuleId,
-            ["classificationRulesetVersion"] = classification.RulesetVersion
+            [CrmContactAttributeNames.ExternalSourceId] = request.ExternalContactId
         };
+        classification.WriteTo(attributes);
         AddIfPresent(attributes, CrmContactAttributeNames.CampaignId, request.CampaignId);
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentCapturedAt, request.ConsentCapturedAt?.ToUniversalTime().ToString("O"));
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentTextVersion, request.ConsentTextVersion);

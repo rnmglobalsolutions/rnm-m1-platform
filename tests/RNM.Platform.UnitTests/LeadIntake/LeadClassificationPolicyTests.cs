@@ -193,6 +193,82 @@ public sealed class LeadClassificationPolicyTests
     }
 
     [Fact]
+    public async Task CheckedInVerticals_AreAllValid()
+    {
+        foreach (var path in Directory.GetFiles(Path.Combine(RepositoryConfiguration.ConfigRoot, "verticals"), "*.json"))
+        {
+            var verticalId = Path.GetFileNameWithoutExtension(path);
+            var vertical = await RepositoryConfiguration.LoadVerticalAsync(verticalId);
+
+            var resolution = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null);
+
+            Assert.True(resolution.IsValid, $"{verticalId}: {string.Join(" ", resolution.Errors)}");
+        }
+    }
+
+    [Theory]
+    [InlineData("buyer", "showing")]
+    [InlineData("seller", "listing_appointment")]
+    public async Task Evaluate_FunnelTierOverride_SetsRoutePerFunnel(string intent, string expectedHotRoute)
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("residential-real-estate");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+        var lead = new Dictionary<string, string> { ["intent"] = intent, ["timeline"] = "under_30_days", ["preApproved"] = "yes" };
+
+        var decision = LeadClassificationPolicy.Evaluate(policy, lead, CrmConsentStatuses.OptIn);
+
+        Assert.Equal(LeadTiers.Hot, decision.Tier);
+        Assert.Equal(expectedHotRoute, decision.Route);
+    }
+
+    [Fact]
+    public async Task ReachableRoutes_IncludeFunnelSpecificRoutes()
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("residential-real-estate");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+
+        Assert.Equal(
+            ["consultation", "listing_appointment", "none", "nurture", "showing"],
+            LeadClassificationPolicy.ReachableRoutes(policy));
+    }
+
+    [Theory]
+    [InlineData("buyer", "exchange1031", "yes", LeadTiers.Hot, "investor-1031-exchange")]
+    [InlineData("renter", "propertyType", "residential", LeadTiers.Disqualified, "tenant-residential-request")]
+    [InlineData("seller", "hasVacancy", "yes", LeadTiers.Hot, "owner-vacancy-or-near-term-sale")]
+    [InlineData("renter", "timeline", "12-18 months", LeadTiers.Warm, "tenant-planning-window")]
+    public async Task Evaluate_CommercialRealEstateRules(string intent, string attribute, string value, string expectedTier, string expectedRule)
+    {
+        var vertical = await RepositoryConfiguration.LoadVerticalAsync("commercial-real-estate");
+        var policy = LeadClassificationPolicy.Resolve(vertical.LeadClassification, tenant: null).Policy;
+        var lead = new Dictionary<string, string> { ["intent"] = intent, [attribute] = value };
+
+        var decision = LeadClassificationPolicy.Evaluate(policy, lead, CrmConsentStatuses.OptIn);
+
+        Assert.Equal(expectedTier, decision.Tier);
+        Assert.Equal(expectedRule, decision.RuleId);
+    }
+
+    [Fact]
+    public void Resolve_FunnelTierWithoutProfile_IsReportedEvenWhenGlobalTierExists()
+    {
+        var tenant = Config(
+            tiers: new() { [LeadTiers.Hot] = new("hot_lead", LeadRoutes.Consultation) },
+            funnels: new()
+            {
+                ["buyer"] = new(
+                    [Rule("any", all: [Present("timeline")], tier: LeadTiers.Hot, "any")],
+                    new LeadClassificationOutcome(LeadTiers.Cold, ["fallback"]),
+                    Tiers: new Dictionary<string, LeadTierProfile> { [LeadTiers.Hot] = new("Bad", "showing") })
+            });
+        var errors = new List<string>();
+
+        LeadClassificationPolicy.Validate(tenant, "leadClassification", errors);
+
+        Assert.Contains(errors, error => error.Contains("funnels.buyer.tiers.hot.classification", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Resolve_WithoutConfiguration_UsesPlatformDefault()
     {
         var resolution = LeadClassificationPolicy.Resolve(vertical: null, tenant: null);

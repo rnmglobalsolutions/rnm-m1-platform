@@ -24,11 +24,14 @@ public sealed record LeadTierProfile(string Classification, string Route, bool? 
 /// <summary>
 /// Ordered rules for one funnel; the first matching rule wins, otherwise the fallback applies.
 /// <see cref="Fields"/> optionally declares the expected values per attribute so drift in a lead source is visible.
+/// <see cref="Tiers"/> optionally overrides tier profiles for this funnel only (for example a hot seller goes to a
+/// listing appointment while a hot buyer goes to a showing).
 /// </summary>
 public sealed record LeadFunnelRuleSet(
     IReadOnlyList<LeadClassificationRule> Rules,
     LeadClassificationOutcome? Fallback,
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? Fields = null);
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Fields = null,
+    IReadOnlyDictionary<string, LeadTierProfile>? Tiers = null);
 
 public sealed record LeadClassificationRule(
     string Id,

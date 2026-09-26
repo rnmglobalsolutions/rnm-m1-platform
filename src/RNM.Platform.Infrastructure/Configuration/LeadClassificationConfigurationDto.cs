@@ -17,10 +17,7 @@ internal sealed record LeadClassificationConfigurationDto(
     public LeadClassificationConfiguration ToDomain() =>
         new(
             FunnelAttribute,
-            ToCaseInsensitive(
-                Tiers,
-                "tiers",
-                tier => new LeadTierProfile(tier?.Classification ?? string.Empty, tier?.Route ?? string.Empty, tier?.ScheduleFollowUp)),
+            ToTierProfiles(Tiers, "tiers"),
             MissingFunnel?.ToDomain(),
             UnknownFunnel?.ToDomain(),
             ToCaseInsensitive(
@@ -31,8 +28,17 @@ internal sealed record LeadClassificationConfigurationDto(
                     funnel?.Fallback?.ToDomain(),
                     funnel?.Fields is null
                         ? null
-                        : new Dictionary<string, IReadOnlyList<string>>(funnel.Fields, StringComparer.OrdinalIgnoreCase))),
+                        : new Dictionary<string, IReadOnlyList<string>>(funnel.Fields, StringComparer.OrdinalIgnoreCase),
+                    funnel?.Tiers is null ? null : ToTierProfiles(funnel.Tiers, "funnels.tiers"))),
             Version);
+
+    private static IReadOnlyDictionary<string, LeadTierProfile> ToTierProfiles(
+        IReadOnlyDictionary<string, LeadTierProfileDto?>? tiers,
+        string path) =>
+        ToCaseInsensitive(
+            tiers,
+            path,
+            tier => new LeadTierProfile(tier?.Classification ?? string.Empty, tier?.Route ?? string.Empty, tier?.ScheduleFollowUp));
 
     private static IReadOnlyDictionary<string, TDomain> ToCaseInsensitive<TDto, TDomain>(
         IReadOnlyDictionary<string, TDto>? source,
@@ -58,7 +64,8 @@ internal sealed record LeadTierProfileDto(string? Classification, string? Route,
 internal sealed record LeadFunnelRuleSetDto(
     IReadOnlyList<LeadClassificationRuleDto>? Rules,
     LeadClassificationOutcomeDto? Fallback,
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? Fields);
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? Fields,
+    IReadOnlyDictionary<string, LeadTierProfileDto?>? Tiers);
 
 internal sealed record LeadClassificationRuleDto(
     string? Id,

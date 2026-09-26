@@ -39,6 +39,19 @@ public sealed record LeadClassificationDecision(
     /// Declared funnel fields whose value is outside the declared catalog (names only, never values).
     /// </summary>
     public IReadOnlyList<string> UnexpectedAttributes { get; init; } = [];
+
+    /// <summary>
+    /// Writes this decision onto CRM contact attributes.
+    /// </summary>
+    public void WriteTo(IDictionary<string, string> attributes)
+    {
+        attributes[CrmContactAttributeNames.LeadClassification] = Classification;
+        attributes[CrmContactAttributeNames.ClassificationReasons] = string.Join(",", Reasons);
+        attributes[CrmContactAttributeNames.RecommendedRoute] = Route;
+        attributes[CrmContactAttributeNames.LeadTemperature] = Tier;
+        attributes[CrmContactAttributeNames.ClassificationRuleId] = RuleId;
+        attributes[CrmContactAttributeNames.ClassificationRulesetVersion] = RulesetVersion;
+    }
 }
 
 public static class LeadClassificationPolicy
@@ -117,9 +130,9 @@ public static class LeadClassificationPolicy
             funnels,
             ComposeVersion(vertical?.Version, tenant?.Version));
 
-        foreach (var (path, outcome) in EnumerateOutcomes(policy))
+        foreach (var (path, outcome, ruleSet) in EnumerateOutcomes(policy))
         {
-            if (outcome is not null && !tiers.ContainsKey(outcome.Tier))
+            if (outcome is not null && FindProfile(policy, ruleSet, outcome.Tier) is null)
             {
                 errors.Add($"{path} uses tier '{outcome.Tier}', which has no classification/route profile.");
             }
@@ -172,8 +185,8 @@ public static class LeadClassificationPolicy
 
         var matched = ruleSet.Rules.FirstOrDefault(rule => IsMatch(rule.When, attributes));
         var decision = matched is null
-            ? Decide(policy, ruleSet.Fallback!, $"{funnelKey}.fallback")
-            : Decide(policy, matched.Then!, matched.Id);
+            ? Decide(policy, ruleSet.Fallback!, $"{funnelKey}.fallback", ruleSet)
+            : Decide(policy, matched.Then!, matched.Id, ruleSet);
         return decision with { UnexpectedAttributes = FindUnexpectedAttributes(ruleSet, attributes) };
     }
 
@@ -228,9 +241,9 @@ public static class LeadClassificationPolicy
     public static IReadOnlyCollection<string> ReachableRoutes(ResolvedLeadClassification policy)
     {
         var routes = new SortedSet<string>(StringComparer.Ordinal) { LeadRoutes.None };
-        foreach (var (_, outcome) in EnumerateOutcomes(policy))
+        foreach (var (_, outcome, ruleSet) in EnumerateOutcomes(policy))
         {
-            if (outcome is not null && policy.Tiers.TryGetValue(outcome.Tier, out var profile))
+            if (outcome is not null && FindProfile(policy, ruleSet, outcome.Tier) is { } profile)
             {
                 routes.Add(profile.Route);
             }
@@ -259,24 +272,7 @@ public static class LeadClassificationPolicy
             errors.Add($"{path}.version must be a token of letters, digits, '-', '_' or '.'.");
         }
 
-        foreach (var (tier, profile) in configuration.Tiers)
-        {
-            var tierPath = $"{path}.tiers.{tier}";
-            if (!IsKnownTier(tier))
-            {
-                errors.Add($"{tierPath} is not a supported tier ({string.Join(", ", LeadTiers.All)}).");
-            }
-
-            if (!IsValidToken(profile.Classification))
-            {
-                errors.Add($"{tierPath}.classification must be a lowercase token.");
-            }
-
-            if (!LeadRoutes.IsValid(profile.Route))
-            {
-                errors.Add($"{tierPath}.route must be a lowercase token of letters, digits or '_'.");
-            }
-        }
+        ValidateTierProfiles(configuration.Tiers, $"{path}.tiers", errors);
 
         ValidateOutcome(configuration.MissingFunnel, $"{path}.missingFunnel", errors, required: false);
         ValidateOutcome(configuration.UnknownFunnel, $"{path}.unknownFunnel", errors, required: false);
@@ -292,8 +288,38 @@ public static class LeadClassificationPolicy
         }
     }
 
+    private static void ValidateTierProfiles(
+        IReadOnlyDictionary<string, LeadTierProfile> tiers,
+        string path,
+        ICollection<string> errors)
+    {
+        foreach (var (tier, profile) in tiers)
+        {
+            var tierPath = $"{path}.{tier}";
+            if (!IsKnownTier(tier))
+            {
+                errors.Add($"{tierPath} is not a supported tier ({string.Join(", ", LeadTiers.All)}).");
+            }
+
+            if (!IsValidToken(profile.Classification))
+            {
+                errors.Add($"{tierPath}.classification must be a lowercase token.");
+            }
+
+            if (!LeadRoutes.IsValid(profile.Route))
+            {
+                errors.Add($"{tierPath}.route must be a lowercase token of letters, digits or '_'.");
+            }
+        }
+    }
+
     private static void ValidateFunnel(string funnel, LeadFunnelRuleSet ruleSet, string path, ICollection<string> errors)
     {
+        if (ruleSet.Tiers is not null)
+        {
+            ValidateTierProfiles(ruleSet.Tiers, $"{path}.tiers", errors);
+        }
+
         if (string.IsNullOrWhiteSpace(funnel) || funnel.Length > MaxValueLength)
         {
             errors.Add($"{path} must have a funnel value of 1 to {MaxValueLength} characters.");
@@ -465,27 +491,34 @@ public static class LeadClassificationPolicy
         }
     }
 
-    private static IEnumerable<(string Path, LeadClassificationOutcome? Outcome)> EnumerateOutcomes(ResolvedLeadClassification policy)
+    private static IEnumerable<(string Path, LeadClassificationOutcome? Outcome, LeadFunnelRuleSet? RuleSet)> EnumerateOutcomes(
+        ResolvedLeadClassification policy)
     {
-        yield return ("missingFunnel", policy.MissingFunnel);
-        yield return ("unknownFunnel", policy.UnknownFunnel);
+        yield return ("missingFunnel", policy.MissingFunnel, null);
+        yield return ("unknownFunnel", policy.UnknownFunnel, null);
         foreach (var (funnel, ruleSet) in policy.Funnels)
         {
             foreach (var rule in ruleSet.Rules)
             {
-                yield return ($"funnels.{funnel}.{rule.Id}", rule.Then);
+                yield return ($"funnels.{funnel}.{rule.Id}", rule.Then, ruleSet);
             }
 
-            yield return ($"funnels.{funnel}.fallback", ruleSet.Fallback);
+            yield return ($"funnels.{funnel}.fallback", ruleSet.Fallback, ruleSet);
         }
     }
+
+    private static LeadTierProfile? FindProfile(ResolvedLeadClassification policy, LeadFunnelRuleSet? ruleSet, string tier) =>
+        ruleSet?.Tiers is not null && ruleSet.Tiers.TryGetValue(tier, out var funnelProfile)
+            ? funnelProfile
+            : policy.Tiers.TryGetValue(tier, out var profile) ? profile : null;
 
     private static LeadClassificationDecision Decide(
         ResolvedLeadClassification policy,
         LeadClassificationOutcome outcome,
-        string ruleId)
+        string ruleId,
+        LeadFunnelRuleSet? ruleSet = null)
     {
-        var profile = policy.Tiers[outcome.Tier];
+        var profile = FindProfile(policy, ruleSet, outcome.Tier)!;
         return new LeadClassificationDecision(
             outcome.Tier,
             profile.Classification,

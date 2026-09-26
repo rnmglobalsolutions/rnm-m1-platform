@@ -18,7 +18,26 @@ public sealed record LeadCsvImportResult(
     int Updated,
     int Skipped,
     LeadCsvConsentBreakdown ConsentBreakdown,
-    IReadOnlyCollection<LeadCsvImportError> Errors);
+    IReadOnlyCollection<LeadCsvImportError> Errors)
+{
+    public LeadCsvTemperatureBreakdown TemperatureBreakdown { get; init; } = new(0, 0, 0, 0);
+
+    /// <summary>
+    /// Extra columns that were not imported because the name is invalid, reserved, or over the limit.
+    /// </summary>
+    public IReadOnlyCollection<string> IgnoredColumns { get; init; } = [];
+
+    /// <summary>
+    /// Rows per attribute whose value is outside the classification catalog (attribute names only).
+    /// </summary>
+    public IReadOnlyDictionary<string, int> UnexpectedValues { get; init; } = new Dictionary<string, int>();
+}
+
+public sealed record LeadCsvTemperatureBreakdown(
+    int Hot,
+    int Warm,
+    int Cold,
+    int Disqualified);
 
 public sealed record LeadCsvConsentBreakdown(
     int OptIn,
@@ -41,4 +60,5 @@ internal sealed record ParsedLeadCsvRow(
     string? AssignedAgent,
     string? EstimatedValue,
     string? TimeZone,
-    string ConsentStatus);
+    string ConsentStatus,
+    IReadOnlyDictionary<string, string> ExtraAttributes);

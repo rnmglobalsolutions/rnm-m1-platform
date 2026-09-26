@@ -437,6 +437,21 @@ public static class CrmContactAttributeNames
     public const string ExternalSourceId = "externalSourceId";
     public const string ConsentCapturedAt = "consentCapturedAt";
     public const string ConsentTextVersion = "consentTextVersion";
+    public const string LeadClassification = "leadClassification";
+    public const string RecommendedRoute = "recommendedRoute";
+    public const string ClassificationReasons = "classificationReasons";
+    public const string LeadTemperature = "leadTemperature";
+    public const string ClassificationRuleId = "classificationRuleId";
+    public const string ClassificationRulesetVersion = "classificationRulesetVersion";
+
+    /// <summary>
+    /// Every attribute the platform itself writes; lead sources must not overwrite these.
+    /// </summary>
+    public static readonly IReadOnlySet<string> PlatformManaged = typeof(CrmContactAttributeNames)
+        .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+        .Where(field => field.IsLiteral)
+        .Select(field => (string)field.GetRawConstantValue()!)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 public static class CrmOutboundLeadStatuses
