@@ -42,6 +42,7 @@ public sealed class InboundLeadIntakeService
         InboundLeadIntakeRequest request,
         CancellationToken cancellationToken)
     {
+        request = await RequireConsentEvidenceAsync(request, cancellationToken).ConfigureAwait(false);
         var validationFailure = Validate(request, out var phone, out var email);
         if (validationFailure is not null)
         {
@@ -88,7 +89,13 @@ public sealed class InboundLeadIntakeService
                 .ConfigureAwait(false);
             var previousConsent = lookup.Contact?.ConsentStatus ?? CrmConsentStatuses.Unknown;
             var consent = ResolveConsent(previousConsent, request.MarketingConsentGranted);
-            var attributes = BuildAttributes(request, consent);
+            var smsConsent = ResolveConsent(
+                lookup.Contact?.SmsConsentStatus ?? CrmConsentStatuses.Unknown,
+                request.SmsConsent?.Granted is true);
+            var emailConsent = ResolveConsent(
+                lookup.Contact?.EmailConsentStatus ?? CrmConsentStatuses.Unknown,
+                request.EmailConsent?.Granted is true);
+            var attributes = BuildAttributes(request, consent, smsConsent, emailConsent);
 
             var upsert = await crmAdapter.UpsertContactAsync(
                     new CrmContactUpsertRequest(
@@ -181,6 +188,7 @@ public sealed class InboundLeadIntakeService
 
             var businessNotificationQueued = await TryQueueBusinessNotificationsAsync(
                     request,
+                    upsert.ProviderContactId,
                     phone,
                     email,
                     attributes,
@@ -235,7 +243,11 @@ public sealed class InboundLeadIntakeService
                         ["previousConsentStatus"] = previousConsent,
                         ["consentStatus"] = resultConsent,
                         ["consentCapturedAt"] = request.ConsentCapturedAt?.ToUniversalTime().ToString("O") ?? string.Empty,
-                        ["consentTextVersion"] = request.ConsentTextVersion ?? string.Empty
+                        ["consentTextVersion"] = request.ConsentTextVersion ?? string.Empty,
+                        ["smsConsentStatus"] = ChannelConsent.CaptureStatus(request.SmsConsent),
+                        ["emailConsentStatus"] = ChannelConsent.CaptureStatus(request.EmailConsent),
+                        ["smsConsentSourceField"] = request.SmsConsent?.SourceField ?? string.Empty,
+                        ["emailConsentSourceField"] = request.EmailConsent?.SourceField ?? string.Empty
                     }),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -243,6 +255,7 @@ public sealed class InboundLeadIntakeService
 
     private async Task<bool> QueueBusinessNotificationsAsync(
         InboundLeadIntakeRequest request,
+        string providerContactId,
         string? phone,
         string? email,
         IReadOnlyDictionary<string, string> attributes,
@@ -274,7 +287,12 @@ public sealed class InboundLeadIntakeService
                         request.CorrelationId,
                         ConfirmationRetryKind.BusinessSms,
                         tenant.Communication.BusinessNotificationPhoneNumber,
-                        Render(templates.BusinessSmsBodyTemplate, tokens, attributes)),
+                        Render(templates.BusinessSmsBodyTemplate, tokens, attributes))
+                    {
+                        ProviderContactId = providerContactId,
+                        SmsCategory = SmsMessageCategory.InternalOperational,
+                        OriginalRequestedAt = DateTimeOffset.UtcNow
+                    },
                     cancellationToken)
                 .ConfigureAwait(false) ? 1 : 0;
         }
@@ -309,6 +327,7 @@ public sealed class InboundLeadIntakeService
 
     private async Task<bool> TryQueueBusinessNotificationsAsync(
         InboundLeadIntakeRequest request,
+        string providerContactId,
         string? phone,
         string? email,
         IReadOnlyDictionary<string, string> attributes,
@@ -316,7 +335,7 @@ public sealed class InboundLeadIntakeService
     {
         try
         {
-            return await QueueBusinessNotificationsAsync(request, phone, email, attributes, cancellationToken)
+            return await QueueBusinessNotificationsAsync(request, providerContactId, phone, email, attributes, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -411,7 +430,47 @@ public sealed class InboundLeadIntakeService
         return null;
     }
 
-    private static Dictionary<string, string> BuildAttributes(InboundLeadIntakeRequest request, string consent)
+    /// <summary>
+    /// A channel grant without disclosure evidence is stored as not granted so the lead is still captured.
+    /// </summary>
+    private async Task<InboundLeadIntakeRequest> RequireConsentEvidenceAsync(
+        InboundLeadIntakeRequest request,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var smsConsent = ChannelConsent.RequireEvidence(request.SmsConsent, now, out var smsDowngraded);
+        var emailConsent = ChannelConsent.RequireEvidence(request.EmailConsent, now, out var emailDowngraded);
+        if (!smsDowngraded && !emailDowngraded)
+        {
+            return request;
+        }
+
+        if (smsDowngraded)
+        {
+            await LogAsync(TelemetryEventNames.LeadIntakeConsentEvidenceMissing, request, "sms", cancellationToken).ConfigureAwait(false);
+        }
+
+        if (emailDowngraded)
+        {
+            await LogAsync(TelemetryEventNames.LeadIntakeConsentEvidenceMissing, request, "email", cancellationToken).ConfigureAwait(false);
+        }
+
+        return request with
+        {
+            // Marketing consent mirrors the SMS grant, so it cannot outlive a downgraded SMS grant.
+            MarketingConsentGranted = request.MarketingConsentGranted && !smsDowngraded,
+            ConsentCapturedAt = smsDowngraded ? null : request.ConsentCapturedAt,
+            ConsentTextVersion = smsDowngraded ? null : request.ConsentTextVersion,
+            SmsConsent = smsConsent,
+            EmailConsent = emailConsent
+        };
+    }
+
+    private static Dictionary<string, string> BuildAttributes(
+        InboundLeadIntakeRequest request,
+        string consent,
+        string smsConsent,
+        string emailConsent)
     {
         var classification = ClassifyLead(request.Attributes, consent);
         var attributes = new Dictionary<string, string>(request.Attributes, StringComparer.OrdinalIgnoreCase)
@@ -427,6 +486,8 @@ public sealed class InboundLeadIntakeService
         AddIfPresent(attributes, CrmContactAttributeNames.CampaignId, request.CampaignId);
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentCapturedAt, request.ConsentCapturedAt?.ToUniversalTime().ToString("O"));
         AddIfPresent(attributes, CrmContactAttributeNames.ConsentTextVersion, request.ConsentTextVersion);
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Sms, smsConsent, request.SmsConsent);
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Email, emailConsent, request.EmailConsent);
         return attributes;
     }
 

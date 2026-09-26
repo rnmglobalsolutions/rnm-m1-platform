@@ -146,11 +146,15 @@ Origin: https://rnmglobalsolutions.com
   "state": "TX",
   "consentSms": true,
   "consentEmail": true,
+  "consentTextVersion": "web-funnel-v1",
+  "consentDisclosureText": "Acepto que Yartex me contacte por SMS/email ...",
   "companyWebsiteConfirm": ""
 }
 ```
 
 Keep `companyWebsiteConfirm` as an empty hidden honeypot field.
+`consentDisclosureText` must be the exact checkbox text; the example funnel
+(`docs/examples/rnm-funnels/assets/funnel.js`) reads it from the consent label.
 
 ## Register A Lead Server-To-Server Or Internally
 
@@ -174,8 +178,11 @@ public funnel endpoint above.
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentSms": true,
+  "consentEmail": true,
   "consentCapturedAt": "2026-09-18T15:00:00Z",
   "consentTextVersion": "class-registration-v1",
+  "consentDisclosureText": "I agree to receive class notifications by SMS and email. Reply STOP to opt out.",
   "attributes": {
     "intent": "masterclass"
   }
@@ -186,10 +193,20 @@ public funnel endpoint above.
 
 - Explicit `marketingConsentGranted: true` requires `consentCapturedAt` and
   `consentTextVersion` evidence.
-- SMS confirmation and SMS reminders require consent status `opt_in`.
+- Consent is per channel. SMS confirmation and reminders require
+  `smsConsentStatus=opt_in`; class emails require `emailConsentStatus=opt_in`.
+- `consentSms` / `consentEmail` set the channel grants. A `true` grant needs
+  `consentDisclosureText` and `consentTextVersion`; without them the
+  registration is still stored, the channel is recorded as not granted, and M1
+  logs `class.registration.consent_evidence_missing`.
+- Callers that omit `consentSms` fall back to `marketingConsentGranted` as the
+  SMS grant.
+- Contacts created before per-channel consent (no `smsConsentStatus` or
+  `emailConsentStatus`) keep their previous behavior: legacy `opt_in` covers
+  both channels.
 - A contact already marked `opted_out` is not reversed from the web registration
   flow.
-- An `opted_out` contact receives neither customer SMS nor customer email.
+- An SMS opt-out (STOP) blocks customer SMS and outbound calls, not email.
 - An existing `opt_in` remains valid when a later registration contains no new
   grant; the timeline records that no new explicit consent was captured.
 - Twilio STOP still wins and updates CRM consent through the existing inbound
@@ -422,8 +439,11 @@ Para Postman usa `x-rnm-api-key` o
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentSms": true,
+  "consentEmail": true,
   "consentCapturedAt": "2026-09-18T15:00:00Z",
   "consentTextVersion": "class-registration-v1",
+  "consentDisclosureText": "I agree to receive class notifications by SMS and email. Reply STOP to opt out.",
   "attributes": {
     "intent": "masterclass"
   }
@@ -434,29 +454,38 @@ Verifica:
 
 - Se crea/actualiza el contacto en CRM.
 - Se crea registro en `RnmClassRegistrations`.
-- Se envía email.
-- Se envía SMS si `marketingConsentGranted = true`.
+- Se envía email si `consentEmail = true`.
+- Se envía SMS si `consentSms = true` (o, en integraciones antiguas sin
+  `consentSms`, si `marketingConsentGranted = true`).
 - Se crean reminders en `RnmClassReminderDue`.
 
 **6. Prueba consentimiento**
 Haz otro registro con:
 
 ```json
-"marketingConsentGranted": false
+"marketingConsentGranted": false,
+"consentSms": false,
+"consentEmail": false
 ```
 
 Resultado esperado:
 
-- El registro se guarda, pero no sale SMS por falta de `opt_in`.
-- El email puede salir mientras el contacto no esté `opted_out`.
-- SMS debe quedar skipped por falta de consentimiento.
+- El registro se guarda, pero no sale SMS ni email por falta de `opt_in` en
+  cada canal.
+- SMS y email deben quedar skipped por falta de consentimiento.
 - No debe romper el registro.
 
-Luego prueba un contacto previamente `opted_out`:
+Repite con `consentSms: true` sin `consentDisclosureText`:
+
+- El registro se guarda.
+- `smsConsentStatus` queda `unknown` y no sale SMS.
+- Application Insights registra `class.registration.consent_evidence_missing`.
+
+Luego prueba un contacto que respondió STOP:
 
 - M1 no debe revertirlo desde web registration.
 - No debe enviar SMS.
-- No debe enviar email al contacto.
+- El email depende solo de `emailConsentStatus`; STOP no lo bloquea.
 - Debe dejar timeline/evento de consentimiento bloqueado o declinado.
 
 **7. Prueba reminders manualmente**

@@ -273,6 +273,8 @@ Body de prueba:
   "state": "TX",
   "consentSms": true,
   "consentEmail": true,
+  "consentTextVersion": "web-funnel-v1",
+  "consentDisclosureText": "Acepto que Yartex me contacte por SMS/email sobre mi solicitud. Pueden aplicar tarifas de mensajes y datos. Puedo responder STOP para optar por salir.",
   "companyWebsiteConfirm": ""
 }
 ```
@@ -287,10 +289,18 @@ Verificar:
 6. El timeline del CRM contiene `sms.sent`.
 7. El mensaje identifica al remitente e incluye `Reply STOP to opt out`.
 
-Los SMS de marketing, reminders y follow-ups requieren consentimiento `opt_in`.
+Los SMS de marketing, reminders y follow-ups requieren `smsConsentStatus=opt_in`.
 Usar únicamente números cuyos propietarios hayan otorgado consentimiento.
-When `marketingConsentGranted` is `true`, M1 rejects the request unless
-`consentCapturedAt` and `consentTextVersion` provide explicit consent evidence.
+Si `consentSms` es `true` pero falta `consentDisclosureText` o
+`consentTextVersion`, el lead se guarda igual, el SMS queda como no autorizado
+y Application Insights registra `lead_intake.consent_evidence_missing`.
+
+Cada SMS pasa por la compuerta de elegibilidad. Cuando se bloquea, el timeline
+del CRM registra `sms.skipped` con el motivo (`ContactOptedOut`,
+`ConsentNotGranted`, `OutsideSendWindow`, `RetryStale`, etc.) y Application
+Insights registra `sms.eligibility.skipped`. La confirmación de una cita es
+transaccional: solo la bloquea un opt-out explícito del número, no una falla del
+CRM.
 
 ## 12. Probar STOP y la supresión futura
 

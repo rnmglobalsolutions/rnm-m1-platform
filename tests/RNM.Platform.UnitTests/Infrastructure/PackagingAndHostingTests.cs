@@ -87,6 +87,7 @@ public sealed class PackagingAndHostingTests
         Assert.Contains("RNM_ALLOW_WILDCARD_SERVICE_AREA: 'false'", bicep);
         Assert.Contains("'AzureWebJobs.VapiInboundWebhook.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.TwilioSmsInboundWebhook.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.ConfirmationRetry.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.Readiness.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.TestEmailSend.Disabled': 'true'", bicep);

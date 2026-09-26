@@ -1,3 +1,5 @@
+using RNM.Platform.Application.Crm;
+
 namespace RNM.Platform.Application.LeadIntake;
 
 public sealed record InboundLeadIntakeRequest(
@@ -15,7 +17,12 @@ public sealed record InboundLeadIntakeRequest(
     DateTimeOffset? ConsentCapturedAt,
     string? ConsentTextVersion,
     IReadOnlyDictionary<string, string> Attributes,
-    bool ScheduleFollowUp);
+    bool ScheduleFollowUp)
+{
+    public ChannelConsentCapture? SmsConsent { get; init; }
+
+    public ChannelConsentCapture? EmailConsent { get; init; }
+}
 
 public sealed record InboundLeadIntakeResult(
     bool Succeeded,

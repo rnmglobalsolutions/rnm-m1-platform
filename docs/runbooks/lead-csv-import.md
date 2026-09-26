@@ -64,6 +64,9 @@ Pat,Owner,3055550188,pat@example.com,expired_listing,seller,"900 Ocean Dr, Miami
 - Existing contacts are updated instead of duplicated.
 - `consentStatus` is never defaulted to `opt_in`.
 - `unknown` imports are stored but are not eligible for outbound calls/SMS.
+- `consentStatus` covers outbound calls and SMS, so it is also written as
+  `smsConsentStatus`. It never grants email: `emailConsentStatus` keeps whatever
+  the existing contact already resolves to (`unknown` for new contacts).
 - Existing `opted_out` contacts remain `opted_out` even if re-imported as `opt_in`.
 - `opted_out` rows are imported, not dropped, so suppression is explicit.
 - A `lead.imported` timeline event is written for each imported/updated lead.

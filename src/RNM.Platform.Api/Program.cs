@@ -95,6 +95,8 @@ var host = new HostBuilder()
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
         services.AddSingleton<ISendWindowPolicy, SendWindowPolicy>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ISmsEligibilityGate, SmsEligibilityGate>();
         services.AddSingleton<ClassNotificationService>();
         services.AddSingleton<ClassRegistrationService>();
         services.AddSingleton<ClassReminderService>();

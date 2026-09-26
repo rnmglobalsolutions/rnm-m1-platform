@@ -60,9 +60,11 @@ Body example (replace ManyChat field syntax with the corresponding bot fields):
   "customerPhoneNumber": "{{contact.phone}}",
   "customerEmail": "{{contact.email}}",
   "campaignId": "financial-video-v1",
-  "marketingConsentGranted": true,
+  "consentSms": true,
+  "consentEmail": false,
   "consentCapturedAt": "{{consent_captured_at_iso}}",
   "consentTextVersion": "meta-video-funnel-v1",
+  "consentDisclosureText": "<exact consent text shown to the subscriber>",
   "attributes": {
     "funnelType": "financial_education",
     "metaChannel": "instagram",
@@ -86,10 +88,26 @@ only once. Use a separately generated/stored submission id when repeat entries
 to the same campaign are valid. M1 hashes the id before storage; the raw request
 is not stored in the receipt table.
 
-Only set `marketingConsentGranted` to `true` when the person explicitly agreed
-to future marketing contact. In that case, send an ISO 8601 consent timestamp
-and a stable version/name for the displayed consent text. Missing evidence is
-rejected. Existing `opted_out` contacts remain opted out.
+Consent is recorded per channel:
+
+- `consentSms`: set to `true` only when the person explicitly agreed to SMS
+  follow-up. It controls follow-up SMS, class SMS, and reminders.
+- `consentEmail`: set to `true` only when the person explicitly agreed to email
+  follow-up. Omit it when the flow never asked.
+- `consentDisclosureText`: the exact consent text shown to the person. Required
+  evidence for any `true` channel grant, together with `consentTextVersion`.
+- `consentCapturedAt`: ISO 8601 timestamp of the grant. Defaults to receipt time.
+
+A grant without `consentDisclosureText` or `consentTextVersion` is **not
+rejected**: the lead is stored, the channel is recorded as not granted
+(`smsConsentStatus=unknown`), and M1 logs
+`lead_intake.consent_evidence_missing`. That lead will not receive follow-up SMS,
+so watch that event after changing a flow.
+
+Legacy flows that send only `marketingConsentGranted` (no `consentSms`) are
+still accepted: `marketingConsentGranted` is treated as the SMS grant, and it
+still needs `consentDisclosureText` to count. Migrate flows to `consentSms`.
+Existing `opted_out` contacts remain opted out.
 
 M1 stores internal routing attributes on the CRM contact:
 

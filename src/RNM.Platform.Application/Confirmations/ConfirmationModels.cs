@@ -103,14 +103,42 @@ public enum ConfirmationFailureReason
     MarketingConsentNotGranted = 14,
     OutsideSendWindow = 15,
     ReminderStale = 16,
-    AlreadyProcessed = 17
+    AlreadyProcessed = 17,
+    SmsEligibilityDenied = 18
+}
+
+public enum SmsMessageCategory
+{
+    BookingConfirmation = 0,
+    ClassRegistrationConfirmation = 1,
+    ClassReminder = 2,
+    AppointmentReminder = 3,
+    MarketingFollowUp = 4,
+    InternalOperational = 5
+}
+
+public sealed class SmsEligibilityProof
+{
+    internal SmsEligibilityProof(string tenantId, string correlationId, SmsMessageCategory category)
+    {
+        TenantId = tenantId;
+        CorrelationId = correlationId;
+        Category = category;
+    }
+
+    public string TenantId { get; }
+
+    public string CorrelationId { get; }
+
+    public SmsMessageCategory Category { get; }
 }
 
 public sealed record SmsMessageRequest(
     string TenantId,
     string CorrelationId,
     string ToPhoneNumber,
-    string Body);
+    string Body,
+    SmsEligibilityProof EligibilityProof);
 
 public sealed record SmsSendResult(
     bool Succeeded,
@@ -138,6 +166,12 @@ public sealed record ConfirmationRetryRequest(
     string? Subject = null)
 {
     public string? ClassRegistrationId { get; init; }
+
+    public string? ProviderContactId { get; init; }
+
+    public SmsMessageCategory? SmsCategory { get; init; }
+
+    public DateTimeOffset? OriginalRequestedAt { get; init; }
 }
 
 public enum ConfirmationRetryKind

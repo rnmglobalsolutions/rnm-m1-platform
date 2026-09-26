@@ -43,6 +43,7 @@ public static class TelemetryEventNames
     public const string ConfirmationRequested = "confirmation.requested";
     public const string SmsConfirmationSent = "sms.confirmation.sent";
     public const string SmsConfirmationSkipped = "sms.confirmation.skipped";
+    public const string SmsEligibilitySkipped = "sms.eligibility.skipped";
     public const string SmsConfirmationFailed = "sms.confirmation.failed";
     public const string SmsStatusReceived = "sms.status.received";
     public const string EmailConfirmationSent = "email.confirmation.sent";
@@ -57,6 +58,7 @@ public static class TelemetryEventNames
     public const string ConfirmationRetryScheduled = "confirmation.retry.scheduled";
     public const string ConfirmationRetryScheduleFailed = "confirmation.retry.schedule_failed";
     public const string ConfirmationRetrySucceeded = "confirmation.retry.succeeded";
+    public const string ConfirmationRetrySkipped = "confirmation.retry.skipped";
     public const string ConfirmationRetryFailed = "confirmation.retry.failed";
     public const string WorkflowStarted = "workflow.started";
     public const string WorkflowQualificationCompleted = "workflow.qualification_completed";
@@ -78,6 +80,7 @@ public static class TelemetryEventNames
     public const string ClassRegistrationRequested = "class.registration.requested";
     public const string ClassRegistrationCompleted = "class.registration.completed";
     public const string ClassRegistrationFailed = "class.registration.failed";
+    public const string ClassRegistrationConsentEvidenceMissing = "class.registration.consent_evidence_missing";
     public const string ClassNotificationFailed = "class.notification.failed";
     public const string ClassReminderRunRequested = "class.reminder_run.requested";
     public const string ClassReminderRunCompleted = "class.reminder_run.completed";
@@ -93,6 +96,7 @@ public static class TelemetryEventNames
     public const string LeadIntakeDuplicate = "lead_intake.duplicate";
     public const string LeadIntakeCompleted = "lead_intake.completed";
     public const string LeadIntakeFailed = "lead_intake.failed";
+    public const string LeadIntakeConsentEvidenceMissing = "lead_intake.consent_evidence_missing";
     public const string LeadIntakeBusinessNotificationQueued = "lead_intake.business_notification.queued";
     public const string LeadIntakeBusinessNotificationFailed = "lead_intake.business_notification.failed";
 }

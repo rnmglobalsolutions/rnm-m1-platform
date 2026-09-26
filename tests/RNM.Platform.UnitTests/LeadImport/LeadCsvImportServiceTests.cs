@@ -30,6 +30,8 @@ public sealed class LeadCsvImportServiceTests
         Assert.Equal("campaign-a", contact.Attributes[CrmContactAttributeNames.CampaignId]);
         Assert.Equal(CrmOutboundLeadStatuses.New, contact.Attributes[CrmContactAttributeNames.LeadStatus]);
         Assert.Equal(CrmConsentStatuses.OptIn, contact.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.OptIn, contact.Attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.Unknown, contact.Attributes[CrmContactAttributeNames.EmailConsentStatus]);
         Assert.Equal("seller", contact.Attributes[CrmContactAttributeNames.Intent]);
         Assert.Equal("America/New_York", contact.Attributes["timeZone"]);
         Assert.Single(crm.TimelineEvents);

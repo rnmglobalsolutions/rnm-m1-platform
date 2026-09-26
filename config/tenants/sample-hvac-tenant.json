@@ -26,6 +26,7 @@
   },
   "communication": {
     "smsFromPhoneNumber": "+13466231270",
+    "smsRetryStalenessCutoffMinutes": 60,
     "emailFromAddress": "info@rnmglobalsolutions.com",
     "businessNotificationEmail": "info@rnmglobalsolutions.com",
     "businessNotificationPhoneNumber": "+13052445176",

@@ -68,6 +68,9 @@ public sealed class LeadCsvImportService
                 .ConfigureAwait(false);
 
             var finalConsent = PreserveStrongestConsent(lookup.Contact?.ConsentStatus, row.ConsentStatus);
+            // The import's consentStatus covers outbound calls and SMS; email eligibility stays as the contact has it today.
+            var finalSmsConsent = PreserveStrongestConsent(lookup.Contact?.SmsConsentStatus, row.ConsentStatus);
+            var emailConsent = lookup.Contact?.EmailConsentStatus ?? CrmConsentStatuses.Unknown;
             var upsert = await crmAdapter
                 .UpsertContactAsync(
                     new CrmContactUpsertRequest(
@@ -79,7 +82,7 @@ public sealed class LeadCsvImportService
                         NormalizeOptional(row.Email),
                         $"{row.FirstName} {row.LastName}".Trim(),
                         ZipCode: null,
-                        CreateAttributes(request, row, finalConsent))
+                        CreateAttributes(request, row, finalConsent, finalSmsConsent, emailConsent))
                     {
                         LeadStatus = CrmOutboundLeadStatuses.New,
                         NeedsFollowUp = false,
@@ -127,7 +130,9 @@ public sealed class LeadCsvImportService
     private static IReadOnlyDictionary<string, string> CreateAttributes(
         LeadCsvImportRequest request,
         ParsedLeadCsvRow row,
-        string finalConsent)
+        string finalConsent,
+        string smsConsent,
+        string emailConsent)
     {
         var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -143,6 +148,8 @@ public sealed class LeadCsvImportService
         AddOptional(attributes, CrmContactAttributeNames.AssignedAgent, row.AssignedAgent);
         AddOptional(attributes, "estimatedValue", row.EstimatedValue);
         AddOptional(attributes, "timeZone", row.TimeZone);
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Sms, smsConsent, capture: null);
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Email, emailConsent, capture: null);
         return attributes;
     }
 

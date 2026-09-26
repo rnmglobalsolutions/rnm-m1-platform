@@ -23,6 +23,20 @@ public sealed class ClassRegistrationService
         CrmContactAttributeNames.LeadSource,
         CrmContactAttributeNames.LeadStatus,
         CrmContactAttributeNames.ConsentStatus,
+        CrmContactAttributeNames.SmsConsentStatus,
+        CrmContactAttributeNames.EmailConsentStatus,
+        CrmContactAttributeNames.SmsConsentGranted,
+        CrmContactAttributeNames.EmailConsentGranted,
+        CrmContactAttributeNames.SmsConsentSourceField,
+        CrmContactAttributeNames.EmailConsentSourceField,
+        CrmContactAttributeNames.SmsConsentDisclosureText,
+        CrmContactAttributeNames.EmailConsentDisclosureText,
+        CrmContactAttributeNames.SmsConsentTextVersion,
+        CrmContactAttributeNames.EmailConsentTextVersion,
+        CrmContactAttributeNames.SmsConsentCapturedAt,
+        CrmContactAttributeNames.EmailConsentCapturedAt,
+        CrmContactAttributeNames.SmsConsentSource,
+        CrmContactAttributeNames.EmailConsentSource,
         CrmContactAttributeNames.ConsentCapturedAt,
         CrmContactAttributeNames.ConsentTextVersion,
         CrmContactAttributeNames.SourceFunnel,
@@ -141,6 +155,7 @@ public sealed class ClassRegistrationService
     {
         await LogAsync(TelemetryEventNames.ClassRegistrationRequested, request.TenantId, request.CorrelationId, request.SessionId, "requested", cancellationToken)
             .ConfigureAwait(false);
+        request = await RequireConsentEvidenceAsync(request, cancellationToken).ConfigureAwait(false);
 
         var tenant = await tenantConfigurationProvider
             .GetTenantConfigurationAsync(request.TenantId, cancellationToken)
@@ -184,6 +199,8 @@ public sealed class ClassRegistrationService
                 cancellationToken)
             .ConfigureAwait(false);
         var finalConsent = ResolveConsentStatus(lookup.Contact?.ConsentStatus, request.MarketingConsentGranted);
+        var finalSmsConsent = ResolveConsentStatus(lookup.Contact?.SmsConsentStatus, request.SmsConsent?.Granted is true);
+        var finalEmailConsent = ResolveConsentStatus(lookup.Contact?.EmailConsentStatus, request.EmailConsent?.Granted is true);
         var registrationIdentity = normalized.PhoneNumber ?? normalized.Email ?? normalized.Name;
         var registrationId = CreateRegistrationId(request.TenantId, request.SessionId, registrationIdentity);
 
@@ -248,7 +265,13 @@ public sealed class ClassRegistrationService
             return await FailedAsync(request, reason, reservation.Message, cancellationToken).ConfigureAwait(false);
         }
 
-        var attributes = CreateContactAttributes(request, session, registrationId, finalConsent);
+        var attributes = CreateContactAttributes(
+            request,
+            session,
+            registrationId,
+            finalConsent,
+            finalSmsConsent,
+            finalEmailConsent);
         var upsert = await crmAdapter
             .UpsertContactAsync(
                 new CrmContactUpsertRequest(
@@ -488,7 +511,15 @@ public sealed class ClassRegistrationService
         }
 
         var attributes = new Dictionary<string, string>(registration.Attributes, StringComparer.OrdinalIgnoreCase);
-        foreach (var attribute in CreateContactAttributes(request, session, registration.RegistrationId, finalConsent))
+        var finalSmsConsent = ResolveConsentStatus(lookup.Contact?.SmsConsentStatus, request.SmsConsent?.Granted is true);
+        var finalEmailConsent = ResolveConsentStatus(lookup.Contact?.EmailConsentStatus, request.EmailConsent?.Granted is true);
+        foreach (var attribute in CreateContactAttributes(
+                     request,
+                     session,
+                     registration.RegistrationId,
+                     finalConsent,
+                     finalSmsConsent,
+                     finalEmailConsent))
         {
             attributes[attribute.Key] = attribute.Value;
         }
@@ -537,7 +568,8 @@ public sealed class ClassRegistrationService
         {
             ConsentStatus = finalConsent,
             Attributes = attributes,
-            ConfirmationSmsStatus = null
+            ConfirmationSmsStatus = request.SmsConsent?.Granted is true ? null : registration.ConfirmationSmsStatus,
+            ConfirmationEmailStatus = request.EmailConsent?.Granted is true ? null : registration.ConfirmationEmailStatus
         };
 
         try
@@ -609,7 +641,11 @@ public sealed class ClassRegistrationService
                     ["previousConsentStatus"] = previousConsent ?? string.Empty,
                     ["explicitConsent"] = request.MarketingConsentGranted.ToString(),
                     ["consentCapturedAt"] = request.ConsentCapturedAt?.ToUniversalTime().ToString("O") ?? string.Empty,
-                    ["consentTextVersion"] = request.ConsentTextVersion ?? string.Empty
+                    ["consentTextVersion"] = request.ConsentTextVersion ?? string.Empty,
+                    ["smsConsentStatus"] = ChannelConsent.CaptureStatus(request.SmsConsent),
+                    ["emailConsentStatus"] = ChannelConsent.CaptureStatus(request.EmailConsent),
+                    ["smsConsentSourceField"] = request.SmsConsent?.SourceField ?? string.Empty,
+                    ["emailConsentSourceField"] = request.EmailConsent?.SourceField ?? string.Empty
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -786,6 +822,44 @@ public sealed class ClassRegistrationService
         return new NormalizedRegistration(name, normalizedPhone, email, null, null);
     }
 
+    /// <summary>
+    /// A channel grant without disclosure evidence is stored as not granted so the registration is still captured.
+    /// </summary>
+    private async Task<ClassRegistrationRequest> RequireConsentEvidenceAsync(
+        ClassRegistrationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var smsConsent = ChannelConsent.RequireEvidence(request.SmsConsent, now, out var smsDowngraded);
+        var emailConsent = ChannelConsent.RequireEvidence(request.EmailConsent, now, out var emailDowngraded);
+        if (!smsDowngraded && !emailDowngraded)
+        {
+            return request;
+        }
+
+        if (smsDowngraded)
+        {
+            await LogAsync(TelemetryEventNames.ClassRegistrationConsentEvidenceMissing, request.TenantId, request.CorrelationId, request.SessionId, "sms", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (emailDowngraded)
+        {
+            await LogAsync(TelemetryEventNames.ClassRegistrationConsentEvidenceMissing, request.TenantId, request.CorrelationId, request.SessionId, "email", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return request with
+        {
+            // Marketing consent mirrors the SMS grant, so it cannot outlive a downgraded SMS grant.
+            MarketingConsentGranted = request.MarketingConsentGranted && !smsDowngraded,
+            ConsentCapturedAt = smsDowngraded ? null : request.ConsentCapturedAt,
+            ConsentTextVersion = smsDowngraded ? null : request.ConsentTextVersion,
+            SmsConsent = smsConsent,
+            EmailConsent = emailConsent
+        };
+    }
+
     private static string? ValidateSession(ClassSessionUpsertRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.TenantId)
@@ -861,7 +935,9 @@ public sealed class ClassRegistrationService
         ClassRegistrationRequest request,
         ClassSessionRecord session,
         string registrationId,
-        string consentStatus)
+        string consentStatus,
+        string smsConsentStatus,
+        string emailConsentStatus)
     {
         var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -882,6 +958,9 @@ public sealed class ClassRegistrationService
         {
             attributes[CrmContactAttributeNames.ConsentTextVersion] = request.ConsentTextVersion.Trim();
         }
+
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Sms, smsConsentStatus, request.SmsConsent);
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Email, emailConsentStatus, request.EmailConsent);
 
         foreach (var item in request.Attributes)
         {

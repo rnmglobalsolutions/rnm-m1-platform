@@ -71,6 +71,7 @@ var contactFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.Readiness.Disabled': 'true'
   'AzureWebJobs.TestEmailSend.Disabled': 'true'
   'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'
+  'AzureWebJobs.TwilioSmsInboundWebhook.Disabled': 'true'
   'AzureWebJobs.VapiInboundWebhook.Disabled': 'true'
   RNM_ALLOW_WILDCARD_SERVICE_AREA: 'true'
   RNM_CONTACT_ALLOWED_ORIGINS: join(contactFunctionAllowedCorsOrigins, ',')

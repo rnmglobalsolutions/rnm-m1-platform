@@ -30,13 +30,16 @@
     button.textContent = busy ? "Enviando..." : button.dataset.defaultText;
   }
 
-  function consentPayload(values) {
+  function consentPayload(form, values) {
     const consent = values.consent === "on";
+    const label = form.querySelector("input[name='consent']")?.closest("label");
+    const disclosure = label ? label.textContent.replace(/\s+/g, " ").trim() : "";
     return {
       marketingConsentGranted: consent,
       consentSms: consent,
       consentEmail: consent,
-      consentTextVersion: "web-funnel-v1"
+      consentTextVersion: "web-funnel-v1",
+      consentDisclosureText: consent ? disclosure : undefined
     };
   }
 
@@ -76,7 +79,7 @@
         experienceLevel: values.experienceLevel,
         weeklyAvailability: values.weeklyAvailability,
         companyWebsiteConfirm: values.companyWebsiteConfirm || "",
-        ...consentPayload(values)
+        ...consentPayload(form, values)
       };
 
       setBusy(form, true);
@@ -113,7 +116,7 @@
         timeline: values.timeline,
         state: values.state,
         companyWebsiteConfirm: values.companyWebsiteConfirm || "",
-        ...consentPayload(values)
+        ...consentPayload(form, values)
       };
 
       setBusy(form, true);

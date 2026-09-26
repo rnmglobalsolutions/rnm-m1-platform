@@ -1,4 +1,5 @@
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Ports.Crm;
 using RNM.Platform.Application.Ports.Messaging;
@@ -15,19 +16,22 @@ public sealed class ConfirmationApplicationService
     private readonly IConfirmationRetryScheduler retryScheduler;
     private readonly IEventLogger eventLogger;
     private readonly ICrmAdapter crmAdapter;
+    private readonly ISmsEligibilityGate smsEligibilityGate;
 
     public ConfirmationApplicationService(
         ISmsSender smsSender,
         IEmailSender emailSender,
         IConfirmationRetryScheduler retryScheduler,
         IEventLogger eventLogger,
-        ICrmAdapter crmAdapter)
+        ICrmAdapter crmAdapter,
+        ISmsEligibilityGate smsEligibilityGate)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
         this.retryScheduler = retryScheduler;
         this.eventLogger = eventLogger;
         this.crmAdapter = crmAdapter;
+        this.smsEligibilityGate = smsEligibilityGate;
     }
 
     public async Task<BookingConfirmationResult> SendBookingConfirmationAsync(
@@ -51,9 +55,10 @@ public sealed class ConfirmationApplicationService
         {
             ContactAttributes = MergeContactAttributes(request.ContactAttributes, contact?.Attributes)
         };
-        var contactOptedOut = string.Equals(contact?.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
-        var smsResult = await SendSmsAsync(renderRequest, contactOptedOut, cancellationToken).ConfigureAwait(false);
-        var emailResult = await SendEmailAsync(renderRequest, contactOptedOut, cancellationToken).ConfigureAwait(false);
+        var emailOptedOut = string.Equals(contact?.EmailConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
+        var smsOptedOut = string.Equals(contact?.SmsConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase);
+        var smsResult = await SendSmsAsync(renderRequest, smsOptedOut, contact, cancellationToken).ConfigureAwait(false);
+        var emailResult = await SendEmailAsync(renderRequest, emailOptedOut, cancellationToken).ConfigureAwait(false);
         var businessEmailResult = await SendBusinessEmailAsync(renderRequest, cancellationToken).ConfigureAwait(false);
         var businessSmsResult = await SendBusinessSmsAsync(renderRequest, cancellationToken).ConfigureAwait(false);
         return new BookingConfirmationResult(smsResult, emailResult, businessSmsResult, businessEmailResult);
@@ -62,6 +67,7 @@ public sealed class ConfirmationApplicationService
     private async Task<ConfirmationChannelResult> SendSmsAsync(
         BookingConfirmationRequest request,
         bool contactOptedOut,
+        CrmContactRecord? contact,
         CancellationToken cancellationToken)
     {
         if (contactOptedOut)
@@ -91,13 +97,38 @@ public sealed class ConfirmationApplicationService
         var body = RenderTemplate(request.Templates.SmsBodyTemplate, request);
         try
         {
+            // Immediate confirmations intentionally bypass the send window because they answer a user action.
+            var eligibility = await smsEligibilityGate.EvaluateAsync(
+                    new SmsEligibilityRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        SmsMessageCategory.BookingConfirmation,
+                        request.CrmSyncResult.ProviderContactId,
+                        request.CustomerPhoneNumber)
+                    {
+                        // The contact may have matched by email; only reuse it when it owns this phone number.
+                        KnownContact = string.Equals(contact?.PhoneNumber, request.CustomerPhoneNumber, StringComparison.Ordinal)
+                            ? contact
+                            : null
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!eligibility.IsEligible || eligibility.Proof is null)
+            {
+                var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsEligibilityDenied);
+                await LogAsync(TelemetryEventNames.SmsConfirmationSkipped, request, skipped, cancellationToken)
+                    .ConfigureAwait(false);
+                return skipped;
+            }
+
             var sendResult = await smsSender
                 .SendSmsAsync(
                     new SmsMessageRequest(
                         request.TenantId,
                         request.CorrelationId,
                         request.CustomerPhoneNumber,
-                        body),
+                        body,
+                        eligibility.Proof),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -110,7 +141,12 @@ public sealed class ConfirmationApplicationService
                             request.CorrelationId,
                             ConfirmationRetryKind.CustomerSms,
                             request.CustomerPhoneNumber,
-                            body),
+                            body)
+                        {
+                            ProviderContactId = request.CrmSyncResult.ProviderContactId,
+                            SmsCategory = SmsMessageCategory.BookingConfirmation,
+                            OriginalRequestedAt = DateTimeOffset.UtcNow
+                        },
                         cancellationToken)
                     .ConfigureAwait(false);
                 var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
@@ -141,7 +177,12 @@ public sealed class ConfirmationApplicationService
                         request.CorrelationId,
                         ConfirmationRetryKind.CustomerSms,
                         request.CustomerPhoneNumber,
-                        body),
+                        body)
+                    {
+                        ProviderContactId = request.CrmSyncResult.ProviderContactId,
+                        SmsCategory = SmsMessageCategory.BookingConfirmation,
+                        OriginalRequestedAt = DateTimeOffset.UtcNow
+                    },
                     cancellationToken)
                 .ConfigureAwait(false);
             var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);
@@ -361,13 +402,31 @@ public sealed class ConfirmationApplicationService
         var body = RenderTemplate(request.Templates.BusinessSmsBodyTemplate, request);
         try
         {
+            var eligibility = await smsEligibilityGate.EvaluateAsync(
+                    new SmsEligibilityRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        SmsMessageCategory.InternalOperational,
+                        request.CrmSyncResult.ProviderContactId,
+                        request.BusinessNotificationPhoneNumber),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!eligibility.IsEligible || eligibility.Proof is null)
+            {
+                var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsEligibilityDenied);
+                await LogAsync(TelemetryEventNames.BusinessSmsNotificationSkipped, request, skipped, cancellationToken, "business")
+                    .ConfigureAwait(false);
+                return skipped;
+            }
+
             var sendResult = await smsSender
                 .SendSmsAsync(
                     new SmsMessageRequest(
                         request.TenantId,
                         request.CorrelationId,
                         request.BusinessNotificationPhoneNumber,
-                        body),
+                        body,
+                        eligibility.Proof),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -380,7 +439,12 @@ public sealed class ConfirmationApplicationService
                             request.CorrelationId,
                             ConfirmationRetryKind.BusinessSms,
                             request.BusinessNotificationPhoneNumber,
-                            body),
+                            body)
+                        {
+                            ProviderContactId = request.CrmSyncResult.ProviderContactId,
+                            SmsCategory = SmsMessageCategory.InternalOperational,
+                            OriginalRequestedAt = DateTimeOffset.UtcNow
+                        },
                         cancellationToken)
                     .ConfigureAwait(false);
                 var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSendFailed);
@@ -411,7 +475,12 @@ public sealed class ConfirmationApplicationService
                         request.CorrelationId,
                         ConfirmationRetryKind.BusinessSms,
                         request.BusinessNotificationPhoneNumber,
-                        body),
+                        body)
+                    {
+                        ProviderContactId = request.CrmSyncResult.ProviderContactId,
+                        SmsCategory = SmsMessageCategory.InternalOperational,
+                        OriginalRequestedAt = DateTimeOffset.UtcNow
+                    },
                     cancellationToken)
                 .ConfigureAwait(false);
             var failed = Failed(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsSenderException);

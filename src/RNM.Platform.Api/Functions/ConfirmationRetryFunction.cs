@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using RNM.Platform.Application.Confirmations;
+using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Ports.Classes;
@@ -16,16 +17,19 @@ public sealed class ConfirmationRetryFunction
     private readonly IEmailSender emailSender;
     private readonly IEventLogger eventLogger;
     private readonly IClassSessionStore? classSessionStore;
+    private readonly ISmsEligibilityGate smsEligibilityGate;
 
     public ConfirmationRetryFunction(
         ISmsSender smsSender,
         IEmailSender emailSender,
         IEventLogger eventLogger,
+        ISmsEligibilityGate smsEligibilityGate,
         IClassSessionStore? classSessionStore = null)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
         this.eventLogger = eventLogger;
+        this.smsEligibilityGate = smsEligibilityGate;
         this.classSessionStore = classSessionStore;
     }
 
@@ -38,30 +42,36 @@ public sealed class ConfirmationRetryFunction
         var retry = JsonSerializer.Deserialize<ConfirmationRetryRequest>(message, JsonOptions)
             ?? throw new InvalidOperationException("Confirmation retry message is invalid.");
 
-        var succeeded = retry.Kind switch
+        var (outcome, skipReason) = retry.Kind switch
         {
             ConfirmationRetryKind.CustomerSms or ConfirmationRetryKind.BusinessSms =>
                 await RetrySmsAsync(retry, cancellationToken).ConfigureAwait(false),
             ConfirmationRetryKind.CustomerEmail or ConfirmationRetryKind.BusinessEmail =>
-                await RetryEmailAsync(retry, cancellationToken).ConfigureAwait(false),
-            _ => false
+                (await RetryEmailAsync(retry, cancellationToken).ConfigureAwait(false)
+                    ? RetryDispatchOutcome.Sent
+                    : RetryDispatchOutcome.Failed, null),
+            _ => (RetryDispatchOutcome.Failed, (SmsEligibilitySkipReason?)null)
         };
 
         await LogAsync(
-                succeeded
-                    ? TelemetryEventNames.ConfirmationRetrySucceeded
-                    : TelemetryEventNames.ConfirmationRetryFailed,
+                outcome switch
+                {
+                    RetryDispatchOutcome.Sent => TelemetryEventNames.ConfirmationRetrySucceeded,
+                    RetryDispatchOutcome.Skipped => TelemetryEventNames.ConfirmationRetrySkipped,
+                    _ => TelemetryEventNames.ConfirmationRetryFailed
+                },
                 retry,
-                succeeded,
+                outcome,
+                skipReason,
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (succeeded)
+        if (outcome is RetryDispatchOutcome.Sent)
         {
             await TryUpdateClassRegistrationStatusAsync(retry, cancellationToken).ConfigureAwait(false);
         }
 
-        if (!succeeded)
+        if (outcome is RetryDispatchOutcome.Failed)
         {
             throw new InvalidOperationException("Confirmation retry provider call failed.");
         }
@@ -106,14 +116,37 @@ public sealed class ConfirmationRetryFunction
         }
     }
 
-    private async Task<bool> RetrySmsAsync(
+    private async Task<(RetryDispatchOutcome Outcome, SmsEligibilitySkipReason? SkipReason)> RetrySmsAsync(
         ConfirmationRetryRequest retry,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(retry.Destination)
             || string.IsNullOrWhiteSpace(retry.Body))
         {
-            return false;
+            return (RetryDispatchOutcome.Failed, null);
+        }
+
+        var category = retry.SmsCategory
+            ?? (retry.Kind is ConfirmationRetryKind.BusinessSms
+                ? SmsMessageCategory.InternalOperational
+                : SmsMessageCategory.BookingConfirmation);
+        var eligibility = await smsEligibilityGate.EvaluateAsync(
+                new SmsEligibilityRequest(
+                    retry.TenantId,
+                    retry.CorrelationId,
+                    category,
+                    retry.ProviderContactId,
+                    retry.Destination)
+                {
+                    IsRetry = true,
+                    OriginalRequestedAt = retry.OriginalRequestedAt
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        // Messages queued before eligibility context existed have no timestamp; the gate skips them as RetryMissingTimestamp.
+        if (!eligibility.IsEligible || eligibility.Proof is null)
+        {
+            return (RetryDispatchOutcome.Skipped, eligibility.SkipReason);
         }
 
         var result = await smsSender.SendSmsAsync(
@@ -121,10 +154,11 @@ public sealed class ConfirmationRetryFunction
                     retry.TenantId,
                     retry.CorrelationId,
                     retry.Destination,
-                    retry.Body),
+                    retry.Body,
+                    eligibility.Proof),
                 cancellationToken)
             .ConfigureAwait(false);
-        return result.Succeeded;
+        return (result.Succeeded ? RetryDispatchOutcome.Sent : RetryDispatchOutcome.Failed, null);
     }
 
     private async Task<bool> RetryEmailAsync(
@@ -153,14 +187,21 @@ public sealed class ConfirmationRetryFunction
     private async Task LogAsync(
         string eventName,
         ConfirmationRetryRequest retry,
-        bool succeeded,
+        RetryDispatchOutcome outcome,
+        SmsEligibilitySkipReason? skipReason,
         CancellationToken cancellationToken)
     {
         var properties = new SafeTelemetryProperties()
             .Add("correlationId", retry.CorrelationId)
             .Add("tenantId", retry.TenantId)
             .Add("retryKind", retry.Kind.ToString())
-            .Add("outcome", succeeded ? "succeeded" : "failed")
+            .Add("outcome", outcome switch
+            {
+                RetryDispatchOutcome.Sent => "succeeded",
+                RetryDispatchOutcome.Skipped => "skipped",
+                _ => "failed"
+            })
+            .Add("skipReason", skipReason?.ToString() ?? string.Empty)
             .ToDictionary();
 
         try
@@ -172,5 +213,12 @@ public sealed class ConfirmationRetryFunction
         {
             // Retry telemetry is best-effort.
         }
+    }
+
+    private enum RetryDispatchOutcome
+    {
+        Sent = 0,
+        Skipped = 1,
+        Failed = 2
     }
 }

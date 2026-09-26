@@ -369,7 +369,8 @@ public sealed class InboundBookingWorkflowTests
                 finalEmailSender,
                 new FakeConfirmationRetryScheduler(),
                 eventLogger,
-                finalCrmAdapter),
+                finalCrmAdapter,
+                new AllowingSmsEligibilityGate()),
             eventLogger);
 
         return new WorkflowHarness(

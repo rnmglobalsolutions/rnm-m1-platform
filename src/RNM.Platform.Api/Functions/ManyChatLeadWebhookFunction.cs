@@ -6,6 +6,7 @@ using Microsoft.Azure.Functions.Worker.Http;
 using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Domain.Configuration;
@@ -143,6 +144,10 @@ public sealed class ManyChatLeadWebhookFunction
 
         await LogAsync(TelemetryEventNames.LeadIntakeAuthenticated, tenantId, correlationId, "authenticated", cancellationToken)
             .ConfigureAwait(false);
+        var capturedAt = payload.ConsentCapturedAt ?? DateTimeOffset.UtcNow;
+        // Flows built before per-channel consent send only marketingConsentGranted, which always meant SMS consent.
+        var smsGranted = payload.ConsentSms ?? payload.MarketingConsentGranted;
+        var smsSourceField = payload.ConsentSms.HasValue ? "consentSms" : "marketingConsentGranted";
         var result = await intakeService.ProcessAsync(
                 new InboundLeadIntakeRequest(
                     tenantId,
@@ -155,11 +160,17 @@ public sealed class ManyChatLeadWebhookFunction
                     payload.CustomerPhoneNumber ?? payload.PhoneNumber,
                     payload.CustomerEmail ?? payload.Email,
                     payload.CampaignId,
-                    payload.MarketingConsentGranted,
-                    payload.ConsentCapturedAt,
-                    payload.ConsentTextVersion,
+                    smsGranted,
+                    smsGranted ? capturedAt : null,
+                    smsGranted ? payload.ConsentTextVersion : null,
                     attributes,
-                    integration.EffectiveScheduleFollowUp),
+                    integration.EffectiveScheduleFollowUp)
+                {
+                    SmsConsent = CreateConsentCapture(smsGranted, smsSourceField, payload, capturedAt),
+                    EmailConsent = payload.ConsentEmail is { } emailGranted
+                        ? CreateConsentCapture(emailGranted, "consentEmail", payload, capturedAt)
+                        : null
+                },
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -310,9 +321,25 @@ public sealed class ManyChatLeadWebhookFunction
         string? Email,
         string? CampaignId,
         bool MarketingConsentGranted,
+        bool? ConsentSms,
+        bool? ConsentEmail,
         DateTimeOffset? ConsentCapturedAt,
         string? ConsentTextVersion,
+        string? ConsentDisclosureText,
         IReadOnlyDictionary<string, JsonElement>? Attributes);
+
+    private static ChannelConsentCapture CreateConsentCapture(
+        bool granted,
+        string sourceField,
+        ManyChatLeadBody body,
+        DateTimeOffset capturedAt) =>
+        new(
+            granted,
+            sourceField,
+            body.ConsentDisclosureText ?? string.Empty,
+            body.ConsentTextVersion ?? string.Empty,
+            capturedAt,
+            "ManyChat");
 
     private sealed record ManyChatNextAction(
         string Route,

@@ -71,8 +71,11 @@ public sealed record CommunicationConfiguration(
     string? BusinessNotificationPhoneNumber = null,
     bool NotifyBusinessBySmsForUrgentOnly = false,
     BusinessSmsNotificationConfiguration? BusinessSmsNotification = null,
-    AppointmentReminderConfiguration? AppointmentReminders = null)
+    AppointmentReminderConfiguration? AppointmentReminders = null,
+    int? SmsRetryStalenessCutoffMinutes = null)
 {
+    public int EffectiveSmsRetryStalenessCutoffMinutes => SmsRetryStalenessCutoffMinutes ?? 60;
+
     public BusinessSmsNotificationConfiguration EffectiveBusinessSmsNotification =>
         BusinessSmsNotification
         ?? (NotifyBusinessBySmsForUrgentOnly

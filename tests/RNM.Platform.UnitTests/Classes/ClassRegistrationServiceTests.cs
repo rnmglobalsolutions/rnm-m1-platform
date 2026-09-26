@@ -25,18 +25,9 @@ public sealed class ClassRegistrationServiceTests
         var service = CreateRegistrationService(store, crm, sms, email);
 
         var result = await service.RegisterAsync(
-            new ClassRegistrationRequest(
-                "tenant-a",
-                "corr-1",
-                session.SessionId,
-                "Jane Lead",
-                "5551234567",
-                "jane@example.com")
+            CreateConsentRequest(session.SessionId, "Jane Lead", "5551234567", "jane@example.com") with
             {
                 CampaignId = "campaign-a",
-                MarketingConsentGranted = true,
-                ConsentCapturedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
-                ConsentTextVersion = "class-registration-v1",
                 Attributes = new Dictionary<string, string> { ["intent"] = "buyer" }
             },
             CancellationToken.None);
@@ -52,7 +43,7 @@ public sealed class ClassRegistrationServiceTests
     }
 
     [Fact]
-    public async Task RegisterAsync_DoesNotReverseOptedOutFromWebRegistration()
+    public async Task RegisterAsync_SmsOptOutDoesNotBlockExplicitEmailConsent()
     {
         var session = CreateSession();
         var store = new FakeClassSessionStore(session);
@@ -78,24 +69,13 @@ public sealed class ClassRegistrationServiceTests
         var service = CreateRegistrationService(store, crm, sms, email);
 
         var result = await service.RegisterAsync(
-            new ClassRegistrationRequest(
-                "tenant-a",
-                "corr-1",
-                session.SessionId,
-                "Jane Lead",
-                "5551234567",
-                "jane@example.com")
-            {
-                MarketingConsentGranted = true,
-                ConsentCapturedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
-                ConsentTextVersion = "class-registration-v1"
-            },
+            CreateConsentRequest(session.SessionId, "Jane Lead", "5551234567", "jane@example.com"),
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(CrmConsentStatuses.OptedOut, crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
         Assert.Empty(sms.Requests);
-        Assert.Empty(email.Requests);
+        Assert.Single(email.Requests);
         Assert.Contains(
             crm.TimelineEvents,
             evt => evt.EventType == CrmTimelineEventTypes.MarketingConsentWebRegistrationBlockedOptedOut);
@@ -214,6 +194,51 @@ public sealed class ClassRegistrationServiceTests
                     null,
                     new Dictionary<string, string>
                     {
+                        [CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.OptIn,
+                        [CrmContactAttributeNames.SmsConsentStatus] = CrmConsentStatuses.Unknown
+                    })
+            }
+        };
+        var sms = new FakeSmsSender();
+        var service = CreateRegistrationService(store, crm, sms, new FakeEmailSender());
+        var request = new ClassRegistrationRequest(
+            "tenant-a",
+            "corr-1",
+            session.SessionId,
+            "Jane Lead",
+            "5551234567",
+            "jane@example.com");
+
+        var result = await service.RegisterAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(CrmConsentStatuses.OptIn, crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        Assert.Empty(sms.Requests);
+        Assert.Contains(crm.TimelineEvents, evt =>
+            evt.EventType == CrmTimelineEventTypes.MarketingConsentWebRegistrationDeclined
+            && evt.Metadata.GetValueOrDefault("explicitConsent") == bool.FalseString);
+        Assert.DoesNotContain(crm.TimelineEvents, evt =>
+            evt.EventType == CrmTimelineEventTypes.MarketingConsentWebRegistrationGranted);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_LegacyOptInRecordKeepsSmsEligibility()
+    {
+        var session = CreateSession();
+        var store = new FakeClassSessionStore(session);
+        var crm = new FakeCrmAdapter
+        {
+            LookupResult = new CrmContactLookupResult(true, "contact-1")
+            {
+                Contact = new CrmContactRecord(
+                    "tenant-a",
+                    "contact-1",
+                    "+15551234567",
+                    "jane@example.com",
+                    "Jane Lead",
+                    null,
+                    new Dictionary<string, string>
+                    {
                         [CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.OptIn
                     })
             }
@@ -232,7 +257,9 @@ public sealed class ClassRegistrationServiceTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(CrmConsentStatuses.OptIn, crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        // Records written before per-channel consent keep the SMS eligibility they already had.
         Assert.Single(sms.Requests);
+        Assert.Equal(CrmConsentStatuses.OptIn, crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.SmsConsentStatus]);
         Assert.Contains(crm.TimelineEvents, evt =>
             evt.EventType == CrmTimelineEventTypes.MarketingConsentWebRegistrationDeclined
             && evt.Metadata.GetValueOrDefault("explicitConsent") == bool.FalseString);
@@ -258,13 +285,16 @@ public sealed class ClassRegistrationServiceTests
             "jane@example.com");
 
         var first = await service.RegisterAsync(request, CancellationToken.None);
+        var explicitConsent = CreateConsentRequest(session.SessionId, "Jane Lead", "5551234567", "jane@example.com");
         var duplicate = await service.RegisterAsync(
             request with
             {
                 CorrelationId = "corr-2",
                 MarketingConsentGranted = true,
                 ConsentCapturedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
-                ConsentTextVersion = "class-registration-v1"
+                ConsentTextVersion = "class-registration-v1",
+                SmsConsent = explicitConsent.SmsConsent,
+                EmailConsent = explicitConsent.EmailConsent
             },
             CancellationToken.None);
 
@@ -342,6 +372,7 @@ public sealed class ClassRegistrationServiceTests
                 email,
                 crm,
                 logger,
+                new AllowingSmsEligibilityGate(),
                 scheduler),
             logger);
 
@@ -397,7 +428,7 @@ public sealed class ClassRegistrationServiceTests
             new FakeTenantConfigurationProvider(),
             store,
             crm,
-            new ClassNotificationService(sms, email, crm, logger),
+            new ClassNotificationService(sms, email, crm, logger, new AllowingSmsEligibilityGate()),
             logger);
     }
 
@@ -410,7 +441,21 @@ public sealed class ClassRegistrationServiceTests
         {
             MarketingConsentGranted = true,
             ConsentCapturedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
-            ConsentTextVersion = "class-registration-v1"
+            ConsentTextVersion = "class-registration-v1",
+            SmsConsent = new ChannelConsentCapture(
+                true,
+                "consentSms",
+                "I agree to receive class notifications.",
+                "class-registration-v1",
+                DateTimeOffset.UtcNow.AddMinutes(-1),
+                "UnitTest"),
+            EmailConsent = new ChannelConsentCapture(
+                true,
+                "consentEmail",
+                "I agree to receive class notifications.",
+                "class-registration-v1",
+                DateTimeOffset.UtcNow.AddMinutes(-1),
+                "UnitTest")
         };
 
     private static ClassSessionRecord CreateSession() =>

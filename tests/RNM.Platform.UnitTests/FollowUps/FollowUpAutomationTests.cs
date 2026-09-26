@@ -217,7 +217,8 @@ public sealed class FollowUpAutomationTests
             sms,
             email,
             new SendWindowPolicy(),
-            new RecordingEventLogger());
+            new RecordingEventLogger(),
+            new AllowingSmsEligibilityGate());
 
     private static FollowUpDueRecord CreateDue(DateTimeOffset dueAt) =>
         new(
@@ -253,6 +254,8 @@ public sealed class FollowUpAutomationTests
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 [CrmContactAttributeNames.ConsentStatus] = consentStatus,
+                [CrmContactAttributeNames.SmsConsentStatus] = consentStatus,
+                [CrmContactAttributeNames.EmailConsentStatus] = consentStatus,
                 [CrmContactAttributeNames.CampaignId] = "campaign-a"
             });
 }

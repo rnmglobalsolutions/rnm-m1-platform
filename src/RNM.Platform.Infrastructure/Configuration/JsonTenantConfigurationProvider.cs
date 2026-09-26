@@ -147,7 +147,8 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                     Communication.AppointmentReminders.Templates.BusinessEmailSubjectTemplate,
                                     Communication.AppointmentReminders.Templates.BusinessEmailBodyTemplate),
                             Communication.AppointmentReminders.ReminderOffsetsMinutes,
-                            Communication.AppointmentReminders.ReminderStalenessCutoffMinutes)),
+                            Communication.AppointmentReminders.ReminderStalenessCutoffMinutes),
+                    Communication?.SmsRetryStalenessCutoffMinutes),
                 new ReportingConfiguration(
                     Reporting?.CloseRate,
                     Reporting?.AvgCommissionValue,
@@ -300,6 +301,7 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
 
     private sealed record CommunicationConfigurationDto(
         string? SmsFromPhoneNumber,
+        int? SmsRetryStalenessCutoffMinutes,
         string? EmailFromAddress,
         ConfirmationTemplateConfigurationDto? ConfirmationTemplates,
         string? BusinessNotificationEmail,

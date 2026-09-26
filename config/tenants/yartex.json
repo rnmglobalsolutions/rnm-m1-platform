@@ -59,6 +59,7 @@
   },
   "communication": {
     "smsFromPhoneNumber": "+1XXXXXXXXXX",
+    "smsRetryStalenessCutoffMinutes": 60,
     "emailFromAddress": "info@rnmglobalsolutions.com",
     "businessNotificationEmail": "info@rnmglobalsolutions.com",
     "businessNotificationPhoneNumber": "+1XXXXXXXXXX",

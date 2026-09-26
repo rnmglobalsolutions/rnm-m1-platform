@@ -115,6 +115,10 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         AddRequired(errors, tenantConfiguration.SecretNames.EmailConnectionString, "secretNames.emailConnectionString");
 
         AddRequired(errors, tenantConfiguration.Communication.SmsFromPhoneNumber, "communication.smsFromPhoneNumber");
+        if (tenantConfiguration.Communication.SmsRetryStalenessCutoffMinutes is < 1)
+        {
+            errors.Add("communication.smsRetryStalenessCutoffMinutes must be one or greater when configured.");
+        }
         AddRequired(errors, tenantConfiguration.Communication.ConfirmationTemplates.SmsBodyTemplate, "communication.confirmationTemplates.smsBodyTemplate");
         ValidateConfirmationTemplate(
             errors,

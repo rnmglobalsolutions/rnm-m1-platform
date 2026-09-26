@@ -133,6 +133,43 @@ public sealed class InboundLeadIntakeServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_SmsGrantWithoutDisclosureIsStoredAsNotGranted()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest() with
+        {
+            SmsConsent = new ChannelConsentCapture(true, "consentSms", DisclosureText: "", "meta-form-v1", DateTimeOffset.UtcNow, "ManyChat")
+        };
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var attributes = Assert.Single(fixture.Crm.Upserts).Attributes;
+        Assert.Equal(CrmConsentStatuses.Unknown, attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(bool.FalseString, attributes[CrmContactAttributeNames.SmsConsentGranted]);
+        Assert.NotEqual(CrmConsentStatuses.OptIn, attributes[CrmContactAttributeNames.ConsentStatus]);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_EvidencedChannelGrantsArePersistedPerChannel()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest() with
+        {
+            SmsConsent = new ChannelConsentCapture(true, "consentSms", "I agree to texts. Reply STOP to opt out.", "meta-form-v1", DateTimeOffset.UtcNow, "ManyChat"),
+            EmailConsent = new ChannelConsentCapture(false, "consentEmail", "I agree to emails.", "meta-form-v1", DateTimeOffset.UtcNow, "ManyChat")
+        };
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var attributes = Assert.Single(fixture.Crm.Upserts).Attributes;
+        Assert.Equal(CrmConsentStatuses.OptIn, attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.Unknown, attributes[CrmContactAttributeNames.EmailConsentStatus]);
+        Assert.Equal("I agree to texts. Reply STOP to opt out.", attributes[CrmContactAttributeNames.SmsConsentDisclosureText]);
+    }
+
+    [Fact]
     public async Task ProcessAsync_NotificationQueueExceptionDoesNotReopenCompletedReceipt()
     {
         var fixture = new Fixture();
