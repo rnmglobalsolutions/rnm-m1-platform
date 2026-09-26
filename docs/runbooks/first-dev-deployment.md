@@ -85,19 +85,25 @@ Seed these secrets before a real end-to-end dev test:
 
 ```bash
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-internal-api-key --value '<INTERNAL_API_KEY>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-dev-sendgrid-api-key --value '<SENDGRID_API_KEY>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-sendgrid-api-key --value '<SENDGRID_API_KEY>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-vapi-webhook-secret --value '<VAPI_WEBHOOK_SECRET>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
 ```
 
-The tenant-level Vapi, Twilio, and Google Calendar secrets can also be seeded with the helper script documented in `docs/runbooks/seed-sample-hvac-tenant-secrets.md`.
+For real tenants, use the generic script, which reads the required secret names from the tenant JSON through the preflight:
+
+```bash
+scripts/seed-tenant-secrets.sh --vault <KEY_VAULT_NAME> --platform --tenant <tenant-id>
+```
+
+See `docs/runbooks/tenant-onboarding-preflight.md`. The sample HVAC helper in `docs/runbooks/seed-sample-hvac-tenant-secrets.md` remains for the demo tenant.
 
 Bicep does not create the SendGrid secret value. It configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:
 
 ```text
-SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
+SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-sendgrid-api-key/)
 ```
 
 Bicep also configures the internal API key setting as a Key Vault reference on the main Function App only:

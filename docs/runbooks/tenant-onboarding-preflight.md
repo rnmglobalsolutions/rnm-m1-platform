@@ -65,6 +65,26 @@ Do not interpret local `valid` as runtime readiness. The preflight cannot prove
 that a secret exists, Managed Identity can read it, a provider accepts it, or
 the Function App has the deployed app settings.
 
+## Seed The Tenant Secrets
+
+The same required-secret list drives the seeding script, one environment at a
+time. Check first, then seed what is missing:
+
+```bash
+scripts/seed-tenant-secrets.sh --vault <KEY_VAULT_NAME> --tenant <tenant-id> --dry-run
+scripts/seed-tenant-secrets.sh --vault <KEY_VAULT_NAME> --tenant <tenant-id>
+```
+
+Values are read without echo and never reach shell history. Answer each prompt
+with the value, `@path/to/file` (for JSON credentials such as Google Calendar),
+`gen` (for webhook secrets M1 defines, which you then copy into Vapi, ManyChat,
+etc.), or leave it empty to skip. Existing secrets are left untouched unless
+`--overwrite` is passed. A soft-deleted secret must be recovered, not recreated;
+the script prints the recover command. Use `--platform` for the internal API key
+and SendGrid key. You need Key Vault Secrets Officer on the vault (see
+`RNM_KEY_VAULT_ADMIN_OBJECT_ID` in `github-oidc-bootstrap.md`). If `dotnet` on
+the PATH lacks the .NET 10 SDK, set `DOTNET=<path to dotnet>`.
+
 ## Runtime Verification
 
 After deployment, call:

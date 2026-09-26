@@ -24,7 +24,7 @@ param configRoot string = '/home/site/wwwroot/config'
 param internalApiKeySecretName string = 'rnm-internal-api-key'
 
 @description('SendGrid API key secret name in Key Vault. Bicep references this secret but does not create its value.')
-param sendGridApiKeySecretName string = 'sendgrid-api-key'
+param sendGridApiKeySecretName string = 'rnm-sendgrid-api-key'
 
 @description('Allowed browser origins for the public contact Function App.')
 param contactFunctionAllowedCorsOrigins array = [

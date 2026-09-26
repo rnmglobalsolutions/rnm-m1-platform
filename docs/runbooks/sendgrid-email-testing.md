@@ -7,7 +7,7 @@ This runbook verifies RNM Platform M1 email sending through SendGrid in Azure de
 Bicep configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:
 
 ```text
-SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
+SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-sendgrid-api-key/)
 ```
 
 Bicep also configures the internal API key app setting as a Key Vault reference on the main Function App only:
@@ -22,20 +22,40 @@ The contact Function App does not receive the internal API key setting because i
 
 Do not commit the SendGrid API key to GitHub, Bicep, appsettings, or tenant config.
 
+Every environment uses the same secret name, `rnm-sendgrid-api-key`, in its own
+Key Vault. Use a separate restricted ("Mail Send" only) SendGrid API key per
+environment so a dev key can never send production mail.
+
+```bash
+./scripts/seed-tenant-secrets.sh --vault <KEY_VAULT_NAME> --platform
+```
+
+or directly:
+
 ```bash
 az keyvault secret set \
   --vault-name <KEY_VAULT_NAME> \
-  --name "rnm-dev-sendgrid-api-key" \
-  --value "<SENDGRID_API_KEY>"
+  --name "rnm-sendgrid-api-key" \
+  --file <(printf '%s' "$SENDGRID_API_KEY")
 ```
 
-Use the matching secret name per environment:
+### Migrating from the per-environment secret names
 
-```text
-dev: rnm-dev-sendgrid-api-key
-staging: rnm-staging-sendgrid-api-key
-prod: rnm-prod-sendgrid-api-key
+Environments deployed before the rename reference `rnm-dev-sendgrid-api-key`,
+`rnm-staging-sendgrid-api-key` or `rnm-prod-sendgrid-api-key`. Create
+`rnm-sendgrid-api-key` in each vault **before** deploying the renamed
+parameter, otherwise `SENDGRID_API_KEY` resolves to nothing and email stops:
+
+```bash
+az keyvault secret set \
+  --vault-name <KEY_VAULT_NAME> \
+  --name rnm-sendgrid-api-key \
+  --file <(az keyvault secret show --vault-name <KEY_VAULT_NAME> --name rnm-<env>-sendgrid-api-key --query value -o tsv | tr -d '\n')
 ```
+
+After the deployment, confirm readiness reports `sendGridApiKey` as passing,
+then delete the old secret. Purge protection keeps it recoverable for the
+retention period.
 
 ## 3. Restart the Function App
 
