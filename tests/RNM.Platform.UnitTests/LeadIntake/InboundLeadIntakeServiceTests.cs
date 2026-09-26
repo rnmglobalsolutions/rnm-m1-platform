@@ -186,7 +186,7 @@ public sealed class InboundLeadIntakeServiceTests
     private static InboundLeadIntakeRequest CreateRequest(IReadOnlyDictionary<string, string>? attributes = null) =>
         new(
             "tenant-a",
-            "insurance-agents",
+            "life-insurance",
             "correlation-a",
             "ManyChat",
             "event-42",
@@ -269,7 +269,7 @@ public sealed class InboundLeadIntakeServiceTests
         public Task<TenantConfiguration> GetTenantConfigurationAsync(string tenantId, CancellationToken cancellationToken) =>
             Task.FromResult(new TenantConfiguration(
                 new TenantId(tenantId),
-                new VerticalId("insurance-agents"),
+                new VerticalId("life-insurance"),
                 "RNM Insurance",
                 "America/Chicago",
                 new ServiceAreaConfiguration([], ["United States"], "Follow up"),

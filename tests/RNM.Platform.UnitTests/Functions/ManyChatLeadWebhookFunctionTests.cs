@@ -66,7 +66,7 @@ public sealed class ManyChatLeadWebhookFunctionTests
         public Task<TenantConfiguration> GetTenantConfigurationAsync(string tenantId, CancellationToken cancellationToken) =>
             Task.FromResult(new TenantConfiguration(
                 new TenantId(tenantId),
-                new VerticalId("insurance-agents"),
+                new VerticalId("life-insurance"),
                 "Tenant",
                 "America/Chicago",
                 new ServiceAreaConfiguration([], ["United States"], null),

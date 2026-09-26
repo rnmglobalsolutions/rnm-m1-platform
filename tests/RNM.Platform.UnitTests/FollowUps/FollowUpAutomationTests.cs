@@ -418,7 +418,7 @@ internal sealed class FollowUpTenantProvider : ITenantConfigurationProvider
     {
         return Task.FromResult(new TenantConfiguration(
             new TenantId(tenantId),
-            new VerticalId("insurance-agents"),
+            new VerticalId("life-insurance"),
             "RNM",
             "America/Chicago",
             new ServiceAreaConfiguration(["*"], [], null),

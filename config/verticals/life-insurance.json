@@ -1,6 +1,6 @@
 {
-  "verticalId": "insurance-agents",
-  "displayName": "Insurance Agents",
+  "verticalId": "life-insurance",
+  "displayName": "Life Insurance",
   "qualificationFields": [
     "name",
     "phoneNumber",
