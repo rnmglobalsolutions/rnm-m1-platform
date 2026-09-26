@@ -15,17 +15,18 @@
     "emailProvider": "SendGrid"
   },
   "secretNames": {
-    "crmApiKey": "tenant-rnm-hvac-crm-credentials",
-    "bookingApiKey": "tenant-rnm-hvac-google-calendar-credentials",
-    "crmCredentials": "tenant-rnm-hvac-crm-credentials",
-    "bookingCredentials": "tenant-rnm-hvac-google-calendar-credentials",
-    "voiceWebhookSecret": "tenant-sample-hvac-vapi-webhook-secret",
-    "twilioAccountSid": "tenant-sample-hvac-twilio-account-sid",
-    "twilioAuthToken": "tenant-sample-hvac-twilio-auth-token",
-    "emailConnectionString": "tenant-sample-hvac-email-connection"
+    "crmApiKey": "rnm-tenant-sample-hvac-crm-credentials",
+    "bookingApiKey": "rnm-tenant-sample-hvac-google-calendar-credentials",
+    "crmCredentials": "rnm-tenant-sample-hvac-crm-credentials",
+    "bookingCredentials": "rnm-tenant-sample-hvac-google-calendar-credentials",
+    "voiceWebhookSecret": "rnm-tenant-sample-hvac-vapi-webhook-secret",
+    "twilioAccountSid": "rnm-tenant-sample-hvac-twilio-account-sid",
+    "twilioAuthToken": "rnm-tenant-sample-hvac-twilio-auth-token",
+    "emailConnectionString": "rnm-tenant-sample-hvac-email-connection"
   },
   "communication": {
     "smsFromPhoneNumber": "+13466231270",
+    "smsRetryStalenessCutoffMinutes": 60,
     "emailFromAddress": "info@rnmglobalsolutions.com",
     "businessNotificationEmail": "info@rnmglobalsolutions.com",
     "businessNotificationPhoneNumber": "+13052445176",

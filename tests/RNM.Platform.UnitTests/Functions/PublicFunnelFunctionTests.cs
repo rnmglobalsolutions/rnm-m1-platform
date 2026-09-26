@@ -51,6 +51,26 @@ public sealed class PublicFunnelFunctionTests
     }
 
     [Fact]
+    public async Task ConsultationAsync_EmailOnlyConsent_DoesNotGrantSmsConsent()
+    {
+        var fixture = new Fixture();
+        var request = CreateConsultationRequest(
+            "https://rnmglobalsolutions.com",
+            consentSms: false,
+            consentEmail: true);
+
+        var response = (TestHttpResponseData)await fixture.Function.ConsultationAsync(
+            request,
+            "tenant-a",
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(CrmConsentStatuses.Unknown, fixture.Crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.OptIn, fixture.Crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.EmailConsentStatus]);
+        Assert.Equal("consentEmail", fixture.Crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.EmailConsentSourceField]);
+    }
+
+    [Fact]
     public async Task MasterClassRegistrationAsync_ValidRequest_RegistersLeadWithoutClassSecret()
     {
         var session = CreateSession();
@@ -90,12 +110,38 @@ public sealed class PublicFunnelFunctionTests
         Assert.Empty(fixture.Email.Requests);
     }
 
-    private static TestHttpRequestData CreateConsultationRequest(string origin)
+    [Fact]
+    public async Task MasterClassRegistrationAsync_SmsOnlyConsent_DoesNotSendEmail()
+    {
+        var session = CreateSession();
+        var fixture = new Fixture(session);
+        var request = CreateMasterClassRequest(
+            "https://rnmglobalsolutions.com",
+            consentSms: true,
+            consentEmail: false);
+
+        var response = (TestHttpResponseData)await fixture.Function.MasterClassRegistrationAsync(
+            request,
+            "tenant-a",
+            session.SessionId,
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Single(fixture.Sms.Requests);
+        Assert.Empty(fixture.Email.Requests);
+        Assert.Equal(CrmConsentStatuses.OptIn, fixture.Crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.Unknown, fixture.Crm.LastUpsertRequest?.Attributes[CrmContactAttributeNames.EmailConsentStatus]);
+    }
+
+    private static TestHttpRequestData CreateConsultationRequest(
+        string origin,
+        bool consentSms = true,
+        bool consentEmail = false)
     {
         var request = new TestHttpRequestData(
             "POST",
             "https://platform.example.com/api/tenants/tenant-a/funnels/consultation",
-            """
+            $$"""
             {
               "submissionId": "submission-a",
               "customerName": "Jane Lead",
@@ -106,14 +152,21 @@ public sealed class PublicFunnelFunctionTests
               "primaryGoal": "family_protection",
               "timeline": "under_30_days",
               "state": "TX",
-              "consentSms": true
+              "consentSms": {{consentSms.ToString().ToLowerInvariant()}},
+              "consentEmail": {{consentEmail.ToString().ToLowerInvariant()}},
+              "consentTextVersion": "web-funnel-v1",
+              "consentDisclosureText": "I agree to receive messages from Yartex. Reply STOP to opt out."
             }
             """);
         request.Headers.Add("Origin", origin);
         return request;
     }
 
-    private static TestHttpRequestData CreateMasterClassRequest(string origin, string companyWebsiteConfirm = "")
+    private static TestHttpRequestData CreateMasterClassRequest(
+        string origin,
+        string companyWebsiteConfirm = "",
+        bool consentSms = true,
+        bool consentEmail = true)
     {
         var request = new TestHttpRequestData(
             "POST",
@@ -128,7 +181,10 @@ public sealed class PublicFunnelFunctionTests
               "primaryGoal": "family_protection",
               "timeline": "under_30_days",
               "state": "TX",
-              "consentSms": true,
+              "consentSms": {{consentSms.ToString().ToLowerInvariant()}},
+              "consentEmail": {{consentEmail.ToString().ToLowerInvariant()}},
+              "consentTextVersion": "web-funnel-v1",
+              "consentDisclosureText": "I agree to receive messages from Yartex. Reply STOP to opt out.",
               "companyWebsiteConfirm": "{{companyWebsiteConfirm}}"
             }
             """);
@@ -166,12 +222,13 @@ public sealed class PublicFunnelFunctionTests
                 new CrmApplicationService(Crm, logger),
                 tenantProvider,
                 retryScheduler,
+                RepositoryConfiguration.Classifier(tenantProvider, logger),
                 logger);
             var classRegistrationService = new ClassRegistrationService(
                 tenantProvider,
                 classStore,
                 Crm,
-                new ClassNotificationService(Sms, Email, Crm, logger),
+                new ClassNotificationService(Sms, Email, Crm, logger, new AllowingSmsEligibilityGate()),
                 logger);
 
             Function = new PublicFunnelFunction(

@@ -26,7 +26,8 @@ public sealed class TwilioSmsSenderTests
                 "tenant-a",
                 "corr-123",
                 "+15551234567",
-                "Configured body"),
+                "Configured body",
+                new SmsEligibilityProof("tenant-a", "corr-123", SmsMessageCategory.BookingConfirmation)),
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -53,11 +54,31 @@ public sealed class TwilioSmsSenderTests
                 "tenant-a",
                 "corr-123",
                 "+15551234567",
-                "Configured body"),
+                "Configured body",
+                new SmsEligibilityProof("tenant-a", "corr-123", SmsMessageCategory.BookingConfirmation)),
             CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Null(result.ProviderMessageId);
+    }
+
+    [Fact]
+    public async Task SendSmsAsync_RejectsProofForDifferentRequest()
+    {
+        var handler = new RecordingHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.Created));
+        var sender = CreateSender(handler);
+
+        var result = await sender.SendSmsAsync(
+            new SmsMessageRequest(
+                "tenant-a",
+                "corr-123",
+                "+15551234567",
+                "Configured body",
+                new SmsEligibilityProof("tenant-b", "corr-123", SmsMessageCategory.BookingConfirmation)),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(string.Empty, handler.RequestPath);
     }
 
     private static TwilioSmsSender CreateSender(HttpMessageHandler handler)

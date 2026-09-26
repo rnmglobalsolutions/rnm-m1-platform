@@ -8,6 +8,7 @@ using RNM.Platform.Api.Runtime;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Infrastructure.Secrets;
@@ -192,6 +193,11 @@ public sealed class ClassRegistrationFunction
                         MarketingConsentGranted = parsed.MarketingConsentGranted ?? false,
                         ConsentCapturedAt = parsed.ConsentCapturedAt,
                         ConsentTextVersion = parsed.ConsentTextVersion,
+                        // Callers built before per-channel consent send only marketingConsentGranted, which always meant SMS consent.
+                        SmsConsent = parsed.ConsentSms.HasValue
+                            ? CreateConsentCapture(parsed.ConsentSms, "consentSms", parsed, "ClassRegistration")
+                            : CreateConsentCapture(parsed.MarketingConsentGranted, "marketingConsentGranted", parsed, "ClassRegistration"),
+                        EmailConsent = CreateConsentCapture(parsed.ConsentEmail, "consentEmail", parsed, "ClassRegistration"),
                         Attributes = parsed.Attributes ?? new Dictionary<string, string>()
                     },
                     cancellationToken)
@@ -379,9 +385,32 @@ public sealed class ClassRegistrationFunction
         string? Source,
         string? CampaignId,
         bool? MarketingConsentGranted,
+        bool? ConsentSms,
+        bool? ConsentEmail,
         DateTimeOffset? ConsentCapturedAt,
         string? ConsentTextVersion,
+        string? ConsentDisclosureText,
         IReadOnlyDictionary<string, string>? Attributes);
+
+    private static ChannelConsentCapture? CreateConsentCapture(
+        bool? granted,
+        string sourceField,
+        ClassRegistrationBody body,
+        string source)
+    {
+        if (!granted.HasValue)
+        {
+            return null;
+        }
+
+        return new ChannelConsentCapture(
+            granted.Value,
+            sourceField,
+            body.ConsentDisclosureText ?? string.Empty,
+            body.ConsentTextVersion ?? string.Empty,
+            body.ConsentCapturedAt ?? DateTimeOffset.UtcNow,
+            source);
+    }
 
     private sealed class RateLimitCounter(DateTimeOffset windowStartedAt, int count)
     {

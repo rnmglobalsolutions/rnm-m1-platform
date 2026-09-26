@@ -14,7 +14,7 @@ required RNM_INTERNAL_API_KEY
 required RNM_MASTERCLASS_STARTS_AT
 required RNM_MASTERCLASS_ZOOM_URL
 
-TENANT_ID="${RNM_TENANT_ID:-rnm-insurance-agents}"
+TENANT_ID="${RNM_TENANT_ID:-yartex}"
 SESSION_ID="${RNM_MASTERCLASS_SESSION_ID:-financial-education-next}"
 TITLE="${RNM_MASTERCLASS_TITLE:-Financial Education Master Class}"
 ENDS_AT="${RNM_MASTERCLASS_ENDS_AT:-}"

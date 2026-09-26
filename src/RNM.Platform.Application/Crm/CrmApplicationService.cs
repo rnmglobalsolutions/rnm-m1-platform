@@ -12,6 +12,10 @@ public sealed class CrmApplicationService
 {
     private const int MaxDynamicTagValueLength = 48;
     private const string MarketingConsentScope = "sms_and_outbound_calls";
+    private const string RecordContactConsentSourceField = "record_contact_consent";
+    private const string InboundCallConsentVersion = "inbound-call-verbal-v1";
+    private const string InboundCallConsentDisclosure =
+        "Explicit verbal permission given during a person-initiated inbound call for SMS and outbound call follow-up (scope sms_and_outbound_calls).";
 
     private static readonly HashSet<string> ContactAttributeFields =
         new(StringComparer.OrdinalIgnoreCase)
@@ -417,6 +421,7 @@ public sealed class CrmApplicationService
                     request,
                     providerContactId: null,
                     consentStatus: CrmConsentStatuses.Unknown,
+                    emailConsentStatus: CrmConsentStatuses.Unknown,
                     allowOptOutReversal: false,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -516,6 +521,8 @@ public sealed class CrmApplicationService
                 request,
                 providerContactId,
                 CrmConsentStatuses.OptIn,
+                // Freeze the email status the contact resolves to today so the SMS write does not change email eligibility.
+                emailConsentStatus: lookupResult.Contact?.EmailConsentStatus ?? CrmConsentStatuses.Unknown,
                 allowOptOutReversal: canReverseOptOut,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -720,8 +727,14 @@ public sealed class CrmApplicationService
             var tenant = await tenantConfigurationProvider
                 .GetTenantConfigurationAsync(request.TenantId, cancellationToken)
                 .ConfigureAwait(false);
-            var reminderConfig = tenant.Communication.EffectiveAppointmentReminders;
-            var futureOffsets = reminderConfig.EffectiveReminderOffsetsMinutes
+            var reminderConfig = tenant.Communication.AppointmentReminders;
+            if (reminderConfig?.IsEnabled is not true
+                || reminderConfig.ReminderOffsetsMinutes is not { Count: > 0 } reminderOffsets)
+            {
+                return;
+            }
+
+            var futureOffsets = reminderOffsets
                 .Distinct()
                 .Where(offsetMinutes => offsetMinutes > 0 && selectedSlot.StartsAt.AddMinutes(-offsetMinutes) > now)
                 .ToArray();
@@ -988,9 +1001,30 @@ public sealed class CrmApplicationService
         CrmMarketingConsentRequest request,
         string? providerContactId,
         string consentStatus,
+        string emailConsentStatus,
         bool allowOptOutReversal,
         CancellationToken cancellationToken)
     {
+        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [CrmContactAttributeNames.ConsentStatus] = consentStatus
+        };
+        // The inbound-call permission scope is sms_and_outbound_calls, so it is SMS channel consent too.
+        ChannelConsent.WriteAttributes(
+            attributes,
+            ConsentChannel.Sms,
+            consentStatus,
+            string.Equals(consentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase)
+                ? new ChannelConsentCapture(
+                    Granted: true,
+                    SourceField: RecordContactConsentSourceField,
+                    DisclosureText: InboundCallConsentDisclosure,
+                    DisclosureVersion: InboundCallConsentVersion,
+                    request.CapturedAt,
+                    request.Source)
+                : null);
+        ChannelConsent.WriteAttributes(attributes, ConsentChannel.Email, emailConsentStatus, capture: null);
+
         try
         {
             await LogAsync(
@@ -1013,10 +1047,7 @@ public sealed class CrmApplicationService
                         request.Email,
                         request.Name,
                         request.ZipCode,
-                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            [CrmContactAttributeNames.ConsentStatus] = consentStatus
-                        })
+                        attributes)
                     {
                         LeadStatus = CrmLeadStatuses.Qualified,
                         NeedsFollowUp = false,

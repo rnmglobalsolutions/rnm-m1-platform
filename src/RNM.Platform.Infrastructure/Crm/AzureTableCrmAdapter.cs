@@ -607,7 +607,9 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
             var optedOutAt = DateTimeOffset.UtcNow;
             var contact = new TableEntity(request.TenantId, providerContactId)
             {
+                // STOP revokes SMS and outbound-call consent (outbound campaigns read consentStatus); email is unaffected.
                 [AttributePropertyName(CrmContactAttributeNames.ConsentStatus)] = CrmConsentStatuses.OptedOut,
+                [AttributePropertyName(CrmContactAttributeNames.SmsConsentStatus)] = CrmConsentStatuses.OptedOut,
                 [AttributePropertyName(CrmContactAttributeNames.ConsentOptedOutAt)] = optedOutAt.ToString("O"),
                 ["UpdatedAt"] = optedOutAt,
                 ["CorrelationId"] = request.CorrelationId
@@ -635,7 +637,9 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
                     {
                         ["source"] = request.Source,
                         ["reason"] = request.Reason ?? string.Empty,
+                        ["channel"] = "sms",
                         ["consentStatus"] = CrmConsentStatuses.OptedOut,
+                        ["smsConsentStatus"] = CrmConsentStatuses.OptedOut,
                         ["optedOutAt"] = optedOutAt.ToString("O")
                     },
                     cancellationToken)
@@ -1188,7 +1192,10 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
         TableEntity? existingEntity,
         bool allowOptOutReversal)
     {
-        if (!string.Equals(attributeKey, CrmContactAttributeNames.ConsentStatus, StringComparison.OrdinalIgnoreCase)
+        var isConsentStatus = string.Equals(attributeKey, CrmContactAttributeNames.ConsentStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(attributeKey, CrmContactAttributeNames.SmsConsentStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(attributeKey, CrmContactAttributeNames.EmailConsentStatus, StringComparison.OrdinalIgnoreCase);
+        if (!isConsentStatus
             || string.Equals(incomingValue, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -1200,8 +1207,15 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
             return false;
         }
 
+        var existingStatus = GetAttribute(existingEntity, attributeKey);
+        if (string.IsNullOrWhiteSpace(existingStatus)
+            && string.Equals(attributeKey, CrmContactAttributeNames.SmsConsentStatus, StringComparison.OrdinalIgnoreCase))
+        {
+            existingStatus = GetAttribute(existingEntity, CrmContactAttributeNames.ConsentStatus);
+        }
+
         return string.Equals(
-            GetAttribute(existingEntity, CrmContactAttributeNames.ConsentStatus),
+            existingStatus,
             CrmConsentStatuses.OptedOut,
             StringComparison.OrdinalIgnoreCase);
     }

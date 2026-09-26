@@ -17,8 +17,8 @@ The sample tenant config stores only Key Vault secret names, not secret values.
 For the sample HVAC tenant, seed these Key Vault secrets:
 
 ```bash
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
 ```
 
 The auth token is also used to validate Twilio webhook signatures.

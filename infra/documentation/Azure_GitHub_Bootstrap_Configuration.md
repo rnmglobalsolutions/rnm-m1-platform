@@ -105,6 +105,7 @@ Add these variables to each environment:
 AZURE_RESOURCE_GROUP
 ENVIRONMENT_NAME
 BICEP_PARAMETERS_FILE
+RNM_KEY_VAULT_ADMIN_OBJECT_ID   (optional: Entra object id granted Key Vault Secrets Officer)
 ```
 
 Recommended values:

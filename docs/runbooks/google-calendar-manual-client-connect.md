@@ -153,7 +153,7 @@ For Kenny, store this secret in Key Vault:
 ```bash
 az keyvault secret set \
   --vault-name <KEY_VAULT_NAME> \
-  --name tenant-kenny-google-calendar-credentials \
+  --name rnm-tenant-kenny-google-calendar-credentials \
   --value '{
     "calendarId": "primary",
     "refreshToken": "<KENNY_GOOGLE_REFRESH_TOKEN>",
@@ -183,13 +183,13 @@ config/tenants/kenny-commercial-real-estate.json
 The exact Google Calendar secret name resolved for this tenant is:
 
 ```text
-tenant-kenny-google-calendar-credentials
+rnm-tenant-kenny-google-calendar-credentials
 ```
 
 That is because the tenant config sets:
 
 ```json
-"bookingCredentials": "tenant-kenny-google-calendar-credentials"
+"bookingCredentials": "rnm-tenant-kenny-google-calendar-credentials"
 ```
 
 and `GetBookingCredentialsSecretName()` prefers `bookingCredentials` over

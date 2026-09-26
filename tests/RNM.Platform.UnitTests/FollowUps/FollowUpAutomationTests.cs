@@ -45,6 +45,34 @@ public sealed class FollowUpAutomationTests
         Assert.Contains(crm.TimelineEvents, item => item.EventType == CrmTimelineEventTypes.FollowUpScheduled);
     }
 
+    [Theory]
+    [InlineData("cold", "cold-nurture")]
+    [InlineData("warm", "lead-needs-follow-up")]
+    [InlineData(null, "lead-needs-follow-up")]
+    public async Task ScheduleAsync_TierSpecificSequence_ReplacesGenericSequenceForThatTier(string? temperature, string expectedSequence)
+    {
+        var store = new RecordingFollowUpStore();
+        var service = new FollowUpSchedulingService(
+            new FollowUpTenantProvider(),
+            store,
+            new RecordingCrmAdapter(),
+            new RecordingEventLogger());
+
+        await service.ScheduleAsync(
+            new FollowUpScheduleRequest("tenant-a", "corr-1", "contact-1", FollowUpTriggers.LeadFollowUpRequired, "lead intake")
+            {
+                CustomerEmail = "lead@example.com",
+                Attributes = temperature is null
+                    ? new Dictionary<string, string>()
+                    : new Dictionary<string, string> { ["leadTemperature"] = temperature },
+                TriggeredAt = new DateTimeOffset(2026, 7, 10, 14, 0, 0, TimeSpan.Zero)
+            },
+            CancellationToken.None);
+
+        var followUp = Assert.Single(store.FollowUps.Values);
+        Assert.Equal(expectedSequence, followUp.SequenceId);
+    }
+
     [Fact]
     public async Task ScheduleAsync_DuplicateSchedule_DoesNotResetExistingFollowUp()
     {
@@ -217,7 +245,8 @@ public sealed class FollowUpAutomationTests
             sms,
             email,
             new SendWindowPolicy(),
-            new RecordingEventLogger());
+            new RecordingEventLogger(),
+            new AllowingSmsEligibilityGate());
 
     private static FollowUpDueRecord CreateDue(DateTimeOffset dueAt) =>
         new(
@@ -253,6 +282,8 @@ public sealed class FollowUpAutomationTests
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 [CrmContactAttributeNames.ConsentStatus] = consentStatus,
+                [CrmContactAttributeNames.SmsConsentStatus] = consentStatus,
+                [CrmContactAttributeNames.EmailConsentStatus] = consentStatus,
                 [CrmContactAttributeNames.CampaignId] = "campaign-a"
             });
 }
@@ -415,7 +446,7 @@ internal sealed class FollowUpTenantProvider : ITenantConfigurationProvider
     {
         return Task.FromResult(new TenantConfiguration(
             new TenantId(tenantId),
-            new VerticalId("insurance-agents"),
+            new VerticalId("life-insurance"),
             "RNM",
             "America/Chicago",
             new ServiceAreaConfiguration(["*"], [], null),
@@ -450,6 +481,16 @@ internal sealed class FollowUpTenantProvider : ITenantConfigurationProvider
                                 "leadStatus",
                                 ["Booked", "AppointmentScheduled", "appointment_booked"]),
                             new FollowUpStopConditionConfiguration(ConsentStatus: CrmConsentStatuses.OptedOut)
+                        ]),
+                    new FollowUpSequenceConfiguration(
+                        "cold-nurture",
+                        $"{FollowUpTriggers.LeadFollowUpRequired}.cold",
+                        [
+                            new FollowUpStepConfiguration(
+                                10080,
+                                FollowUpChannels.Email,
+                                EmailSubjectTemplate: "Still here when you are ready",
+                                EmailBodyTemplate: "Hi {{customerName}}.")
                         ])
                 ])));
     }

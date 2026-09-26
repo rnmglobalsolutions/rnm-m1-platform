@@ -7,7 +7,8 @@ public sealed record VerticalConfiguration(
     string DisplayName,
     IReadOnlyCollection<string> QualificationFields,
     IReadOnlyCollection<string> SupportedCallTypes,
-    ServiceAreaFieldAliasConfiguration ServiceAreaFieldAliases);
+    ServiceAreaFieldAliasConfiguration ServiceAreaFieldAliases,
+    LeadClassificationConfiguration? LeadClassification = null);
 
 public sealed record ServiceAreaFieldAliasConfiguration(
     IReadOnlyCollection<string> ZipCodeFields,

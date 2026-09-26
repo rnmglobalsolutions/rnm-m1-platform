@@ -30,10 +30,78 @@ public sealed class LeadCsvImportServiceTests
         Assert.Equal("campaign-a", contact.Attributes[CrmContactAttributeNames.CampaignId]);
         Assert.Equal(CrmOutboundLeadStatuses.New, contact.Attributes[CrmContactAttributeNames.LeadStatus]);
         Assert.Equal(CrmConsentStatuses.OptIn, contact.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.OptIn, contact.Attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.Unknown, contact.Attributes[CrmContactAttributeNames.EmailConsentStatus]);
         Assert.Equal("seller", contact.Attributes[CrmContactAttributeNames.Intent]);
         Assert.Equal("America/New_York", contact.Attributes["timeZone"]);
         Assert.Single(crm.TimelineEvents);
         Assert.Equal(CrmTimelineEventTypes.LeadImported, crm.TimelineEvents.Single().EventType);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ClassifiesEachRowWithTheVerticalRules()
+    {
+        var crm = new InMemoryCrmAdapter();
+        var service = CreateService(crm);
+
+        var result = await service.ImportAsync(
+            CreateRequest(
+                "firstName,lastName,phone,intent,timeline,preApproved,hasAgent,consentStatus\n"
+                + "Hot,Buyer,3055550101,buyer,under_30_days,yes,no,opt_in\n"
+                + "Warm,Buyer,3055550102,buyer,1-3 months,no,no,opt_in\n"
+                + "Cold,Buyer,3055550103,buyer,just_looking,no,no,opt_in\n"
+                + "Taken,Buyer,3055550104,buyer,under_30_days,yes,yes,opt_in\n"
+                + "Hot,Seller,3055550105,seller,under_30_days,,,opt_in"),
+            CancellationToken.None);
+
+        Assert.Equal(new LeadCsvTemperatureBreakdown(Hot: 2, Warm: 1, Cold: 1, Disqualified: 1), result.TemperatureBreakdown);
+        var contacts = crm.Contacts["tenant-a"].Values.ToDictionary(contact => contact.PhoneNumber!);
+        Assert.Equal("showing", contacts["+13055550101"].Attributes[CrmContactAttributeNames.RecommendedRoute]);
+        Assert.Equal("buyer-ready-and-pre-approved", contacts["+13055550101"].Attributes[CrmContactAttributeNames.ClassificationRuleId]);
+        Assert.Equal("warm", contacts["+13055550102"].Attributes[CrmContactAttributeNames.LeadTemperature]);
+        Assert.Equal("nurture", contacts["+13055550103"].Attributes[CrmContactAttributeNames.RecommendedRoute]);
+        Assert.Equal("already_represented", contacts["+13055550104"].Attributes[CrmContactAttributeNames.ClassificationReasons]);
+        Assert.Equal("listing_appointment", contacts["+13055550105"].Attributes[CrmContactAttributeNames.RecommendedRoute]);
+        Assert.Equal("residential-real-estate-2026-09-26", contacts["+13055550105"].Attributes[CrmContactAttributeNames.ClassificationRulesetVersion]);
+        Assert.Equal("yes", contacts["+13055550101"].Attributes["preApproved"]);
+    }
+
+    [Fact]
+    public async Task ImportAsync_OptedOutRowKeepsTemperatureButRoutesToNone()
+    {
+        var crm = new InMemoryCrmAdapter();
+        var service = CreateService(crm);
+
+        var result = await service.ImportAsync(
+            CreateRequest("firstName,lastName,phone,intent,timeline,preApproved,consentStatus\nPat,Owner,3055550188,buyer,under_30_days,yes,opted_out"),
+            CancellationToken.None);
+
+        Assert.Equal(1, result.TemperatureBreakdown.Hot);
+        var contact = Assert.Single(crm.Contacts["tenant-a"].Values);
+        Assert.Equal("none", contact.Attributes[CrmContactAttributeNames.RecommendedRoute]);
+        Assert.Equal("hot", contact.Attributes[CrmContactAttributeNames.LeadTemperature]);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ReservedAndInvalidColumnsAreIgnoredAndUnexpectedValuesCounted()
+    {
+        var crm = new InMemoryCrmAdapter();
+        var service = CreateService(crm);
+
+        var result = await service.ImportAsync(
+            CreateRequest(
+                "firstName,lastName,phone,intent,timeline,leadTemperature,consentStatus,Bad Column\n"
+                + "Jane,Buyer,3055550101,buyer,someday,hot,opt_in,x\n"
+                + "John,Buyer,3055550102,buyer,whenever,hot,opt_in,y"),
+            CancellationToken.None);
+
+        Assert.Equal(["leadTemperature", "Bad Column"], result.IgnoredColumns);
+        Assert.Equal(2, result.UnexpectedValues["timeline"]);
+        Assert.All(crm.Contacts["tenant-a"].Values, contact =>
+        {
+            Assert.Equal("cold", contact.Attributes[CrmContactAttributeNames.LeadTemperature]);
+            Assert.False(contact.Attributes.ContainsKey("Bad Column"));
+        });
     }
 
     [Fact]
@@ -153,10 +221,13 @@ public sealed class LeadCsvImportServiceTests
 
     private static LeadCsvImportService CreateService(InMemoryCrmAdapter crm)
     {
+        var tenants = new StubTenantConfigurationProvider();
+        var logger = new StubEventLogger();
         return new LeadCsvImportService(
-            new StubTenantConfigurationProvider(),
+            tenants,
             crm,
-            new StubEventLogger());
+            RepositoryConfiguration.Classifier(tenants, logger, "residential-real-estate"),
+            logger);
     }
 
     private static LeadCsvImportRequest CreateRequest(string csv, string tenantId = "tenant-a") =>

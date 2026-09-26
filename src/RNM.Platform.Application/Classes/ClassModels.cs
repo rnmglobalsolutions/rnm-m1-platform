@@ -1,4 +1,5 @@
 using RNM.Platform.Application.Confirmations;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Classes;
@@ -63,6 +64,10 @@ public sealed record ClassRegistrationRequest(
 
     public string? ConsentTextVersion { get; init; }
 
+    public ChannelConsentCapture? SmsConsent { get; init; }
+
+    public ChannelConsentCapture? EmailConsent { get; init; }
+
     public IReadOnlyDictionary<string, string> Attributes { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }
@@ -84,6 +89,10 @@ public sealed record ClassRegistrationRecord(
     public string? ConfirmationSmsStatus { get; init; }
 
     public string? ConfirmationEmailStatus { get; init; }
+
+    public string SmsConsentStatus => ChannelConsent.ResolveStatus(Attributes, ConsentStatus, ConsentChannel.Sms);
+
+    public string EmailConsentStatus => ChannelConsent.ResolveStatus(Attributes, ConsentStatus, ConsentChannel.Email);
 }
 
 public sealed record ClassRegistrationResult(
@@ -251,6 +260,10 @@ public sealed record AppointmentReminderNotificationRequest(
     IReadOnlyDictionary<string, string> Attributes)
 {
     public ConfirmationFailureReason? SmsSuppressionReason { get; init; }
+
+    public string SmsConsentStatus => ChannelConsent.ResolveStatus(Attributes, ConsentStatus, ConsentChannel.Sms);
+
+    public string EmailConsentStatus => ChannelConsent.ResolveStatus(Attributes, ConsentStatus, ConsentChannel.Email);
 }
 
 public sealed record ClassNotificationTemplateSet(

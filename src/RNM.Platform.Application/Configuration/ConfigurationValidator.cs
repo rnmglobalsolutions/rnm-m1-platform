@@ -1,3 +1,4 @@
+using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Configuration;
@@ -113,8 +114,13 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         AddRequired(errors, tenantConfiguration.SecretNames.TwilioAccountSid, "secretNames.twilioAccountSid");
         AddRequired(errors, tenantConfiguration.SecretNames.TwilioAuthToken, "secretNames.twilioAuthToken");
         AddRequired(errors, tenantConfiguration.SecretNames.EmailConnectionString, "secretNames.emailConnectionString");
+        ValidateSecretNames(errors, tenantConfiguration.SecretNames);
 
         AddRequired(errors, tenantConfiguration.Communication.SmsFromPhoneNumber, "communication.smsFromPhoneNumber");
+        if (tenantConfiguration.Communication.SmsRetryStalenessCutoffMinutes is < 1)
+        {
+            errors.Add("communication.smsRetryStalenessCutoffMinutes must be one or greater when configured.");
+        }
         AddRequired(errors, tenantConfiguration.Communication.ConfirmationTemplates.SmsBodyTemplate, "communication.confirmationTemplates.smsBodyTemplate");
         ValidateConfirmationTemplate(
             errors,
@@ -179,6 +185,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         ValidateClasses(errors, tenantConfiguration.Classes, tenantConfiguration.SecretNames);
         ValidateFollowUps(errors, tenantConfiguration.FollowUps);
         ValidateIntegrations(errors, tenantConfiguration.Integrations, tenantConfiguration.SecretNames);
+        LeadClassificationPolicy.Validate(tenantConfiguration.LeadClassification, "leadClassification", errors);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
     }
@@ -210,7 +217,26 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("serviceAreaFieldAliases.addressFields must include at least one field.");
         }
 
+        LeadClassificationPolicy.Validate(verticalConfiguration.LeadClassification, "leadClassification", errors);
+
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
+    }
+
+    private static void ValidateSecretNames(ICollection<string> errors, SecretNameConfiguration secretNames)
+    {
+        foreach (var (field, name) in secretNames.Configured())
+        {
+            if (!name.StartsWith(SecretNameConfiguration.RequiredPrefix, StringComparison.Ordinal))
+            {
+                errors.Add($"secretNames.{field} must start with '{SecretNameConfiguration.RequiredPrefix}'.");
+            }
+
+            // Key Vault secret names: 1-127 characters, letters, digits and '-' only.
+            if (name.Length > 127 || !name.All(character => char.IsAsciiLetterOrDigit(character) || character == '-'))
+            {
+                errors.Add($"secretNames.{field} must be a valid Key Vault secret name (letters, digits and '-', up to 127 characters).");
+            }
+        }
     }
 
     private static void AddRequired(ICollection<string> errors, string? value, string fieldName)
@@ -304,9 +330,32 @@ public sealed class ConfigurationValidator : IConfigurationValidator
     {
         if (appointmentReminders is null)
         {
+            errors.Add("communication.appointmentReminders must be configured. Use null fields when appointment reminders are disabled.");
             return;
         }
 
+        if (!appointmentReminders.IsEnabled)
+        {
+            return;
+        }
+
+        if (appointmentReminders.Templates is null)
+        {
+            errors.Add("communication.appointmentReminders.templates is required when appointment reminders are enabled.");
+        }
+
+        AddRequired(
+            errors,
+            appointmentReminders.Templates?.SmsBodyTemplate,
+            "communication.appointmentReminders.templates.smsBodyTemplate");
+        AddRequired(
+            errors,
+            appointmentReminders.Templates?.EmailSubjectTemplate,
+            "communication.appointmentReminders.templates.emailSubjectTemplate");
+        AddRequired(
+            errors,
+            appointmentReminders.Templates?.EmailBodyTemplate,
+            "communication.appointmentReminders.templates.emailBodyTemplate");
         ValidateConfirmationTemplate(
             errors,
             appointmentReminders.Templates?.SmsBodyTemplate,
@@ -323,7 +372,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             "communication.appointmentReminders.templates.emailBodyTemplate",
             MaxEmailBodyTemplateLength);
 
-        if (appointmentReminders.ReminderOffsetsMinutes?.Any(value => value <= 0) is true)
+        if (appointmentReminders.ReminderOffsetsMinutes is not { Count: > 0 } reminderOffsets)
+        {
+            errors.Add("communication.appointmentReminders.reminderOffsetsMinutes is required when appointment reminders are enabled.");
+        }
+        else if (reminderOffsets.Any(value => value <= 0))
         {
             errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain positive minute values.");
         }
@@ -333,7 +386,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain five values or fewer.");
         }
 
-        if (appointmentReminders.ReminderStalenessCutoffMinutes is < 1)
+        if (appointmentReminders.ReminderStalenessCutoffMinutes is null)
+        {
+            errors.Add("communication.appointmentReminders.reminderStalenessCutoffMinutes is required when appointment reminders are enabled.");
+        }
+        else if (appointmentReminders.ReminderStalenessCutoffMinutes is < 1)
         {
             errors.Add("communication.appointmentReminders.reminderStalenessCutoffMinutes must be one or greater.");
         }
@@ -755,22 +812,16 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("integrations.manyChat.maxRequestsPerMinute must be between 1 and 1000.");
         }
 
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.Consultation,
-            "integrations.manyChat.routingActions.consultation");
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.MasterClass,
-            "integrations.manyChat.routingActions.masterClass");
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.FollowUp,
-            "integrations.manyChat.routingActions.followUp");
-        ValidateManyChatRoutingAction(
-            errors,
-            manyChat.RoutingActions?.None,
-            "integrations.manyChat.routingActions.none");
+        foreach (var (route, action) in manyChat.RoutingActions?.ByRoute ?? new Dictionary<string, ManyChatRoutingActionConfiguration>())
+        {
+            var fieldName = $"integrations.manyChat.routingActions.{route}";
+            if (!LeadRoutes.IsValid(route))
+            {
+                errors.Add($"{fieldName} must be keyed by a lowercase route token of letters, digits or '_'.");
+            }
+
+            ValidateManyChatRoutingAction(errors, action, fieldName);
+        }
     }
 
     private static void ValidateManyChatRoutingAction(

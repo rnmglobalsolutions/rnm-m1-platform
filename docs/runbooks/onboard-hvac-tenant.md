@@ -31,8 +31,26 @@ Rules:
 - Production ZIP codes must be explicit. `["*"]` is rejected.
 - `businessName` is used in calendar and GHL appointment titles.
 - Phone numbers use E.164 format.
-- Use tenant-specific Key Vault secret names.
+- Use tenant-specific Key Vault secret names. Every name in `secretNames` must
+  start with `rnm-tenant-`, followed by the tenant and the purpose, for example
+  `rnm-tenant-acme-twilio-auth-token`. Configuration loading and the preflight
+  reject any other prefix.
 - Do not share Twilio subaccounts or webhook secrets between customers.
+- Always include `communication.appointmentReminders` so every tenant manifest
+  has the same schema. For tenants that do not use 1:1 appointments, configure
+  the explicit disabled shape:
+
+```json
+"appointmentReminders": {
+  "templates": null,
+  "reminderOffsetsMinutes": null,
+  "reminderStalenessCutoffMinutes": null
+}
+```
+
+For tenants that use 1:1 appointments, all three fields are required. Reminder
+offsets and staleness tolerance must be supplied by the tenant; M1 does not
+provide timing defaults.
 
 ## Provider Setup
 

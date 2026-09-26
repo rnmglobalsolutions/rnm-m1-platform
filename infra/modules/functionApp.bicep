@@ -38,7 +38,7 @@ param internalApiKeySecretName string = 'rnm-internal-api-key'
 param includeInternalApiKeySecretReference bool = true
 
 @description('SendGrid API key secret name in Key Vault. The secret value is created outside Bicep.')
-param sendGridApiKeySecretName string = 'sendgrid-api-key'
+param sendGridApiKeySecretName string = 'rnm-sendgrid-api-key'
 
 @description('Additional application settings.')
 param additionalAppSettings object = {}

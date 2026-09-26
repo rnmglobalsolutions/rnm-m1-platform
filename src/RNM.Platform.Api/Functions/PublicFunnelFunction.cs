@@ -7,6 +7,7 @@ using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Domain.Configuration;
@@ -17,7 +18,6 @@ public sealed class PublicFunnelFunction
 {
     private const int MaxBodyBytes = 32768;
     private const int MaxRequestsPerMinute = 60;
-    private const string DefaultConsentTextVersion = "web-funnel-v1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly ConcurrentDictionary<string, RateLimitCounter> RateLimits = new(StringComparer.Ordinal);
     private static readonly string[] DefaultAllowedOrigins =
@@ -112,7 +112,9 @@ public sealed class PublicFunnelFunction
             return WriteAccepted(request, allowedOrigin, correlationId, route: "none");
         }
 
-        var consentGranted = parsed.Body.MarketingConsentGranted || parsed.Body.ConsentSms || parsed.Body.ConsentEmail;
+        var consentCapturedAt = DateTimeOffset.UtcNow;
+        var smsConsent = CreateConsentCapture(parsed.Body, "consentSms", parsed.Body.ConsentSms, consentCapturedAt);
+        var emailConsent = CreateConsentCapture(parsed.Body, "consentEmail", parsed.Body.ConsentEmail, consentCapturedAt);
         var attributes = BuildConsultationAttributes(parsed.Body);
         var result = await intakeService.ProcessAsync(
                 new InboundLeadIntakeRequest(
@@ -126,11 +128,15 @@ public sealed class PublicFunnelFunction
                     parsed.Body.CustomerPhoneNumber,
                     parsed.Body.CustomerEmail,
                     parsed.Body.CampaignId ?? "web-consultation",
-                    consentGranted,
-                    consentGranted ? DateTimeOffset.UtcNow : null,
-                    consentGranted ? parsed.Body.ConsentTextVersion ?? DefaultConsentTextVersion : null,
+                    parsed.Body.ConsentSms,
+                    parsed.Body.ConsentSms ? consentCapturedAt : null,
+                    parsed.Body.ConsentSms ? parsed.Body.ConsentTextVersion : null,
                     attributes,
-                    ScheduleFollowUp: true),
+                    ScheduleFollowUp: true)
+                {
+                    SmsConsent = smsConsent,
+                    EmailConsent = emailConsent
+                },
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -155,6 +161,7 @@ public sealed class PublicFunnelFunction
             {
                 received = true,
                 leadClassification = result.LeadClassification,
+                leadTemperature = result.LeadTemperature,
                 recommendedRoute = result.RecommendedRoute,
                 classificationReasons = result.ClassificationReasons,
                 correlationId
@@ -222,7 +229,7 @@ public sealed class PublicFunnelFunction
             return WriteAccepted(request, allowedOrigin, correlationId, route: "none");
         }
 
-        var consentGranted = parsed.Body.MarketingConsentGranted || parsed.Body.ConsentSms || parsed.Body.ConsentEmail;
+        var consentCapturedAt = DateTimeOffset.UtcNow;
         var result = await classRegistrationService.RegisterAsync(
                 new ClassRegistrationRequest(
                     tenantId,
@@ -234,9 +241,11 @@ public sealed class PublicFunnelFunction
                 {
                     Source = "WebFunnel",
                     CampaignId = parsed.Body.CampaignId ?? "web-masterclass",
-                    MarketingConsentGranted = consentGranted,
-                    ConsentCapturedAt = consentGranted ? DateTimeOffset.UtcNow : null,
-                    ConsentTextVersion = consentGranted ? parsed.Body.ConsentTextVersion ?? DefaultConsentTextVersion : null,
+                    MarketingConsentGranted = parsed.Body.ConsentSms,
+                    ConsentCapturedAt = parsed.Body.ConsentSms ? consentCapturedAt : null,
+                    ConsentTextVersion = parsed.Body.ConsentSms ? parsed.Body.ConsentTextVersion : null,
+                    SmsConsent = CreateConsentCapture(parsed.Body, "consentSms", parsed.Body.ConsentSms, consentCapturedAt),
+                    EmailConsent = CreateConsentCapture(parsed.Body, "consentEmail", parsed.Body.ConsentEmail, consentCapturedAt),
                     Attributes = BuildMasterClassAttributes(parsed.Body)
                 },
                 cancellationToken)
@@ -397,7 +406,32 @@ public sealed class PublicFunnelFunction
             return "invalid_field_length";
         }
 
+        if (body.EffectiveConsentDisclosureText?.Length > 2000
+            || body.ConsentSmsDisclosureText?.Length > 2000
+            || body.ConsentEmailDisclosureText?.Length > 2000)
+        {
+            return "invalid_field_length";
+        }
+
         return null;
+    }
+
+    private static ChannelConsentCapture CreateConsentCapture(
+        PublicFunnelContactBody body,
+        string sourceField,
+        bool granted,
+        DateTimeOffset capturedAt)
+    {
+        var disclosure = string.Equals(sourceField, "consentSms", StringComparison.Ordinal)
+            ? body.ConsentSmsDisclosureText ?? body.EffectiveConsentDisclosureText
+            : body.ConsentEmailDisclosureText ?? body.EffectiveConsentDisclosureText;
+        return new ChannelConsentCapture(
+            granted,
+            sourceField,
+            disclosure ?? string.Empty,
+            body.ConsentTextVersion ?? string.Empty,
+            capturedAt,
+            "WebFunnel");
     }
 
     private static IReadOnlyDictionary<string, string> BuildConsultationAttributes(ConsultationBody body)
@@ -622,6 +656,15 @@ public sealed class PublicFunnelFunction
         public string? CustomerEmail { get; init; } = CustomerEmail ?? Email;
 
         public string CompanyWebsiteConfirm { get; init; } = CompanyWebsiteConfirm ?? string.Empty;
+
+        public string? ConsentDisclosureText { get; init; }
+
+        public string? ConsentSmsDisclosureText { get; init; }
+
+        public string? ConsentEmailDisclosureText { get; init; }
+
+        public string? EffectiveConsentDisclosureText =>
+            ConsentDisclosureText ?? ConsentSmsDisclosureText ?? ConsentEmailDisclosureText;
     }
 
     private sealed record ConsultationBody(
@@ -667,6 +710,9 @@ public sealed class PublicFunnelFunction
                 CustomerPhoneNumber = NormalizeValue(CustomerPhoneNumber),
                 CustomerEmail = NormalizeValue(CustomerEmail),
                 ConsentTextVersion = NormalizeValue(ConsentTextVersion),
+                ConsentDisclosureText = NormalizeValue(ConsentDisclosureText),
+                ConsentSmsDisclosureText = NormalizeValue(ConsentSmsDisclosureText),
+                ConsentEmailDisclosureText = NormalizeValue(ConsentEmailDisclosureText),
                 CompanyWebsiteConfirm = NormalizeValue(CompanyWebsiteConfirm) ?? string.Empty,
                 CampaignId = NormalizeValue(CampaignId),
                 FunnelType = NormalizeValue(FunnelType),
@@ -717,6 +763,9 @@ public sealed class PublicFunnelFunction
                 CustomerPhoneNumber = NormalizeValue(CustomerPhoneNumber),
                 CustomerEmail = NormalizeValue(CustomerEmail),
                 ConsentTextVersion = NormalizeValue(ConsentTextVersion),
+                ConsentDisclosureText = NormalizeValue(ConsentDisclosureText),
+                ConsentSmsDisclosureText = NormalizeValue(ConsentSmsDisclosureText),
+                ConsentEmailDisclosureText = NormalizeValue(ConsentEmailDisclosureText),
                 CompanyWebsiteConfirm = NormalizeValue(CompanyWebsiteConfirm) ?? string.Empty,
                 CampaignId = NormalizeValue(CampaignId),
                 FunnelType = NormalizeValue(FunnelType),

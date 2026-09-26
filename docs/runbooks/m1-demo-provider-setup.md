@@ -45,7 +45,7 @@ GoHighLevel remains available by switching the tenant later:
 Google Calendar booking needs a tenant booking credentials secret. The demo tenant expects:
 
 ```text
-tenant-rnm-hvac-google-calendar-credentials
+rnm-tenant-sample-hvac-google-calendar-credentials
 ```
 
 Example secret shape:
@@ -76,7 +76,7 @@ Set the secret:
 ```bash
 az keyvault secret set \
   --vault-name <KEY_VAULT_NAME> \
-  --name tenant-rnm-hvac-google-calendar-credentials \
+  --name rnm-tenant-sample-hvac-google-calendar-credentials \
   --file ./google-calendar-credentials.json
 ```
 
@@ -108,7 +108,7 @@ Future tenant configuration can use fields like:
   "appointmentMode": "online",
   "createOnlineMeeting": true,
   "onlineMeetingProvider": "Zoom",
-  "onlineMeetingCredentials": "tenant-client-zoom-credentials"
+  "onlineMeetingCredentials": "rnm-tenant-client-zoom-credentials"
 }
 ```
 

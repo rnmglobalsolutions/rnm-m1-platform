@@ -25,20 +25,7 @@ public sealed class ClassReminderServiceTests
             CancellationToken.None);
         var crm = new FakeCrmAdapter
         {
-            LookupResult = new CrmContactLookupResult(true, "contact-1")
-            {
-                Contact = new CrmContactRecord(
-                    "tenant-a",
-                    "contact-1",
-                    "+15551234567",
-                    "jane@example.com",
-                    "Jane Lead",
-                    null,
-                    new Dictionary<string, string>
-                    {
-                        [CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.OptIn
-                    })
-            }
+            LookupResult = ContactWithConsent(CrmConsentStatuses.OptIn)
         };
         var sms = new FakeSmsSender();
         var email = new FakeEmailSender();
@@ -47,7 +34,7 @@ public sealed class ClassReminderServiceTests
             new FakeTenantConfigurationProvider(),
             store,
             crm,
-            new ClassNotificationService(sms, email, crm, logger),
+            new ClassNotificationService(sms, email, crm, logger, new AllowingSmsEligibilityGate()),
             logger,
             new SendWindowPolicy());
 
@@ -79,20 +66,7 @@ public sealed class ClassReminderServiceTests
             CancellationToken.None);
         var crm = new FakeCrmAdapter
         {
-            LookupResult = new CrmContactLookupResult(true, "contact-1")
-            {
-                Contact = new CrmContactRecord(
-                    "tenant-a",
-                    "contact-1",
-                    "+15551234567",
-                    "jane@example.com",
-                    "Jane Lead",
-                    null,
-                    new Dictionary<string, string>
-                    {
-                        [CrmContactAttributeNames.ConsentStatus] = CrmConsentStatuses.OptIn
-                    })
-            }
+            LookupResult = ContactWithConsent(CrmConsentStatuses.OptIn)
         };
         var sms = new FakeSmsSender();
         var email = new FakeEmailSender();
@@ -101,7 +75,7 @@ public sealed class ClassReminderServiceTests
             new FakeTenantConfigurationProvider(),
             store,
             crm,
-            new ClassNotificationService(sms, email, crm, logger),
+            new ClassNotificationService(sms, email, crm, logger, new AllowingSmsEligibilityGate()),
             logger,
             new SendWindowPolicy());
 
@@ -156,7 +130,7 @@ public sealed class ClassReminderServiceTests
             new FakeTenantConfigurationProvider(),
             store,
             crm,
-            new ClassNotificationService(sms, email, crm, logger),
+            new ClassNotificationService(sms, email, crm, logger, new AllowingSmsEligibilityGate()),
             logger,
             new SendWindowPolicy());
 
@@ -211,7 +185,7 @@ public sealed class ClassReminderServiceTests
             new FakeTenantConfigurationProvider(),
             store,
             crm,
-            new ClassNotificationService(sms, email, crm, logger),
+            new ClassNotificationService(sms, email, crm, logger, new AllowingSmsEligibilityGate()),
             logger,
             new SendWindowPolicy());
 
@@ -458,9 +432,9 @@ public sealed class ClassReminderServiceTests
             new ClassReminderRunRequest("tenant-a", "corr-2", session.StartsAt.AddMinutes(-60)),
             CancellationToken.None);
 
-        Assert.Equal(1, result.Sent);
+        Assert.Equal(1, result.Skipped);
         Assert.Empty(sms.Requests);
-        Assert.Single(email.Requests);
+        Assert.Empty(email.Requests);
     }
 
     [Fact]
@@ -574,7 +548,7 @@ public sealed class ClassReminderServiceTests
             new FakeTenantConfigurationProvider(),
             store,
             crm,
-            new ClassNotificationService(sms, email, crm, logger),
+            new ClassNotificationService(sms, email, crm, logger, new AllowingSmsEligibilityGate()),
             logger,
             new SendWindowPolicy());
 
@@ -625,7 +599,9 @@ public sealed class ClassReminderServiceTests
     {
         var mergedAttributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            [CrmContactAttributeNames.ConsentStatus] = consentStatus
+            [CrmContactAttributeNames.ConsentStatus] = consentStatus,
+            [CrmContactAttributeNames.SmsConsentStatus] = consentStatus,
+            [CrmContactAttributeNames.EmailConsentStatus] = consentStatus
         };
         foreach (var attribute in attributes ?? new Dictionary<string, string>())
         {

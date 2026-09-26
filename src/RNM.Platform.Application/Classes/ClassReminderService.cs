@@ -153,13 +153,6 @@ public sealed class ClassReminderService
                     registration.CustomerEmail),
                 cancellationToken)
             .ConfigureAwait(false);
-        if (string.Equals(contact.Contact?.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
-        {
-            await RecordReminderTimelineAsync(reminder, correlationId, ClassTimelineEventTypes.ReminderSkipped, "Class reminder skipped because contact is opted out.", cancellationToken)
-                .ConfigureAwait(false);
-            return ClassReminderStatuses.Skipped;
-        }
-
         var policyContact = contact.Contact ?? new CrmContactRecord(
             reminder.TenantId,
             registration.ProviderContactId,
@@ -195,7 +188,8 @@ public sealed class ClassReminderService
         {
             registration = registration with
             {
-                ConsentStatus = contact.Contact.ConsentStatus
+                ConsentStatus = contact.Contact.ConsentStatus,
+                Attributes = MergeAttributes(registration.Attributes, contact.Contact.Attributes)
             };
         }
 
@@ -260,8 +254,16 @@ public sealed class ClassReminderService
             return ClassReminderStatuses.Skipped;
         }
 
-        var appointmentReminderConfig = tenant.Communication.EffectiveAppointmentReminders;
-        var stalenessCutoff = TimeSpan.FromMinutes(appointmentReminderConfig.EffectiveReminderStalenessCutoffMinutes);
+        var appointmentReminderConfig = tenant.Communication.AppointmentReminders;
+        if (appointmentReminderConfig?.IsEnabled is not true
+            || appointmentReminderConfig.ReminderStalenessCutoffMinutes is not { } stalenessCutoffMinutes)
+        {
+            await RecordAppointmentReminderTimelineAsync(reminder, correlationId, CrmTimelineEventTypes.AppointmentReminderSkipped, "Appointment reminder skipped because appointment reminders are disabled.", "reminders_disabled", cancellationToken)
+                .ConfigureAwait(false);
+            return ClassReminderStatuses.Skipped;
+        }
+
+        var stalenessCutoff = TimeSpan.FromMinutes(stalenessCutoffMinutes);
         if (asOf - reminder.DueAt > stalenessCutoff)
         {
             await RecordAppointmentReminderTimelineAsync(reminder, correlationId, CrmTimelineEventTypes.AppointmentReminderSkipped, "Appointment reminder skipped because it was stale.", "stale", cancellationToken)
@@ -278,13 +280,6 @@ public sealed class ClassReminderService
                     reminder.CustomerEmail),
                 cancellationToken)
             .ConfigureAwait(false);
-        if (string.Equals(contact.Contact?.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
-        {
-            await RecordAppointmentReminderTimelineAsync(reminder, correlationId, CrmTimelineEventTypes.AppointmentReminderSkipped, "Appointment reminder skipped because contact is opted out.", "opted_out", cancellationToken)
-                .ConfigureAwait(false);
-            return ClassReminderStatuses.Skipped;
-        }
-
         var attributes = MergeAttributes(reminder.Attributes, contact.Contact?.Attributes);
         var policyContact = contact.Contact ?? new CrmContactRecord(
             reminder.TenantId,

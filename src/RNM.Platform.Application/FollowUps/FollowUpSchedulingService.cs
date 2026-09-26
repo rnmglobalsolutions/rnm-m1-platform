@@ -28,6 +28,35 @@ public sealed class FollowUpSchedulingService
         this.eventLogger = eventLogger;
     }
 
+    /// <summary>
+    /// A sequence whose trigger is "{trigger}.{leadTemperature}" (for example "followup.required.cold") replaces
+    /// the generic "{trigger}" sequences for leads of that temperature, so each tier can have its own cadence.
+    /// </summary>
+    private static FollowUpSequenceConfiguration[] SelectSequences(
+        IEnumerable<FollowUpSequenceConfiguration> sequences,
+        FollowUpScheduleRequest request)
+    {
+        var all = sequences.ToArray();
+        var temperature = request.Attributes.TryGetValue("leadTemperature", out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : null;
+        if (temperature is not null)
+        {
+            var tierTrigger = $"{request.TriggerEventType}.{temperature}";
+            var tierSequences = all
+                .Where(sequence => string.Equals(sequence.Trigger, tierTrigger, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (tierSequences.Length > 0)
+            {
+                return tierSequences;
+            }
+        }
+
+        return all
+            .Where(sequence => string.Equals(sequence.Trigger, request.TriggerEventType, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
     public async Task ScheduleAsync(
         FollowUpScheduleRequest request,
         CancellationToken cancellationToken)
@@ -50,9 +79,7 @@ public sealed class FollowUpSchedulingService
             return;
         }
 
-        var sequences = configuration.EffectiveSequences
-            .Where(sequence => string.Equals(sequence.Trigger, request.TriggerEventType, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        var sequences = SelectSequences(configuration.EffectiveSequences, request);
         foreach (var sequence in sequences)
         {
             var firstStep = sequence.EffectiveSteps.FirstOrDefault();

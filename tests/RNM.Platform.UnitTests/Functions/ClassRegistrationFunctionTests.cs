@@ -87,7 +87,7 @@ public sealed class ClassRegistrationFunctionTests
                 new FakeTenantConfigurationProvider(),
                 store,
                 new FakeCrmAdapter(),
-                new ClassNotificationService(sms, email, new FakeCrmAdapter(), logger),
+                new ClassNotificationService(sms, email, new FakeCrmAdapter(), logger, new AllowingSmsEligibilityGate()),
                 logger),
             new FakeTenantConfigurationProvider(),
             new ApiKeyRequestValidator(),
@@ -117,8 +117,11 @@ public sealed class ClassRegistrationFunctionTests
               "customerPhoneNumber": "+15551234567",
               "customerEmail": "jane@example.com",
               "marketingConsentGranted": true,
+              "consentSms": true,
+              "consentEmail": true,
               "consentCapturedAt": "2025-01-01T12:00:00Z",
               "consentTextVersion": "class-registration-v1",
+              "consentDisclosureText": "I agree to receive class notifications.",
               "attributes": {
                 "intent": "masterclass"
               }

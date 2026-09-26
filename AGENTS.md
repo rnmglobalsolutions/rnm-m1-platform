@@ -392,6 +392,7 @@ Rules:
 
 * Never commit secrets
 * Use managed identity
+* Every tenant Key Vault secret name (tenant `secretNames`) must start with `rnm-tenant-`
 
 ### Data protection
 

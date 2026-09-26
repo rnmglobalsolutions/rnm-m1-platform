@@ -35,6 +35,66 @@ public sealed class ConfigurationValidatorTests
     }
 
     [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenAppointmentRemindersAreNotConfigured()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                AppointmentReminders = null
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("communication.appointmentReminders", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsValid_WhenAppointmentRemindersAreExplicitlyDisabled()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                AppointmentReminders = new AppointmentReminderConfiguration(null, null, null)
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenAppointmentRemindersArePartiallyConfigured()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                AppointmentReminders = new AppointmentReminderConfiguration(
+                    Templates: null,
+                    ReminderOffsetsMinutes: [1440, 60],
+                    ReminderStalenessCutoffMinutes: null)
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("appointmentReminders.templates", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("reminderStalenessCutoffMinutes", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateTenant_ReturnsErrors_WhenConfirmationTemplateUsesUnsupportedToken()
     {
         var validator = new ConfigurationValidator();
@@ -203,6 +263,40 @@ public sealed class ConfigurationValidatorTests
         Assert.True(result.IsValid);
     }
 
+    [Theory]
+    [InlineData("tenant-a-twilio-auth-token", "must start with 'rnm-tenant-'")]
+    [InlineData("rnm-tenant-a_twilio_token", "must be a valid Key Vault secret name")]
+    public void ValidateTenant_ReturnsErrors_WhenSecretNameBreaksTheNamingRule(string secretName, string expectedError)
+    {
+        var validator = new ConfigurationValidator();
+        var configuration = CreateValidTenantConfiguration() with
+        {
+            SecretNames = CreateValidTenantConfiguration().SecretNames with { TwilioAuthToken = secretName }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error =>
+            error.StartsWith("secretNames.twilioAuthToken", StringComparison.Ordinal)
+            && error.Contains(expectedError, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_ChecksOptionalSecretNamesWhenConfigured()
+    {
+        var validator = new ConfigurationValidator();
+        var configuration = CreateValidTenantConfiguration() with
+        {
+            SecretNames = CreateValidTenantConfiguration().SecretNames with { ManyChatWebhookSecret = "manychat-secret" }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.Contains(result.Errors, error =>
+            error == "secretNames.manyChatWebhookSecret must start with 'rnm-tenant-'.");
+    }
+
     [Fact]
     public void ValidateTenant_ReturnsErrors_WhenManyChatRoutingUrlIsInvalid()
     {
@@ -211,17 +305,20 @@ public sealed class ConfigurationValidatorTests
         {
             SecretNames = CreateValidTenantConfiguration().SecretNames with
             {
-                ManyChatWebhookSecret = "manychat-secret"
+                ManyChatWebhookSecret = "rnm-tenant-a-manychat-secret"
             },
             Integrations = new IntegrationConfiguration(
                 new ManyChatIntegrationConfiguration(
                     Enabled: true,
                     RoutingActions: new ManyChatRoutingActionsConfiguration(
-                        Consultation: new ManyChatRoutingActionConfiguration(
-                            "link",
-                            "Book",
-                            "not-a-url",
-                            "Book a consultation."))))
+                        new Dictionary<string, ManyChatRoutingActionConfiguration>
+                        {
+                            ["consultation"] = new(
+                                "link",
+                                "Book",
+                                "not-a-url",
+                                "Book a consultation.")
+                        })))
         };
 
         var result = validator.ValidateTenant(configuration);
@@ -294,18 +391,19 @@ public sealed class ConfigurationValidatorTests
             new ServiceAreaConfiguration(["75001"], [], null),
             new ProviderConfiguration("Crm", "Booking", "Sms", "Email"),
             new SecretNameConfiguration(
-                "crm-api-key",
-                "booking-api-key",
-                "vapi-webhook-secret",
-                "twilio-account-sid",
-                "twilio-auth-token",
-                "email-connection-string"),
+                "rnm-tenant-a-crm-api-key",
+                "rnm-tenant-a-booking-api-key",
+                "rnm-tenant-a-vapi-webhook-secret",
+                "rnm-tenant-a-twilio-account-sid",
+                "rnm-tenant-a-twilio-auth-token",
+                "rnm-tenant-a-email-connection-string"),
             new CommunicationConfiguration(
                 "+15550001000",
                 "booking@example.com",
                 new ConfirmationTemplateConfiguration(
                     "SMS template {{bookingDate}}",
                     "Email subject {{bookingDate}}",
-                    "Email body {{bookingStart}}")));
+                    "Email body {{bookingStart}}"),
+                AppointmentReminders: new AppointmentReminderConfiguration(null, null, null)));
     }
 }

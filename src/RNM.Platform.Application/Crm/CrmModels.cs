@@ -134,6 +134,10 @@ public sealed record CrmContactRecord(
 {
     public string ConsentStatus => GetAttribute(CrmContactAttributeNames.ConsentStatus) ?? CrmConsentStatuses.Unknown;
 
+    public string SmsConsentStatus => ChannelConsent.ResolveStatus(Attributes, ConsentStatus, ConsentChannel.Sms);
+
+    public string EmailConsentStatus => ChannelConsent.ResolveStatus(Attributes, ConsentStatus, ConsentChannel.Email);
+
     public string? OutboundLeadStatus => GetAttribute(CrmContactAttributeNames.LeadStatus);
 
     public string? CampaignId => GetAttribute(CrmContactAttributeNames.CampaignId);
@@ -392,6 +396,7 @@ public static class CrmTimelineEventTypes
     public const string MarketingConsentExternalDeclined = "consent.marketing.external_declined";
     public const string MarketingConsentExternalBlockedOptedOut = "consent.marketing.external_blocked_opted_out";
     public const string SmsSent = "sms.sent";
+    public const string SmsSkipped = "sms.skipped";
     public const string EmailSent = "email.sent";
     public const string FollowUpScheduled = "followup.scheduled";
     public const string FollowUpSent = "followup.sent";
@@ -411,6 +416,20 @@ public static class CrmContactAttributeNames
     public const string TargetPropertyAddress = "targetPropertyAddress";
     public const string AssignedAgent = "assignedAgent";
     public const string ConsentStatus = "consentStatus";
+    public const string SmsConsentStatus = "smsConsentStatus";
+    public const string EmailConsentStatus = "emailConsentStatus";
+    public const string SmsConsentGranted = "smsConsentGranted";
+    public const string EmailConsentGranted = "emailConsentGranted";
+    public const string SmsConsentSourceField = "smsConsentSourceField";
+    public const string EmailConsentSourceField = "emailConsentSourceField";
+    public const string SmsConsentDisclosureText = "smsConsentDisclosureText";
+    public const string EmailConsentDisclosureText = "emailConsentDisclosureText";
+    public const string SmsConsentTextVersion = "smsConsentTextVersion";
+    public const string EmailConsentTextVersion = "emailConsentTextVersion";
+    public const string SmsConsentCapturedAt = "smsConsentCapturedAt";
+    public const string EmailConsentCapturedAt = "emailConsentCapturedAt";
+    public const string SmsConsentSource = "smsConsentSource";
+    public const string EmailConsentSource = "emailConsentSource";
     public const string ConsentOptedOutAt = "consentOptedOutAt";
     public const string SourceSessionId = "sourceSessionId";
     public const string SourceRegistrationId = "sourceRegistrationId";
@@ -418,6 +437,21 @@ public static class CrmContactAttributeNames
     public const string ExternalSourceId = "externalSourceId";
     public const string ConsentCapturedAt = "consentCapturedAt";
     public const string ConsentTextVersion = "consentTextVersion";
+    public const string LeadClassification = "leadClassification";
+    public const string RecommendedRoute = "recommendedRoute";
+    public const string ClassificationReasons = "classificationReasons";
+    public const string LeadTemperature = "leadTemperature";
+    public const string ClassificationRuleId = "classificationRuleId";
+    public const string ClassificationRulesetVersion = "classificationRulesetVersion";
+
+    /// <summary>
+    /// Every attribute the platform itself writes; lead sources must not overwrite these.
+    /// </summary>
+    public static readonly IReadOnlySet<string> PlatformManaged = typeof(CrmContactAttributeNames)
+        .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+        .Where(field => field.IsLiteral)
+        .Select(field => (string)field.GetRawConstantValue()!)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 public static class CrmOutboundLeadStatuses

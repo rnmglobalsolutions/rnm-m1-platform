@@ -1,7 +1,7 @@
-# Twilio SMS Setup - rnm-insurance-agents
+# Twilio SMS Setup - yartex
 
 Este runbook describe cómo habilitar SMS con Twilio para el tenant
-`rnm-insurance-agents`, incluyendo cumplimiento A2P 10DLC, secretos, configuración
+`yartex`, incluyendo cumplimiento A2P 10DLC, secretos, configuración
 del tenant, webhooks, automatizaciones y verificación end-to-end.
 
 ## Estado actual
@@ -28,7 +28,7 @@ placeholders:
 La configuración se encuentra en:
 
 ```text
-config/tenants/rnm-insurance-agents.json
+config/tenants/yartex.json
 ```
 
 ## 1. Crear el subaccount de Twilio
@@ -37,7 +37,7 @@ En la cuenta principal de RNM, crear un subaccount dedicado:
 
 ```text
 RNM Parent Account
-└── Subaccount: rnm-insurance-agents
+└── Subaccount: yartex
 ```
 
 Usar un subaccount por cliente o tenant. Esto separa credenciales, tráfico,
@@ -66,7 +66,7 @@ Dentro del subaccount:
 6. Incluir las instrucciones de `STOP` y `HELP` requeridas.
 7. Esperar la aprobación antes de enviar tráfico real a clientes.
 
-Si este tenant representa legalmente a RNM, registrar a RNM como Brand. Agencias
+Si este tenant representa legalmente a Yartex, registrar a Yartex como Brand. Agencias
 independientes que envían bajo su propia marca no deben compartir este Brand o
 Campaign; deben tener su propio tenant, subaccount y registro A2P.
 
@@ -78,7 +78,7 @@ Referencia oficial:
 Dentro del subaccount:
 
 1. Ir a `Messaging > Services`.
-2. Crear un servicio llamado `rnm-insurance-agents-messaging`.
+2. Crear un servicio llamado `yartex-messaging`.
 3. Comprar un número local de Estados Unidos con capacidad SMS.
 4. Agregar el número al Sender Pool del Messaging Service.
 5. Asociar el Messaging Service con la Campaign aprobada.
@@ -94,7 +94,7 @@ En la configuración del número Twilio, establecer:
 ```text
 A message comes in: Webhook
 Method: POST
-URL: https://<FUNCTION_APP_HOST>/api/tenants/rnm-insurance-agents/webhooks/twilio/sms-inbound
+URL: https://<FUNCTION_APP_HOST>/api/tenants/yartex/webhooks/twilio/sms-inbound
 ```
 
 Este endpoint valida `X-Twilio-Signature` y procesa estos comandos de opt-out:
@@ -120,15 +120,15 @@ Referencia oficial:
 Crear exactamente estos secretos en el Key Vault del ambiente correspondiente:
 
 ```text
-tenant-rnm-insurance-agents-twilio-account-sid
-tenant-rnm-insurance-agents-twilio-auth-token
+rnm-tenant-yartex-twilio-account-sid
+rnm-tenant-yartex-twilio-auth-token
 ```
 
 Valores esperados:
 
 ```text
-tenant-rnm-insurance-agents-twilio-account-sid = ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-tenant-rnm-insurance-agents-twilio-auth-token = <SUBACCOUNT_AUTH_TOKEN>
+rnm-tenant-yartex-twilio-account-sid = ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+rnm-tenant-yartex-twilio-auth-token = <SUBACCOUNT_AUTH_TOKEN>
 ```
 
 Usar Azure Portal cuando sea posible para evitar colocar el Auth Token en el
@@ -139,7 +139,7 @@ Confirmar que la Managed Identity de la Function App puede leer ambos secretos.
 
 ## 6. Actualizar la configuración del tenant
 
-Editar `config/tenants/rnm-insurance-agents.json`:
+Editar `config/tenants/yartex.json`:
 
 ```json
 {
@@ -170,13 +170,13 @@ Dev ya incluye este tenant. Para staging o producción, agregarlo al parámetro
 `activeTenants` del ambiente correspondiente:
 
 ```bicep
-param activeTenants = 'rnm-insurance-agents'
+param activeTenants = 'yartex'
 ```
 
 Esto configura la Function App con:
 
 ```text
-RNM_ACTIVE_TENANTS=rnm-insurance-agents
+RNM_ACTIVE_TENANTS=yartex
 ```
 
 Si ya existen otros tenants activos, mantenerlos como una lista separada por
@@ -190,7 +190,7 @@ Desde la raíz del repositorio:
 dotnet run \
   --project tools/RNM.Platform.TenantPreflight/RNM.Platform.TenantPreflight.csproj \
   -- \
-  --tenant rnm-insurance-agents \
+  --tenant yartex \
   --environment production
 ```
 
@@ -210,7 +210,7 @@ Después del deploy, llamar el endpoint protegido:
 ```bash
 curl \
   -H "x-rnm-api-key: <INTERNAL_API_KEY>" \
-  "https://<FUNCTION_APP_HOST>/api/tenants/rnm-insurance-agents/readiness"
+  "https://<FUNCTION_APP_HOST>/api/tenants/yartex/readiness"
 ```
 
 No habilitar tráfico real hasta recibir:
@@ -241,22 +241,23 @@ M1.
 M1 no expone un endpoint para enviar SMS arbitrarios. Los mensajes se envían por
 flujos controlados: registros, bookings, confirmaciones, reminders y follow-ups.
 
-Para probar el registro de una masterclass:
+Para probar el registro de una masterclass desde el flujo publico del website:
 
 ```text
-POST /api/tenants/rnm-insurance-agents/classes/{classSessionId}/registrations
+POST /api/tenants/yartex/funnels/masterclass/{classSessionId}/registrations
 ```
 
 Headers:
 
 ```text
-X-RNM-Class-Registration-Secret: <TENANT_CLASS_REGISTRATION_SECRET>
 Content-Type: application/json
+Origin: https://rnmglobalsolutions.com
 ```
 
-For an internal Postman test, `x-rnm-api-key` is also accepted. A funnel must
-call M1 from a trusted backend and use the tenant registration secret; never
-embed either secret in browser JavaScript.
+No incluyas `X-RNM-Class-Registration-Secret` ni `x-rnm-api-key` en JavaScript
+del website. For an internal Postman/server-to-server test, the direct class
+registration endpoint still accepts `x-rnm-api-key` or
+`X-RNM-Class-Registration-Secret`.
 
 Body de prueba:
 
@@ -265,14 +266,16 @@ Body de prueba:
   "customerName": "Test Lead",
   "customerPhoneNumber": "+1XXXXXXXXXX",
   "customerEmail": "test@example.com",
-  "campaignId": "sms-pilot",
-  "source": "Postman",
-  "marketingConsentGranted": true,
-  "consentCapturedAt": "2026-09-18T15:00:00Z",
-  "consentTextVersion": "class-registration-v1",
-  "attributes": {
-    "intent": "masterclass"
-  }
+  "campaignId": "financial-video-v1",
+  "funnelType": "financial_education",
+  "primaryGoal": "family_protection",
+  "timeline": "under_30_days",
+  "state": "TX",
+  "consentSms": true,
+  "consentEmail": true,
+  "consentTextVersion": "web-funnel-v1",
+  "consentDisclosureText": "Acepto que Yartex me contacte por SMS/email sobre mi solicitud. Pueden aplicar tarifas de mensajes y datos. Puedo responder STOP para optar por salir.",
+  "companyWebsiteConfirm": ""
 }
 ```
 
@@ -286,10 +289,18 @@ Verificar:
 6. El timeline del CRM contiene `sms.sent`.
 7. El mensaje identifica al remitente e incluye `Reply STOP to opt out`.
 
-Los SMS de marketing, reminders y follow-ups requieren consentimiento `opt_in`.
+Los SMS de marketing, reminders y follow-ups requieren `smsConsentStatus=opt_in`.
 Usar únicamente números cuyos propietarios hayan otorgado consentimiento.
-When `marketingConsentGranted` is `true`, M1 rejects the request unless
-`consentCapturedAt` and `consentTextVersion` provide explicit consent evidence.
+Si `consentSms` es `true` pero falta `consentDisclosureText` o
+`consentTextVersion`, el lead se guarda igual, el SMS queda como no autorizado
+y Application Insights registra `lead_intake.consent_evidence_missing`.
+
+Cada SMS pasa por la compuerta de elegibilidad. Cuando se bloquea, el timeline
+del CRM registra `sms.skipped` con el motivo (`ContactOptedOut`,
+`ConsentNotGranted`, `OutsideSendWindow`, `RetryStale`, etc.) y Application
+Insights registra `sms.eligibility.skipped`. La confirmación de una cita es
+transaccional: solo la bloquea un opt-out explícito del número, no una falla del
+CRM.
 
 ## 12. Probar STOP y la supresión futura
 
@@ -315,7 +326,7 @@ debe revertirse mediante una edición informal del registro.
 M1 ya tiene este endpoint:
 
 ```text
-POST /api/tenants/rnm-insurance-agents/webhooks/twilio/sms-status
+POST /api/tenants/yartex/webhooks/twilio/sms-status
 ```
 
 Sin embargo, `TwilioSmsSender` actualmente no envía `StatusCallback` ni utiliza

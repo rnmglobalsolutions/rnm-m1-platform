@@ -85,19 +85,25 @@ Seed these secrets before a real end-to-end dev test:
 
 ```bash
 az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-internal-api-key --value '<INTERNAL_API_KEY>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-dev-sendgrid-api-key --value '<SENDGRID_API_KEY>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-vapi-webhook-secret --value '<VAPI_WEBHOOK_SECRET>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
-az keyvault secret set --vault-name <KEY_VAULT_NAME> --name tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-sendgrid-api-key --value '<SENDGRID_API_KEY>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-vapi-webhook-secret --value '<VAPI_WEBHOOK_SECRET>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-twilio-account-sid --value '<TWILIO_ACCOUNT_SID>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-twilio-auth-token --value '<TWILIO_AUTH_TOKEN>'
+az keyvault secret set --vault-name <KEY_VAULT_NAME> --name rnm-tenant-sample-hvac-email-connection --value '<EMAIL_CONNECTION_STRING>'
 ```
 
-The tenant-level Vapi, Twilio, and Google Calendar secrets can also be seeded with the helper script documented in `docs/runbooks/seed-sample-hvac-tenant-secrets.md`.
+For real tenants, use the generic script, which reads the required secret names from the tenant JSON through the preflight:
+
+```bash
+scripts/seed-tenant-secrets.sh --vault <KEY_VAULT_NAME> --platform --tenant <tenant-id>
+```
+
+See `docs/runbooks/tenant-onboarding-preflight.md`. The sample HVAC helper in `docs/runbooks/seed-sample-hvac-tenant-secrets.md` remains for the demo tenant.
 
 Bicep does not create the SendGrid secret value. It configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:
 
 ```text
-SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-dev-sendgrid-api-key/)
+SENDGRID_API_KEY=@Microsoft.KeyVault(SecretUri=<KEY_VAULT_URI>secrets/rnm-sendgrid-api-key/)
 ```
 
 Bicep also configures the internal API key setting as a Key Vault reference on the main Function App only:
@@ -120,7 +126,7 @@ For Google Calendar, store the tenant booking credentials as JSON:
 ```bash
 az keyvault secret set \
   --vault-name <KEY_VAULT_NAME> \
-  --name tenant-rnm-hvac-google-calendar-credentials \
+  --name rnm-tenant-sample-hvac-google-calendar-credentials \
   --value '{
     "calendarId": "<GOOGLE_CALENDAR_ID>",
     "refreshToken": "<GOOGLE_OAUTH_REFRESH_TOKEN>",
@@ -198,7 +204,7 @@ If protected test endpoints return `401`, verify:
 - The Function App managed identities have Key Vault Secrets User on the vault.
 - You sent the `x-rnm-api-key` header.
 
-## 8. Test contact Function App CORS
+## 8. Test Browser CORS
 
 The public contact endpoint is deployed to a separate contact Function App. The main Function App keeps app-level CORS empty. The contact Function App allows browser calls only from:
 
@@ -206,6 +212,13 @@ The public contact endpoint is deployed to a separate contact Function App. The 
 https://www.rnmglobalsolutions.com
 https://rnmglobalsolutions.com
 ```
+
+The main Function App still keeps Azure app-level CORS empty. Browser-safe M1
+endpoints that intentionally support public website traffic, such as
+`/api/tenants/{tenantId}/funnels/consultation` and
+`/api/tenants/{tenantId}/funnels/masterclass/{classSessionId}/registrations`,
+handle CORS inside the function code and validate the `Origin` against tenant
+configuration. Do not add broad app-level CORS to the main Function App.
 
 Allowed origin preflight:
 
@@ -232,6 +245,27 @@ curl -i -X OPTIONS \
 ```
 
 Azure Functions may return `204 No Content`, but the response must not include `Access-Control-Allow-Origin`.
+
+For the public funnel endpoints on the main Function App, verify the function
+adds CORS headers only for configured RNM origins:
+
+```bash
+curl -i -X OPTIONS \
+  https://<FUNCTION_APP_DEFAULT_HOST_NAME>/api/tenants/yartex/funnels/consultation \
+  -H "Origin: https://rnmglobalsolutions.com" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: Content-Type, x-correlation-id"
+```
+
+Expected response includes:
+
+```text
+Access-Control-Allow-Origin: https://rnmglobalsolutions.com
+Access-Control-Allow-Methods: POST, OPTIONS
+```
+
+Repeat with a disallowed origin and confirm the response does not include
+`Access-Control-Allow-Origin`.
 
 ## 9. Promote to staging
 

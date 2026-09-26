@@ -30,7 +30,7 @@ Future online appointment tenants may use:
   "appointmentMode": "online",
   "createOnlineMeeting": true,
   "onlineMeetingProvider": "Zoom",
-  "onlineMeetingCredentials": "tenant-client-zoom-credentials"
+  "onlineMeetingCredentials": "rnm-tenant-client-zoom-credentials"
 }
 ```
 

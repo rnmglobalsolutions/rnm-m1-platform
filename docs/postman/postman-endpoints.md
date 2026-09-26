@@ -77,7 +77,7 @@ Expected success is `200 OK` with speed-to-contact, funnel, projected revenue, a
 
 ## PUT/POST `/api/tenants/{tenantId}/classes/sessions/{classSessionId}`
 
-Protected endpoint to create or update a shared masterclass session for the `rnm-insurance-agents` tenant. This does not create a Zoom meeting. Create the meeting in Zoom manually, then store the Zoom URL here.
+Protected endpoint to create or update a shared masterclass session for the `yartex` tenant. This does not create a Zoom meeting. Create the meeting in Zoom manually, then store the Zoom URL here.
 
 Headers:
 

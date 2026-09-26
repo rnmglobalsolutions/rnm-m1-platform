@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using RNM.Platform.Application.Confirmations;
+using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Crm;
@@ -17,18 +18,21 @@ public sealed class ClassNotificationService
     private readonly ICrmAdapter crmAdapter;
     private readonly IEventLogger eventLogger;
     private readonly IConfirmationRetryScheduler? retryScheduler;
+    private readonly ISmsEligibilityGate smsEligibilityGate;
 
     public ClassNotificationService(
         ISmsSender smsSender,
         IEmailSender emailSender,
         ICrmAdapter crmAdapter,
         IEventLogger eventLogger,
+        ISmsEligibilityGate smsEligibilityGate,
         IConfirmationRetryScheduler? retryScheduler = null)
     {
         this.smsSender = smsSender;
         this.emailSender = emailSender;
         this.crmAdapter = crmAdapter;
         this.eventLogger = eventLogger;
+        this.smsEligibilityGate = smsEligibilityGate;
         this.retryScheduler = retryScheduler;
     }
 
@@ -70,12 +74,12 @@ public sealed class ClassNotificationService
             return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingPhoneNumber);
         }
 
-        if (string.Equals(request.Registration.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(request.Registration.SmsConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
         {
             return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.ContactOptedOut);
         }
 
-        if (!string.Equals(request.Registration.ConsentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(request.Registration.SmsConsentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase))
         {
             return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MarketingConsentNotGranted);
         }
@@ -83,13 +87,34 @@ public sealed class ClassNotificationService
         var body = RenderTemplate(request.Templates.SmsBodyTemplate, request);
         try
         {
+            var category = request.Kind is ClassNotificationKind.RegistrationConfirmation
+                ? SmsMessageCategory.ClassRegistrationConfirmation
+                : SmsMessageCategory.ClassReminder;
+            // Registration confirmations intentionally bypass the send window because they answer a user action.
+            var eligibility = await smsEligibilityGate.EvaluateAsync(
+                    new SmsEligibilityRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        category,
+                        request.Registration.ProviderContactId,
+                        request.Registration.CustomerPhoneNumber),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!eligibility.IsEligible || eligibility.Proof is null)
+            {
+                var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsEligibilityDenied);
+                await RecordNotificationTimelineAsync(request, skipped, "sms", cancellationToken).ConfigureAwait(false);
+                return skipped;
+            }
+
             var result = await smsSender
                 .SendSmsAsync(
                     new SmsMessageRequest(
                         request.TenantId,
                         request.CorrelationId,
                         request.Registration.CustomerPhoneNumber,
-                        body),
+                        body,
+                        eligibility.Proof),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -135,9 +160,14 @@ public sealed class ClassNotificationService
             return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingEmail);
         }
 
-        if (string.Equals(request.Registration.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(request.Registration.EmailConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
         {
             return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.ContactOptedOut);
+        }
+
+        if (!string.Equals(request.Registration.EmailConsentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase))
+        {
+            return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MarketingConsentNotGranted);
         }
 
         var subject = RenderTemplate(request.Templates.EmailSubjectTemplate, request);
@@ -204,6 +234,15 @@ public sealed class ClassNotificationService
                     {
                         ClassRegistrationId = request.Kind is ClassNotificationKind.RegistrationConfirmation
                             ? request.Registration.RegistrationId
+                            : null,
+                        ProviderContactId = request.Registration.ProviderContactId,
+                        SmsCategory = kind is ConfirmationRetryKind.CustomerSms
+                            ? request.Kind is ClassNotificationKind.RegistrationConfirmation
+                                ? SmsMessageCategory.ClassRegistrationConfirmation
+                                : SmsMessageCategory.ClassReminder
+                            : null,
+                        OriginalRequestedAt = kind is ConfirmationRetryKind.CustomerSms
+                            ? DateTimeOffset.UtcNow
                             : null
                     },
                     cancellationToken)
@@ -243,21 +282,38 @@ public sealed class ClassNotificationService
             return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.MissingPhoneNumber);
         }
 
-        if (string.Equals(request.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(request.SmsConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
         {
-            return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.ContactOptedOut);
+            var skipped = Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.ContactOptedOut);
+            await RecordAppointmentNotificationTimelineAsync(request, skipped, "sms", cancellationToken).ConfigureAwait(false);
+            return skipped;
         }
 
         var body = RenderAppointmentTemplate(request.Templates.SmsBodyTemplate, request);
         try
         {
+            var eligibility = await smsEligibilityGate.EvaluateAsync(
+                    new SmsEligibilityRequest(
+                        request.TenantId,
+                        request.CorrelationId,
+                        SmsMessageCategory.AppointmentReminder,
+                        request.ProviderContactId,
+                        request.CustomerPhoneNumber),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!eligibility.IsEligible || eligibility.Proof is null)
+            {
+                return Skipped(ConfirmationChannel.Sms, ConfirmationFailureReason.SmsEligibilityDenied);
+            }
+
             var result = await smsSender
                 .SendSmsAsync(
                     new SmsMessageRequest(
                         request.TenantId,
                         request.CorrelationId,
                         request.CustomerPhoneNumber,
-                        body),
+                        body,
+                        eligibility.Proof),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -294,9 +350,11 @@ public sealed class ClassNotificationService
             return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.MissingEmail);
         }
 
-        if (string.Equals(request.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(request.EmailConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
         {
-            return Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.ContactOptedOut);
+            var skipped = Skipped(ConfirmationChannel.Email, ConfirmationFailureReason.ContactOptedOut);
+            await RecordAppointmentNotificationTimelineAsync(request, skipped, "email", cancellationToken).ConfigureAwait(false);
+            return skipped;
         }
 
         var subject = RenderAppointmentTemplate(request.Templates.EmailSubjectTemplate, request);
@@ -482,6 +540,7 @@ public sealed class ClassNotificationService
     {
         try
         {
+            var sent = result.Status is ConfirmationChannelStatus.Sent;
             var timelineResult = await crmAdapter
                 .AddTimelineEventAsync(
                     new CrmTimelineEventRequest(
@@ -489,14 +548,21 @@ public sealed class ClassNotificationService
                         request.CorrelationId,
                         request.ProviderContactId,
                         request.ProviderBookingId,
-                        CrmTimelineEventTypes.AppointmentReminderSent,
+                        sent
+                            ? CrmTimelineEventTypes.AppointmentReminderSent
+                            : CrmTimelineEventTypes.AppointmentReminderSkipped,
                         "AppointmentReminder",
-                        $"{channel} appointment reminder sent.",
+                        sent
+                            ? $"{channel} appointment reminder sent."
+                            : $"{channel} appointment reminder skipped.",
                         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                         {
                             ["channel"] = channel,
                             ["providerBookingId"] = request.ProviderBookingId,
-                            ["providerMessageId"] = result.ProviderMessageId ?? string.Empty
+                            ["providerMessageId"] = result.ProviderMessageId ?? string.Empty,
+                            ["reason"] = result.FailureReason is ConfirmationFailureReason.ContactOptedOut
+                                ? "opted_out"
+                                : result.FailureReason?.ToString() ?? string.Empty
                         }),
                     cancellationToken)
                 .ConfigureAwait(false);

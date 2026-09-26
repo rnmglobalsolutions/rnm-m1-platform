@@ -6,6 +6,7 @@ using Microsoft.Azure.Functions.Worker.Http;
 using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Application.Configuration;
+using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.LeadIntake;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Domain.Configuration;
@@ -143,6 +144,10 @@ public sealed class ManyChatLeadWebhookFunction
 
         await LogAsync(TelemetryEventNames.LeadIntakeAuthenticated, tenantId, correlationId, "authenticated", cancellationToken)
             .ConfigureAwait(false);
+        var capturedAt = payload.ConsentCapturedAt ?? DateTimeOffset.UtcNow;
+        // Flows built before per-channel consent send only marketingConsentGranted, which always meant SMS consent.
+        var smsGranted = payload.ConsentSms ?? payload.MarketingConsentGranted;
+        var smsSourceField = payload.ConsentSms.HasValue ? "consentSms" : "marketingConsentGranted";
         var result = await intakeService.ProcessAsync(
                 new InboundLeadIntakeRequest(
                     tenantId,
@@ -155,11 +160,17 @@ public sealed class ManyChatLeadWebhookFunction
                     payload.CustomerPhoneNumber ?? payload.PhoneNumber,
                     payload.CustomerEmail ?? payload.Email,
                     payload.CampaignId,
-                    payload.MarketingConsentGranted,
-                    payload.ConsentCapturedAt,
-                    payload.ConsentTextVersion,
+                    smsGranted,
+                    smsGranted ? capturedAt : null,
+                    smsGranted ? payload.ConsentTextVersion : null,
                     attributes,
-                    integration.EffectiveScheduleFollowUp),
+                    integration.EffectiveScheduleFollowUp)
+                {
+                    SmsConsent = CreateConsentCapture(smsGranted, smsSourceField, payload, capturedAt),
+                    EmailConsent = payload.ConsentEmail is { } emailGranted
+                        ? CreateConsentCapture(emailGranted, "consentEmail", payload, capturedAt)
+                        : null
+                },
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -187,6 +198,7 @@ public sealed class ManyChatLeadWebhookFunction
                 followUpRequested = result.FollowUpRequested,
                 businessNotificationQueued = result.BusinessNotificationQueued,
                 leadClassification = result.LeadClassification,
+                leadTemperature = result.LeadTemperature,
                 recommendedRoute = result.RecommendedRoute,
                 classificationReasons = result.ClassificationReasons,
                 nextAction = ResolveNextAction(result.RecommendedRoute, integration.RoutingActions),
@@ -196,19 +208,14 @@ public sealed class ManyChatLeadWebhookFunction
             correlationId);
     }
 
-    private static ManyChatNextAction ResolveNextAction(
+    internal static ManyChatNextAction ResolveNextAction(
         string? recommendedRoute,
         ManyChatRoutingActionsConfiguration? actions)
     {
-        var route = string.IsNullOrWhiteSpace(recommendedRoute) ? "follow_up" : recommendedRoute.Trim();
-        var configured = route.ToLowerInvariant() switch
-        {
-            "consultation" => actions?.Consultation,
-            "master_class" => actions?.MasterClass,
-            "follow_up" => actions?.FollowUp,
-            "none" => actions?.None,
-            _ => actions?.FollowUp
-        };
+        var route = string.IsNullOrWhiteSpace(recommendedRoute) ? LeadRoutes.FollowUp : recommendedRoute.Trim();
+        // Preflight requires an action for every reachable route; the follow-up action is only a safety net.
+        var configured = actions?.For(route)
+            ?? (route == LeadRoutes.None ? null : actions?.For(LeadRoutes.FollowUp));
 
         return new ManyChatNextAction(
             route,
@@ -219,7 +226,7 @@ public sealed class ManyChatLeadWebhookFunction
     }
 
     private static string DefaultActionType(string route) =>
-        string.Equals(route, "none", StringComparison.OrdinalIgnoreCase)
+        string.Equals(route, LeadRoutes.None, StringComparison.OrdinalIgnoreCase)
             ? "none"
             : "message";
 
@@ -310,11 +317,27 @@ public sealed class ManyChatLeadWebhookFunction
         string? Email,
         string? CampaignId,
         bool MarketingConsentGranted,
+        bool? ConsentSms,
+        bool? ConsentEmail,
         DateTimeOffset? ConsentCapturedAt,
         string? ConsentTextVersion,
+        string? ConsentDisclosureText,
         IReadOnlyDictionary<string, JsonElement>? Attributes);
 
-    private sealed record ManyChatNextAction(
+    private static ChannelConsentCapture CreateConsentCapture(
+        bool granted,
+        string sourceField,
+        ManyChatLeadBody body,
+        DateTimeOffset capturedAt) =>
+        new(
+            granted,
+            sourceField,
+            body.ConsentDisclosureText ?? string.Empty,
+            body.ConsentTextVersion ?? string.Empty,
+            capturedAt,
+            "ManyChat");
+
+    internal sealed record ManyChatNextAction(
         string Route,
         string Type,
         string? Label,

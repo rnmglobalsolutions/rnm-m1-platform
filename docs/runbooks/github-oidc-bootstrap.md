@@ -140,6 +140,20 @@ Recommended values:
 | `production` | `prod` | `infra/prod.bicepparam` |
 
 Each environment should point `AZURE_RESOURCE_GROUP` to its own resource group. Each resource group deployment creates its own Key Vault.
+
+Optional, per environment:
+
+```text
+RNM_KEY_VAULT_ADMIN_OBJECT_ID
+```
+
+The Entra object id of the person or group that seeds secrets in that
+environment (`az ad signed-in-user show --query id -o tsv`). When set, the
+deployment grants it **Key Vault Secrets Officer** on the environment Key Vault,
+so secrets can be created with `scripts/seed-tenant-secrets.sh` without a manual
+role assignment. Prefer an Entra group over a person for production. Leave it
+empty to skip the assignment.
+
 The workflows validate that `ENVIRONMENT_NAME` and `BICEP_PARAMETERS_FILE` match the GitHub environment before Azure login.
 
 ## 7. Configure production protection

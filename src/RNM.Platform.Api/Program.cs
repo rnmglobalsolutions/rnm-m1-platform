@@ -95,6 +95,8 @@ var host = new HostBuilder()
         services.AddSingleton<CrmApplicationService>();
         services.AddSingleton<ConfirmationApplicationService>();
         services.AddSingleton<ISendWindowPolicy, SendWindowPolicy>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ISmsEligibilityGate, SmsEligibilityGate>();
         services.AddSingleton<ClassNotificationService>();
         services.AddSingleton<ClassRegistrationService>();
         services.AddSingleton<ClassReminderService>();
@@ -104,6 +106,7 @@ var host = new HostBuilder()
         services.AddSingleton<PilotReportingService>();
         services.AddSingleton<OutboundCampaignRunService>();
         services.AddSingleton<LeadCsvImportService>();
+        services.AddSingleton<LeadClassifier>();
         services.AddSingleton<InboundLeadIntakeService>();
         services.AddSingleton<IInboundLeadReceiptStore, AzureTableInboundLeadReceiptStore>();
         services.AddSingleton<IConfirmationRetryScheduler, AzureQueueConfirmationRetryScheduler>();

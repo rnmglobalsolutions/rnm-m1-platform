@@ -83,6 +83,43 @@ public sealed class InboundLeadIntakeServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_StoresTemperatureRuleAndVersionOnContact()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest(new Dictionary<string, string>
+        {
+            ["funnelType"] = "financial_education",
+            ["requestedNextStep"] = "consultation"
+        });
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.Equal(LeadTiers.Hot, result.LeadTemperature);
+        var attributes = fixture.Crm.Upserts.Single().Attributes;
+        Assert.Equal(LeadTiers.Hot, attributes["leadTemperature"]);
+        Assert.Equal("fe-requested-consultation", attributes["classificationRuleId"]);
+        Assert.Equal("life-insurance-2026-09-26", attributes["classificationRulesetVersion"]);
+    }
+
+    [Theory]
+    [InlineData("business_opportunity", "incomeExpectation", "guaranteed_income", false)]
+    [InlineData("financial_education", "requestedNextStep", "no_contact", false)]
+    [InlineData("financial_education", "requestedNextStep", "master_class", true)]
+    public async Task ProcessAsync_FollowUpFollowsTheClassification(string funnel, string attribute, string value, bool expectedFollowUp)
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest(new Dictionary<string, string> { ["funnelType"] = funnel, [attribute] = value }) with
+        {
+            ScheduleFollowUp = true
+        };
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(expectedFollowUp, result.FollowUpRequested);
+    }
+
+    [Fact]
     public async Task ProcessAsync_ExistingOptedOutCannotBeReversedByManyChat()
     {
         var fixture = new Fixture();
@@ -133,6 +170,43 @@ public sealed class InboundLeadIntakeServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_SmsGrantWithoutDisclosureIsStoredAsNotGranted()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest() with
+        {
+            SmsConsent = new ChannelConsentCapture(true, "consentSms", DisclosureText: "", "meta-form-v1", DateTimeOffset.UtcNow, "ManyChat")
+        };
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var attributes = Assert.Single(fixture.Crm.Upserts).Attributes;
+        Assert.Equal(CrmConsentStatuses.Unknown, attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(bool.FalseString, attributes[CrmContactAttributeNames.SmsConsentGranted]);
+        Assert.NotEqual(CrmConsentStatuses.OptIn, attributes[CrmContactAttributeNames.ConsentStatus]);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_EvidencedChannelGrantsArePersistedPerChannel()
+    {
+        var fixture = new Fixture();
+        var request = CreateRequest() with
+        {
+            SmsConsent = new ChannelConsentCapture(true, "consentSms", "I agree to texts. Reply STOP to opt out.", "meta-form-v1", DateTimeOffset.UtcNow, "ManyChat"),
+            EmailConsent = new ChannelConsentCapture(false, "consentEmail", "I agree to emails.", "meta-form-v1", DateTimeOffset.UtcNow, "ManyChat")
+        };
+
+        var result = await fixture.Service.ProcessAsync(request, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var attributes = Assert.Single(fixture.Crm.Upserts).Attributes;
+        Assert.Equal(CrmConsentStatuses.OptIn, attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.Unknown, attributes[CrmContactAttributeNames.EmailConsentStatus]);
+        Assert.Equal("I agree to texts. Reply STOP to opt out.", attributes[CrmContactAttributeNames.SmsConsentDisclosureText]);
+    }
+
+    [Fact]
     public async Task ProcessAsync_NotificationQueueExceptionDoesNotReopenCompletedReceipt()
     {
         var fixture = new Fixture();
@@ -149,7 +223,7 @@ public sealed class InboundLeadIntakeServiceTests
     private static InboundLeadIntakeRequest CreateRequest(IReadOnlyDictionary<string, string>? attributes = null) =>
         new(
             "tenant-a",
-            "insurance-agents",
+            "life-insurance",
             "correlation-a",
             "ManyChat",
             "event-42",
@@ -169,12 +243,14 @@ public sealed class InboundLeadIntakeServiceTests
         public Fixture()
         {
             var logger = new NullEventLogger();
+            var tenants = new TenantProvider();
             Service = new InboundLeadIntakeService(
                 Receipt,
                 Crm,
                 new CrmApplicationService(Crm, logger),
-                new TenantProvider(),
+                tenants,
                 Scheduler,
+                RepositoryConfiguration.Classifier(tenants, logger),
                 logger);
         }
 
@@ -232,7 +308,7 @@ public sealed class InboundLeadIntakeServiceTests
         public Task<TenantConfiguration> GetTenantConfigurationAsync(string tenantId, CancellationToken cancellationToken) =>
             Task.FromResult(new TenantConfiguration(
                 new TenantId(tenantId),
-                new VerticalId("insurance-agents"),
+                new VerticalId("life-insurance"),
                 "RNM Insurance",
                 "America/Chicago",
                 new ServiceAreaConfiguration([], ["United States"], "Follow up"),

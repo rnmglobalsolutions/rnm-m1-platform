@@ -22,6 +22,7 @@ public sealed class FollowUpRunService
     private readonly IEmailSender emailSender;
     private readonly ISendWindowPolicy sendWindowPolicy;
     private readonly IEventLogger eventLogger;
+    private readonly ISmsEligibilityGate smsEligibilityGate;
 
     public FollowUpRunService(
         ITenantConfigurationProvider tenantConfigurationProvider,
@@ -30,7 +31,8 @@ public sealed class FollowUpRunService
         ISmsSender smsSender,
         IEmailSender emailSender,
         ISendWindowPolicy sendWindowPolicy,
-        IEventLogger eventLogger)
+        IEventLogger eventLogger,
+        ISmsEligibilityGate smsEligibilityGate)
     {
         this.tenantConfigurationProvider = tenantConfigurationProvider;
         this.followUpStore = followUpStore;
@@ -39,6 +41,7 @@ public sealed class FollowUpRunService
         this.emailSender = emailSender;
         this.sendWindowPolicy = sendWindowPolicy;
         this.eventLogger = eventLogger;
+        this.smsEligibilityGate = smsEligibilityGate;
     }
 
     public async Task<FollowUpRunResult> RunAsync(
@@ -151,14 +154,21 @@ public sealed class FollowUpRunService
         }
 
         var contact = lookup.Contact;
-        if (!string.Equals(contact.ProviderContactId, followUp.ProviderContactId, StringComparison.Ordinal)
-            || string.Equals(contact.ConsentStatus, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(contact.ProviderContactId, followUp.ProviderContactId, StringComparison.Ordinal))
         {
-            return await SkipAsync(followUp, correlationId, FollowUpSkipReasons.OptedOut, "Follow-up skipped because contact is opted out or mismatched.", cancellationToken)
+            return await SkipAsync(followUp, correlationId, FollowUpSkipReasons.OptedOut, "Follow-up skipped because the contact identity mismatched.", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        if (!string.Equals(contact.ConsentStatus, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase))
+        var isSms = string.Equals(step.Channel, FollowUpChannels.Sms, StringComparison.OrdinalIgnoreCase);
+        var channelConsent = isSms ? contact.SmsConsentStatus : contact.EmailConsentStatus;
+        if (string.Equals(channelConsent, CrmConsentStatuses.OptedOut, StringComparison.OrdinalIgnoreCase))
+        {
+            return await SkipAsync(followUp, correlationId, FollowUpSkipReasons.OptedOut, "Follow-up skipped because contact is opted out for the channel.", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!string.Equals(channelConsent, CrmConsentStatuses.OptIn, StringComparison.OrdinalIgnoreCase))
         {
             return await SkipAsync(followUp, correlationId, FollowUpSkipReasons.ConsentNotGranted, "Follow-up skipped because marketing consent was not granted.", cancellationToken)
                 .ConfigureAwait(false);
@@ -261,13 +271,31 @@ public sealed class FollowUpRunService
 
         try
         {
+            var eligibility = await smsEligibilityGate.EvaluateAsync(
+                    new SmsEligibilityRequest(
+                        followUp.TenantId,
+                        correlationId,
+                        SmsMessageCategory.MarketingFollowUp,
+                        followUp.ProviderContactId,
+                        contact.PhoneNumber),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!eligibility.IsEligible || eligibility.Proof is null)
+            {
+                return new FollowUpDispatchResult(
+                    ConfirmationChannel.Sms,
+                    ConfirmationChannelStatus.Skipped,
+                    ConfirmationFailureReason.SmsEligibilityDenied);
+            }
+
             var result = await smsSender
                 .SendSmsAsync(
                     new SmsMessageRequest(
                         followUp.TenantId,
                         correlationId,
                         contact.PhoneNumber,
-                        RenderTemplate(step.SmsBodyTemplate, followUp, tenant, contact, attributes, correlationId)),
+                        RenderTemplate(step.SmsBodyTemplate, followUp, tenant, contact, attributes, correlationId),
+                        eligibility.Proof),
                     cancellationToken)
                 .ConfigureAwait(false);
             return result.Succeeded

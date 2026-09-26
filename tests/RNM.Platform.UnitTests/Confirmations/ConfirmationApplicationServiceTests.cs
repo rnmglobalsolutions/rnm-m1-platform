@@ -154,15 +154,14 @@ public sealed class ConfirmationApplicationServiceTests
         var result = await service.SendBookingConfirmationAsync(CreateRequest(), CancellationToken.None);
 
         Assert.Equal(ConfirmationChannelStatus.Skipped, result.Sms.Status);
-        Assert.Equal(ConfirmationChannelStatus.Skipped, result.Email.Status);
+        Assert.Equal(ConfirmationChannelStatus.Sent, result.Email.Status);
         Assert.Equal(ConfirmationFailureReason.ContactOptedOut, result.Sms.FailureReason);
-        Assert.Equal(ConfirmationFailureReason.ContactOptedOut, result.Email.FailureReason);
         Assert.Equal(0, smsSender.SendCallCount);
-        Assert.Equal(0, emailSender.SendCallCount);
+        Assert.Equal(1, emailSender.SendCallCount);
         Assert.DoesNotContain(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.SmsSent);
-        Assert.DoesNotContain(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.EmailSent);
+        Assert.Contains(crmAdapter.TimelineEvents, evt => evt.EventType == CrmTimelineEventTypes.EmailSent);
         Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.SmsConfirmationSkipped));
-        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.EmailConfirmationSkipped));
+        Assert.Contains(eventLogger.Events, EventNamed(TelemetryEventNames.EmailConfirmationSent));
     }
 
     [Fact]
@@ -204,7 +203,7 @@ public sealed class ConfirmationApplicationServiceTests
             CancellationToken.None);
 
         Assert.Equal(ConfirmationChannelStatus.Skipped, result.Sms.Status);
-        Assert.Equal(ConfirmationChannelStatus.Skipped, result.Email.Status);
+        Assert.Equal(ConfirmationChannelStatus.Sent, result.Email.Status);
         Assert.True(result.BusinessSmsSent);
         Assert.True(result.BusinessEmailSent);
         Assert.Contains(smsSender.Requests, request => request.ToPhoneNumber == "+15557654321");
@@ -662,7 +661,8 @@ public sealed class ConfirmationApplicationServiceTests
             emailSender ?? new FakeEmailSender(),
             retryScheduler ?? new FakeConfirmationRetryScheduler(),
             eventLogger ?? new RecordingConfirmationEventLogger(),
-            crmAdapter ?? new FakeCrmAdapter());
+            crmAdapter ?? new FakeCrmAdapter(),
+            new AllowingSmsEligibilityGate());
     }
 
     private static BookingConfirmationRequest CreateRequest(

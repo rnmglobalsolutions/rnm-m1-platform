@@ -18,7 +18,7 @@ Use one of these auth methods:
 The secret value must match the Key Vault secret:
 
 ```text
-tenant-sample-hvac-vapi-webhook-secret
+rnm-tenant-sample-hvac-vapi-webhook-secret
 ```
 
 ## Assistant Identity
@@ -412,10 +412,10 @@ My heater is not working. I am at 456 Oak Street, Dallas, Texas 99999. I would l
 Before client demos:
 
 1. Confirm dev deployment passed.
-2. Confirm `tenant-sample-hvac-vapi-webhook-secret` exists in Key Vault.
-3. Confirm `tenant-rnm-hvac-google-calendar-credentials` exists in Key Vault and includes either refresh credentials or a valid short-lived `accessToken`.
+2. Confirm `rnm-tenant-sample-hvac-vapi-webhook-secret` exists in Key Vault.
+3. Confirm `rnm-tenant-sample-hvac-google-calendar-credentials` exists in Key Vault and includes either refresh credentials or a valid short-lived `accessToken`.
 4. Confirm the Function App storage account is available for the `AzureTable` CRM/contact ledger.
-5. Confirm `rnm-dev-sendgrid-api-key` exists and SendGrid sender/domain is verified.
+5. Confirm `rnm-sendgrid-api-key` exists and SendGrid sender/domain is verified.
 6. Confirm Twilio SMS can be sent, or tell demo viewers SMS is pending 10DLC campaign approval.
 7. Confirm `communication.smsFromPhoneNumber` in `config/tenants/sample-hvac-tenant.json` has been replaced with the dedicated demo Twilio number added to the RNM Global Solutions Messaging Service/campaign.
 8. Make one in-service-area test call and verify:

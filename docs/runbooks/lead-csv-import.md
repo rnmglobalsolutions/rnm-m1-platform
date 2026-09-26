@@ -46,6 +46,15 @@ Optional:
 | `assignedAgent` | Agent/user assignment |
 | `estimatedValue` | Stored as contact attribute |
 | `timeZone` | Used by outbound TCPA checks when present |
+| any other column | Imported as a contact attribute (see below) |
+
+Additional columns: any other header made of letters, digits, `_`, `-` or `.`
+(up to 64 characters, at most 25 extra columns) is imported as a contact
+attribute, so the vertical classification rules can use it, for example
+`timeline`, `preApproved`, `hasAgent`, `decisionMaker`, or `exchange1031`.
+Columns named like a platform-managed attribute (for example `leadTemperature`
+or `consentStatus` variants) and invalid names are not imported and are listed
+in `ignoredColumns`.
 
 Example:
 
@@ -64,9 +73,18 @@ Pat,Owner,3055550188,pat@example.com,expired_listing,seller,"900 Ocean Dr, Miami
 - Existing contacts are updated instead of duplicated.
 - `consentStatus` is never defaulted to `opt_in`.
 - `unknown` imports are stored but are not eligible for outbound calls/SMS.
+- `consentStatus` covers outbound calls and SMS, so it is also written as
+  `smsConsentStatus`. It never grants email: `emailConsentStatus` keeps whatever
+  the existing contact already resolves to (`unknown` for new contacts).
 - Existing `opted_out` contacts remain `opted_out` even if re-imported as `opt_in`.
 - `opted_out` rows are imported, not dropped, so suppression is explicit.
 - A `lead.imported` timeline event is written for each imported/updated lead.
+- Every row is classified with the tenant's vertical rules (tenant overrides
+  apply). `intent` selects the funnel (`buyer`, `seller`, `renter`). M1 stores
+  `leadTemperature`, `leadClassification`, `recommendedRoute`,
+  `classificationReasons`, `classificationRuleId` and
+  `classificationRulesetVersion` on the contact. Opted-out rows keep their
+  temperature but get route `none`. Import does not schedule follow-ups.
 
 Response includes:
 
@@ -75,6 +93,11 @@ Response includes:
 - updated count
 - skipped count
 - consent breakdown: `opt_in`, `unknown`, `opted_out`
+- temperature breakdown: `hot`, `warm`, `cold`, `disqualified`
+- `unexpectedValues`: rows per attribute whose value is outside the vertical's
+  declared values (for example a `timeline` of `someday`); fix the CSV values
+  or extend the vertical `fields` catalog
+- `ignoredColumns`
 - row-level skipped errors
 - `tenantId`
 - `campaignId`

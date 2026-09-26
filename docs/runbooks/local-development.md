@@ -10,16 +10,16 @@
 
 ## Local Secret Values
 
-Local development uses environment variables as the secret source. If a tenant config references a secret named `tenant-sample-hvac-vapi-webhook-secret`, the local setting/environment variable must use that exact name.
+Local development uses environment variables as the secret source. If a tenant config references a secret named `rnm-tenant-sample-hvac-vapi-webhook-secret`, the local setting/environment variable must use that exact name.
 
 For the sample HVAC tenant, useful local values are:
 
 ```json
 {
-  "tenant-sample-hvac-vapi-webhook-secret": "<LOCAL_VAPI_WEBHOOK_SECRET>",
-  "tenant-sample-hvac-twilio-account-sid": "<TWILIO_ACCOUNT_SID>",
-  "tenant-sample-hvac-twilio-auth-token": "<TWILIO_AUTH_TOKEN>",
-  "tenant-rnm-hvac-google-calendar-credentials": "{ \"calendarId\": \"primary\", \"accessToken\": \"<SHORT_LIVED_GOOGLE_ACCESS_TOKEN>\" }",
+  "rnm-tenant-sample-hvac-vapi-webhook-secret": "<LOCAL_VAPI_WEBHOOK_SECRET>",
+  "rnm-tenant-sample-hvac-twilio-account-sid": "<TWILIO_ACCOUNT_SID>",
+  "rnm-tenant-sample-hvac-twilio-auth-token": "<TWILIO_AUTH_TOKEN>",
+  "rnm-tenant-sample-hvac-google-calendar-credentials": "{ \"calendarId\": \"primary\", \"accessToken\": \"<SHORT_LIVED_GOOGLE_ACCESS_TOKEN>\" }",
   "SENDGRID_API_KEY": "<SENDGRID_API_KEY>"
 }
 ```

@@ -1,6 +1,6 @@
 # Meta + ManyChat Video Funnel
 
-This runbook launches the first production slice for the RNM insurance video
+This runbook launches the first production slice for the Yartex insurance video
 funnel without adding scoring, dashboards, or Loom attribution as hard
 dependencies.
 
@@ -20,7 +20,7 @@ Facebook / Instagram
 ```
 
 Status: implemented through the existing ManyChat lead intake endpoint and the
-`rnm-insurance-agents` tenant notification templates.
+`yartex` tenant notification templates.
 
 ## Entry points
 
@@ -108,7 +108,7 @@ Use these attribute names for the `OPORTUNIDAD` path:
 Use the existing endpoint from `manychat-lead-intake.md`:
 
 ```text
-POST /api/tenants/rnm-insurance-agents/webhooks/manychat/leads
+POST /api/tenants/yartex/webhooks/manychat/leads
 ```
 
 Headers:
@@ -169,7 +169,7 @@ M1 returns the internal routing decision in the response:
     "url": "https://rnmglobalsolutions.com/consultation",
     "message": "Based on your answers, the best next step is a short 1:1 consultation."
   },
-  "tenantId": "rnm-insurance-agents",
+  "tenantId": "yartex",
   "correlationId": "..."
 }
 ```
@@ -190,9 +190,14 @@ Use `nextAction.type` to decide how to render the response:
 - `none`: do not send a promotional CTA.
 
 The action values are configured per tenant under
-`integrations.manyChat.routingActions`.
+`integrations.manyChat.routingActions`, keyed by route (`consultation`,
+`master_class`, `follow_up`, `none`, or any other route the classification
+rules produce, such as `nurture`). The older keys `masterClass` and `followUp`
+are still accepted. The tenant preflight check `leadClassification.routes`
+fails when a route the rules can produce has no routing action, or when
+`master_class` is reachable without a `classes` configuration.
 
-For `rnm-insurance-agents`, the intended production pages are:
+For `yartex`, the intended production pages are:
 
 - Consultation: `https://rnmglobalsolutions.com/consultation`
 - Master class registration: `https://rnmglobalsolutions.com/masterclass/register`
@@ -219,7 +224,7 @@ https://rnmglobalsolutions.com/consultation
 Browser request:
 
 ```http
-POST /api/tenants/rnm-insurance-agents/funnels/consultation
+POST /api/tenants/yartex/funnels/consultation
 Content-Type: application/json
 Origin: https://rnmglobalsolutions.com
 ```
@@ -271,7 +276,7 @@ Before the page is live, create a published class session in M1 and store its
 Browser request:
 
 ```http
-POST /api/tenants/rnm-insurance-agents/funnels/masterclass/{sessionId}/registrations
+POST /api/tenants/yartex/funnels/masterclass/{sessionId}/registrations
 Content-Type: application/json
 Origin: https://rnmglobalsolutions.com
 ```
@@ -335,7 +340,7 @@ Before deployment, update `config.js`:
 ```js
 window.RNM_FUNNEL_CONFIG = {
   API_BASE_URL: "https://<function-app>.azurewebsites.net/api",
-  TENANT_ID: "rnm-insurance-agents",
+  TENANT_ID: "yartex",
   MASTERCLASS_SESSION_ID: "<published-session-id>"
 };
 ```
@@ -351,7 +356,7 @@ Set `marketingConsentGranted` to `true` only after explicit consent. When it is
 Suggested consent copy:
 
 ```text
-I agree RNM may contact me by SMS/email about my request. Message/data rates may apply. Reply STOP to opt out.
+I agree Yartex may contact me by SMS/email about my request. Message/data rates may apply. Reply STOP to opt out.
 ```
 
 If the user declines consent, send `marketingConsentGranted=false` and keep the
@@ -431,7 +436,7 @@ Required values:
 
 Optional values:
 
-- `RNM_TENANT_ID`, default `rnm-insurance-agents`
+- `RNM_TENANT_ID`, default `yartex`
 - `RNM_MASTERCLASS_SESSION_ID`, default `financial-education-next`
 - `RNM_MASTERCLASS_TITLE`, default `Financial Education Master Class`
 - `RNM_MASTERCLASS_ENDS_AT`
@@ -446,7 +451,7 @@ project's funnel config:
 ```js
 window.RNM_FUNNEL_CONFIG = {
   API_BASE_URL: "https://<function-app>.azurewebsites.net/api",
-  TENANT_ID: "rnm-insurance-agents",
+  TENANT_ID: "yartex",
   MASTERCLASS_SESSION_ID: "financial-education-next"
 };
 ```

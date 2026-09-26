@@ -28,6 +28,12 @@ public sealed class TwilioSmsSender : ISmsSender
         SmsMessageRequest request,
         CancellationToken cancellationToken)
     {
+        if (!string.Equals(request.EligibilityProof.TenantId, request.TenantId, StringComparison.Ordinal)
+            || !string.Equals(request.EligibilityProof.CorrelationId, request.CorrelationId, StringComparison.Ordinal))
+        {
+            return Failed();
+        }
+
         try
         {
             var tenantConfiguration = await tenantConfigurationProvider

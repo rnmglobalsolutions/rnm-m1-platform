@@ -1,4 +1,5 @@
 using RNM.Platform.Api.Functions;
+using RNM.Platform.Application.Compliance;
 using RNM.Platform.Application.Confirmations;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Ports.Messaging;
@@ -16,7 +17,8 @@ public sealed class ConfirmationRetryFunctionTests
         var function = new ConfirmationRetryFunction(
             smsSender,
             new RecordingEmailSender(),
-            new RecordingEventLogger());
+            new RecordingEventLogger(),
+            new AllowingSmsEligibilityGate());
 
         await function.RunAsync(
             """
@@ -25,7 +27,10 @@ public sealed class ConfirmationRetryFunctionTests
               "correlationId": "corr-123",
               "kind": 0,
               "destination": "+15551234567",
-              "body": "Appointment confirmed"
+              "body": "Appointment confirmed",
+              "providerContactId": "contact-1",
+              "smsCategory": 0,
+              "originalRequestedAt": "2026-09-26T12:00:00Z"
             }
             """,
             CancellationToken.None);
@@ -45,7 +50,8 @@ public sealed class ConfirmationRetryFunctionTests
         var function = new ConfirmationRetryFunction(
             smsSender,
             new RecordingEmailSender(),
-            new RecordingEventLogger());
+            new RecordingEventLogger(),
+            new AllowingSmsEligibilityGate());
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => function.RunAsync(
@@ -55,7 +61,10 @@ public sealed class ConfirmationRetryFunctionTests
                   "correlationId": "corr-123",
                   "kind": 0,
                   "destination": "+15551234567",
-                  "body": "Appointment confirmed"
+                  "body": "Appointment confirmed",
+                  "providerContactId": "contact-1",
+                  "smsCategory": 0,
+                  "originalRequestedAt": "2026-09-26T12:00:00Z"
                 }
                 """,
                 CancellationToken.None));
@@ -69,6 +78,7 @@ public sealed class ConfirmationRetryFunctionTests
             new RecordingSmsSender(),
             new RecordingEmailSender(),
             new RecordingEventLogger(),
+            new AllowingSmsEligibilityGate(),
             store);
 
         await function.RunAsync(
@@ -79,7 +89,10 @@ public sealed class ConfirmationRetryFunctionTests
               "kind": 0,
               "destination": "+15551234567",
               "body": "Class confirmed",
-              "classRegistrationId": "registration-1"
+              "classRegistrationId": "registration-1",
+              "providerContactId": "contact-1",
+              "smsCategory": 1,
+              "originalRequestedAt": "2026-09-26T12:00:00Z"
             }
             """,
             CancellationToken.None);
@@ -87,6 +100,68 @@ public sealed class ConfirmationRetryFunctionTests
         var update = Assert.Single(store.NotificationStatusUpdates);
         Assert.Equal("Sent", update.SmsStatus);
         Assert.Null(update.EmailStatus);
+    }
+
+    [Fact]
+    public async Task RunAsync_LegacySmsWithoutContactContext_IsSkipped()
+    {
+        var smsSender = new RecordingSmsSender();
+        var eventLogger = new FakeEventLogger();
+        var function = new ConfirmationRetryFunction(
+            smsSender,
+            new RecordingEmailSender(),
+            eventLogger,
+            new SmsEligibilityGate(
+                new FakeCrmAdapter(),
+                new FakeTenantConfigurationProvider(),
+                new SendWindowPolicy(),
+                new FakeEventLogger(),
+                TimeProvider.System));
+
+        await function.RunAsync(
+            """
+            {
+              "tenantId": "tenant-a",
+              "correlationId": "corr-legacy",
+              "kind": 0,
+              "destination": "+15551234567",
+              "body": "Old queued message"
+            }
+            """,
+            CancellationToken.None);
+
+        Assert.Empty(smsSender.Requests);
+        Assert.Contains(eventLogger.Events, item =>
+            item.EventName == TelemetryEventNames.ConfirmationRetrySkipped
+            && item.Properties.GetValueOrDefault("skipReason") == nameof(SmsEligibilitySkipReason.RetryMissingTimestamp));
+    }
+
+    [Fact]
+    public async Task RunAsync_EligibilityDenied_IsSkippedWithoutSending()
+    {
+        var smsSender = new RecordingSmsSender();
+        var function = new ConfirmationRetryFunction(
+            smsSender,
+            new RecordingEmailSender(),
+            new RecordingEventLogger(),
+            new AllowingSmsEligibilityGate { DenyWith = SmsEligibilitySkipReason.ContactOptedOut });
+
+        await function.RunAsync(
+            """
+            {
+              "tenantId": "tenant-a",
+              "correlationId": "corr-stop",
+              "kind": 0,
+              "destination": "+15551234567",
+              "body": "Appointment confirmed",
+              "providerContactId": "contact-1",
+              "smsCategory": 0,
+              "originalRequestedAt": "2026-09-26T12:00:00Z"
+            }
+            """,
+            CancellationToken.None);
+
+        Assert.Empty(smsSender.Requests);
     }
 
     private sealed class RecordingSmsSender : ISmsSender

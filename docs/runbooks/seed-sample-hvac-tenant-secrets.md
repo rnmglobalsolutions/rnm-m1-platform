@@ -13,13 +13,13 @@ config/tenants/sample-hvac-tenant.json -> secretNames -> Key Vault
 The sample HVAC tenant needs these tenant-level secrets for the M1 end-to-end path:
 
 ```text
-tenant-sample-hvac-vapi-webhook-secret
-tenant-sample-hvac-twilio-account-sid
-tenant-sample-hvac-twilio-auth-token
-tenant-rnm-hvac-google-calendar-credentials
+rnm-tenant-sample-hvac-vapi-webhook-secret
+rnm-tenant-sample-hvac-twilio-account-sid
+rnm-tenant-sample-hvac-twilio-auth-token
+rnm-tenant-sample-hvac-google-calendar-credentials
 ```
 
-`tenant-sample-hvac-email-connection` is optional for the current SendGrid path, because SendGrid reads `SENDGRID_API_KEY` from the Function App environment. Keep the email connection secret only for provider-neutral tenant config compatibility.
+`rnm-tenant-sample-hvac-email-connection` is optional for the current SendGrid path, because SendGrid reads `SENDGRID_API_KEY` from the Function App environment. Keep the email connection secret only for provider-neutral tenant config compatibility.
 
 ## Google Calendar Credentials File
 
@@ -78,17 +78,17 @@ Do not print secret values. Verify names only:
 ```bash
 az keyvault secret list \
   --vault-name <KEY_VAULT_NAME> \
-  --query "[?starts_with(name, 'tenant-sample-hvac') || name=='tenant-rnm-hvac-google-calendar-credentials'].name" \
+  --query "[?starts_with(name, 'tenant-sample-hvac') || name=='rnm-tenant-sample-hvac-google-calendar-credentials'].name" \
   --output table
 ```
 
 Expected:
 
 ```text
-tenant-rnm-hvac-google-calendar-credentials
-tenant-sample-hvac-twilio-account-sid
-tenant-sample-hvac-twilio-auth-token
-tenant-sample-hvac-vapi-webhook-secret
+rnm-tenant-sample-hvac-google-calendar-credentials
+rnm-tenant-sample-hvac-twilio-account-sid
+rnm-tenant-sample-hvac-twilio-auth-token
+rnm-tenant-sample-hvac-vapi-webhook-secret
 ```
 
 ## Why These Are Not App Settings

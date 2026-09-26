@@ -19,7 +19,7 @@ https://www.rnmglobalsolutions.com
 https://rnmglobalsolutions.com
 ```
 
-The contact endpoint has its own Function App. That contact Function App uses app-level CORS with only the two RNM website origins. The main Function App keeps app-level CORS empty so health, webhooks, and internal test endpoints are not browser-CORS-enabled.
+The contact endpoint has its own Function App. That contact Function App uses app-level CORS with only the two RNM website origins. The main Function App keeps app-level CORS empty so health, webhooks, and internal test endpoints are not browser-CORS-enabled by broad platform configuration. Browser-safe public funnel endpoints on the main Function App handle CORS explicitly inside the function code and validate `Origin` against tenant configuration.
 
 Keep the main Function App CORS blade empty. Keep the contact Function App CORS blade limited to the two RNM origins above. Bicep manages both settings.
 

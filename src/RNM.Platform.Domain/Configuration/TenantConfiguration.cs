@@ -15,7 +15,8 @@ public sealed record TenantConfiguration(
     VoiceConfiguration? Voice = null,
     ClassAutomationConfiguration? Classes = null,
     FollowUpAutomationConfiguration? FollowUps = null,
-    IntegrationConfiguration? Integrations = null);
+    IntegrationConfiguration? Integrations = null,
+    LeadClassificationConfiguration? LeadClassification = null);
 
 public sealed record ProviderConfiguration(
     string CrmProvider,
@@ -33,7 +34,37 @@ public sealed record SecretNameConfiguration(
     string? CrmCredentials = null,
     string? BookingCredentials = null,
     string? ManyChatWebhookSecret = null,
-    string? ClassRegistrationWebhookSecret = null);
+    string? ClassRegistrationWebhookSecret = null)
+{
+    /// <summary>
+    /// Every tenant Key Vault secret name must start with this prefix, so tenant secrets are
+    /// recognizable and separable from platform secrets (rnm-internal-api-key, rnm-sendgrid-api-key).
+    /// </summary>
+    public const string RequiredPrefix = "rnm-tenant-";
+
+    /// <summary>
+    /// Configured secret names keyed by their JSON field name; unset optional names are omitted.
+    /// </summary>
+    public IEnumerable<(string Field, string Name)> Configured()
+    {
+        (string Field, string? Name)[] all =
+        [
+            ("crmApiKey", CrmApiKey),
+            ("bookingApiKey", BookingApiKey),
+            ("voiceWebhookSecret", VoiceWebhookSecret),
+            ("twilioAccountSid", TwilioAccountSid),
+            ("twilioAuthToken", TwilioAuthToken),
+            ("emailConnectionString", EmailConnectionString),
+            ("crmCredentials", CrmCredentials),
+            ("bookingCredentials", BookingCredentials),
+            ("manyChatWebhookSecret", ManyChatWebhookSecret),
+            ("classRegistrationWebhookSecret", ClassRegistrationWebhookSecret)
+        ];
+        return all
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+            .Select(entry => (entry.Field, entry.Name!));
+    }
+}
 
 public sealed record IntegrationConfiguration(
     ManyChatIntegrationConfiguration? ManyChat = null);
@@ -51,11 +82,15 @@ public sealed record ManyChatIntegrationConfiguration(
     public int EffectiveMaxRequestsPerMinute => MaxRequestsPerMinute ?? 120;
 }
 
+/// <summary>
+/// ManyChat next action per classification route, keyed by route token (for example <c>master_class</c>).
+/// </summary>
 public sealed record ManyChatRoutingActionsConfiguration(
-    ManyChatRoutingActionConfiguration? Consultation = null,
-    ManyChatRoutingActionConfiguration? MasterClass = null,
-    ManyChatRoutingActionConfiguration? FollowUp = null,
-    ManyChatRoutingActionConfiguration? None = null);
+    IReadOnlyDictionary<string, ManyChatRoutingActionConfiguration> ByRoute)
+{
+    public ManyChatRoutingActionConfiguration? For(string route) =>
+        ByRoute.TryGetValue(route, out var action) ? action : null;
+}
 
 public sealed record ManyChatRoutingActionConfiguration(
     string? Type = null,
@@ -71,8 +106,11 @@ public sealed record CommunicationConfiguration(
     string? BusinessNotificationPhoneNumber = null,
     bool NotifyBusinessBySmsForUrgentOnly = false,
     BusinessSmsNotificationConfiguration? BusinessSmsNotification = null,
-    AppointmentReminderConfiguration? AppointmentReminders = null)
+    AppointmentReminderConfiguration? AppointmentReminders = null,
+    int? SmsRetryStalenessCutoffMinutes = null)
 {
+    public int EffectiveSmsRetryStalenessCutoffMinutes => SmsRetryStalenessCutoffMinutes ?? 60;
+
     public BusinessSmsNotificationConfiguration EffectiveBusinessSmsNotification =>
         BusinessSmsNotification
         ?? (NotifyBusinessBySmsForUrgentOnly
@@ -81,8 +119,6 @@ public sealed record CommunicationConfiguration(
                 ["urgent", "emergency", "asap", "same-day", "today"])
             : BusinessSmsNotificationConfiguration.Always());
 
-    public AppointmentReminderConfiguration EffectiveAppointmentReminders =>
-        AppointmentReminders ?? new AppointmentReminderConfiguration();
 }
 
 public sealed record BusinessSmsNotificationConfiguration(
@@ -118,11 +154,10 @@ public sealed record AppointmentReminderConfiguration(
     IReadOnlyCollection<int>? ReminderOffsetsMinutes = null,
     int? ReminderStalenessCutoffMinutes = null)
 {
-    public IReadOnlyCollection<int> EffectiveReminderOffsetsMinutes =>
-        ReminderOffsetsMinutes is { Count: > 0 } ? ReminderOffsetsMinutes : [1440, 60];
-
-    public int EffectiveReminderStalenessCutoffMinutes =>
-        ReminderStalenessCutoffMinutes ?? 60;
+    public bool IsEnabled =>
+        Templates is not null
+        || ReminderOffsetsMinutes is not null
+        || ReminderStalenessCutoffMinutes is not null;
 }
 
 public sealed record ReportingConfiguration(

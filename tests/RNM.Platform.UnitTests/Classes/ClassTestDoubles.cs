@@ -366,6 +366,10 @@ internal sealed class FakeCrmAdapter : ICrmAdapter
 {
     public CrmContactLookupResult LookupResult { get; init; } = new(false, null);
 
+    public Exception? LookupException { get; init; }
+
+    public int LookupCount { get; private set; }
+
     public CrmContactUpsertResult UpsertResult { get; set; } = new(true, true, "contact-1");
 
     public CrmContactUpsertRequest? LastUpsertRequest { get; private set; }
@@ -374,8 +378,13 @@ internal sealed class FakeCrmAdapter : ICrmAdapter
 
     public Task<CrmContactLookupResult> FindContactByPhoneOrEmailAsync(
         CrmContactLookupRequest request,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(LookupResult);
+        CancellationToken cancellationToken)
+    {
+        LookupCount++;
+        return LookupException is null
+            ? Task.FromResult(LookupResult)
+            : Task.FromException<CrmContactLookupResult>(LookupException);
+    }
 
     public Task<CrmContactUpsertResult> UpsertContactAsync(
         CrmContactUpsertRequest request,
@@ -455,12 +464,15 @@ internal sealed class FakeEventLogger : IEventLogger
 {
     public List<string> EventNames { get; } = [];
 
+    public List<(string EventName, IReadOnlyDictionary<string, string> Properties)> Events { get; } = [];
+
     public Task LogEventAsync(
         string eventName,
         IReadOnlyDictionary<string, string> properties,
         CancellationToken cancellationToken)
     {
         EventNames.Add(eventName);
+        Events.Add((eventName, properties));
         return Task.CompletedTask;
     }
 }

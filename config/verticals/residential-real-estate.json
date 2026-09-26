@@ -1,0 +1,144 @@
+{
+  "verticalId": "residential-real-estate",
+  "displayName": "Residential Real Estate",
+  "qualificationFields": [
+    "name",
+    "phoneNumber",
+    "email",
+    "intent",
+    "timeline",
+    "targetPropertyAddress",
+    "preferredTime"
+  ],
+  "supportedCallTypes": [
+    "BuyerInquiry",
+    "SellerInquiry",
+    "RenterInquiry",
+    "PropertyShowing",
+    "HomeValuation",
+    "GeneralInquiry"
+  ],
+  "serviceAreaFieldAliases": {
+    "zipCodeFields": ["zipCode", "zip", "postalCode"],
+    "addressFields": ["targetPropertyAddress", "serviceAddress"]
+  },
+  "leadClassification": {
+    "version": "residential-real-estate-2026-09-26",
+    "funnelAttribute": "intent",
+    "tiers": {
+      "hot": { "classification": "ready_to_act", "route": "consultation" },
+      "warm": { "classification": "needs_preparation", "route": "consultation" },
+      "cold": { "classification": "early_stage", "route": "nurture" },
+      "disqualified": { "classification": "not_a_fit", "route": "none", "scheduleFollowUp": false }
+    },
+    "missingFunnel": { "tier": "cold", "reasons": ["missing_intent"] },
+    "unknownFunnel": { "tier": "cold", "reasons": ["unknown_intent"] },
+    "funnels": {
+      "buyer": {
+        "tiers": {
+          "hot": { "classification": "ready_to_buy", "route": "showing" }
+        },
+        "fields": {
+          "timeline": ["under_30_days", "1_3_months", "3_6_months", "over_6_months", "just_looking"],
+          "preApproved": ["yes", "no", "in_progress"],
+          "hasAgent": ["yes", "no"],
+          "inServiceArea": ["yes", "no"],
+          "requestedNextStep": ["showing", "consultation", "follow_up", "opted_out", "no_contact"]
+        },
+        "rules": [
+          {
+            "id": "buyer-already-represented",
+            "when": { "all": [{ "attribute": "hasAgent", "in": ["yes"] }] },
+            "then": { "tier": "disqualified", "reasons": ["already_represented"] }
+          },
+          {
+            "id": "buyer-outside-service-area",
+            "when": { "all": [{ "attribute": "inServiceArea", "in": ["no"] }] },
+            "then": { "tier": "disqualified", "reasons": ["outside_service_area"] }
+          },
+          {
+            "id": "buyer-requested-showing",
+            "when": { "all": [{ "attribute": "requestedNextStep", "in": ["showing"] }] },
+            "then": { "tier": "hot", "reasons": ["requested_showing"] }
+          },
+          {
+            "id": "buyer-ready-and-pre-approved",
+            "when": {
+              "all": [
+                { "attribute": "timeline", "in": ["under_30_days"] },
+                { "attribute": "preApproved", "in": ["yes"] }
+              ]
+            },
+            "then": { "tier": "hot", "reasons": ["near_term", "pre_approved"] }
+          },
+          {
+            "id": "buyer-near-term-needs-preparation",
+            "when": { "all": [{ "attribute": "timeline", "in": ["under_30_days", "1_3_months"] }] },
+            "then": { "tier": "warm", "reasons": ["near_term", "needs_preparation"] }
+          },
+          {
+            "id": "buyer-requested-consultation",
+            "when": { "all": [{ "attribute": "requestedNextStep", "in": ["consultation"] }] },
+            "then": { "tier": "warm", "reasons": ["requested_consultation"] }
+          }
+        ],
+        "fallback": { "tier": "cold", "reasons": ["long_timeline_or_browsing"] }
+      },
+      "seller": {
+        "tiers": {
+          "hot": { "classification": "ready_to_list", "route": "listing_appointment" }
+        },
+        "fields": {
+          "timeline": ["under_30_days", "1_3_months", "3_6_months", "over_6_months", "just_looking"],
+          "isListed": ["yes", "no"],
+          "inServiceArea": ["yes", "no"],
+          "requestedNextStep": ["valuation", "listing_appointment", "consultation", "follow_up", "opted_out", "no_contact"]
+        },
+        "rules": [
+          {
+            "id": "seller-already-listed",
+            "when": { "all": [{ "attribute": "isListed", "in": ["yes"] }] },
+            "then": { "tier": "disqualified", "reasons": ["already_listed"] }
+          },
+          {
+            "id": "seller-outside-service-area",
+            "when": { "all": [{ "attribute": "inServiceArea", "in": ["no"] }] },
+            "then": { "tier": "disqualified", "reasons": ["outside_service_area"] }
+          },
+          {
+            "id": "seller-requested-valuation",
+            "when": { "all": [{ "attribute": "requestedNextStep", "in": ["valuation", "listing_appointment"] }] },
+            "then": { "tier": "hot", "reasons": ["requested_valuation"] }
+          },
+          {
+            "id": "seller-near-term",
+            "when": { "all": [{ "attribute": "timeline", "in": ["under_30_days", "1_3_months"] }] },
+            "then": { "tier": "hot", "reasons": ["near_term_sale"] }
+          },
+          {
+            "id": "seller-mid-term",
+            "when": { "all": [{ "attribute": "timeline", "in": ["3_6_months"] }] },
+            "then": { "tier": "warm", "reasons": ["mid_term_sale"] }
+          }
+        ],
+        "fallback": { "tier": "cold", "reasons": ["no_sale_timeline"] }
+      },
+      "renter": {
+        "tiers": {
+          "warm": { "classification": "ready_to_rent", "route": "consultation" }
+        },
+        "fields": {
+          "timeline": ["under_30_days", "1_3_months", "3_6_months", "over_6_months", "just_looking"]
+        },
+        "rules": [
+          {
+            "id": "renter-near-term-move",
+            "when": { "all": [{ "attribute": "timeline", "in": ["under_30_days"] }] },
+            "then": { "tier": "warm", "reasons": ["near_term_move"] }
+          }
+        ],
+        "fallback": { "tier": "cold", "reasons": ["renter_long_timeline"] }
+      }
+    }
+  }
+}

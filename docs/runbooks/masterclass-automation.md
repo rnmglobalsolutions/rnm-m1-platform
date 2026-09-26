@@ -1,7 +1,8 @@
 # Masterclass Automation v0.5 Runbook
 
 This runbook covers the MVP masterclass flow. M1 does not create Zoom meetings in
-this version. Create the Zoom meeting manually and store the join URL in M1.
+this version. Create the Zoom meeting manually and store the join URL in M1. The
+stored `zoomUrl` is shared by every registrant for the same `ClassSession`.
 
 ## Tenant Configuration
 
@@ -34,7 +35,7 @@ Also configure the dedicated server-to-server registration secret name:
 ```json
 {
   "secretNames": {
-    "classRegistrationWebhookSecret": "tenant-rnm-insurance-agents-class-registration-webhook-secret"
+    "classRegistrationWebhookSecret": "rnm-tenant-yartex-class-registration-webhook-secret"
   }
 }
 ```
@@ -45,14 +46,14 @@ random secret. M1 reads it at runtime; it is not stored in tenant JSON.
 Set `RNM_ACTIVE_TENANTS` in the Function App when reminder automation should run:
 
 ```text
-RNM_ACTIVE_TENANTS=rnm-insurance-agents
+RNM_ACTIVE_TENANTS=yartex
 ```
 
 Multiple tenants are comma-separated.
 
-The same timer and due-work table also process appointment reminders. Configure
-appointment reminders under `communication.appointmentReminders`; do not create a
-second runner.
+The same timer and due-work table also process appointment reminders. Every
+tenant must include `communication.appointmentReminders`; do not create a second
+runner. Tenants that offer 1:1 appointments configure all fields:
 
 ```json
 {
@@ -70,13 +71,32 @@ second runner.
 }
 ```
 
+Tenants that do not offer 1:1 appointments retain the same schema and disable
+the feature explicitly:
+
+```json
+{
+  "communication": {
+    "appointmentReminders": {
+      "templates": null,
+      "reminderOffsetsMinutes": null,
+      "reminderStalenessCutoffMinutes": null
+    }
+  }
+}
+```
+
+M1 does not supply appointment reminder timing defaults. An omitted or partially
+configured `appointmentReminders` block fails tenant configuration validation.
+
 ## Flow
 
 1. Create the Zoom meeting manually.
 2. Copy the Zoom join URL.
 3. Create or update the class session in M1.
-4. Register leads through a trusted funnel backend or an internal request. Meta
-   and ManyChat generic lead capture should use their dedicated intake webhook.
+4. Register leads through the public RNM website funnel endpoint, a trusted
+   server-to-server registration, or an internal request. Meta and ManyChat
+   generic lead capture should use their dedicated intake webhook first.
 5. Confirm the lead received email and, if consent was granted, SMS.
 6. Let the timer process reminders every five minutes, or run reminders manually.
 7. Check the class report.
@@ -102,7 +122,41 @@ Content-Type: application/json
 }
 ```
 
-## Register A Lead
+## Register A Lead From The Public Website
+
+The RNM website page `/masterclass/register` must call the public funnel
+endpoint. This endpoint is designed for browser JavaScript and does not require
+secrets in the frontend.
+
+```http
+POST /api/tenants/{tenantId}/funnels/masterclass/{classSessionId}/registrations
+Content-Type: application/json
+Origin: https://rnmglobalsolutions.com
+```
+
+```json
+{
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "financial-video-v1",
+  "funnelType": "financial_education",
+  "primaryGoal": "family_protection",
+  "timeline": "under_30_days",
+  "state": "TX",
+  "consentSms": true,
+  "consentEmail": true,
+  "consentTextVersion": "web-funnel-v1",
+  "consentDisclosureText": "Acepto que Yartex me contacte por SMS/email ...",
+  "companyWebsiteConfirm": ""
+}
+```
+
+Keep `companyWebsiteConfirm` as an empty hidden honeypot field.
+`consentDisclosureText` must be the exact checkbox text; the example funnel
+(`docs/examples/rnm-funnels/assets/funnel.js`) reads it from the consent label.
+
+## Register A Lead Server-To-Server Or Internally
 
 ```http
 POST /api/tenants/{tenantId}/classes/{classSessionId}/registrations
@@ -110,12 +164,11 @@ X-RNM-Class-Registration-Secret: <tenant-secret>
 Content-Type: application/json
 ```
 
-`Origin` is used only for CORS and never authenticates a request. A browser must
-submit through a trusted funnel/server backend that adds the dedicated tenant
-secret. Never embed `X-RNM-Class-Registration-Secret` or `x-rnm-api-key` in
-browser JavaScript. Internal tests can use `x-rnm-api-key` instead. The endpoint
-also has a per-tenant, per-instance rate-limit guard; provider-side or edge rate
-limiting remains recommended before high-volume paid campaigns.
+`Origin` is used only for CORS and never authenticates a request. Never embed
+`X-RNM-Class-Registration-Secret` or `x-rnm-api-key` in browser JavaScript.
+Internal tests can use `x-rnm-api-key` instead. Server-side funnel integrations
+can use `X-RNM-Class-Registration-Secret`. The public website should prefer the
+public funnel endpoint above.
 
 ```json
 {
@@ -125,8 +178,11 @@ limiting remains recommended before high-volume paid campaigns.
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentSms": true,
+  "consentEmail": true,
   "consentCapturedAt": "2026-09-18T15:00:00Z",
   "consentTextVersion": "class-registration-v1",
+  "consentDisclosureText": "I agree to receive class notifications by SMS and email. Reply STOP to opt out.",
   "attributes": {
     "intent": "masterclass"
   }
@@ -137,10 +193,20 @@ limiting remains recommended before high-volume paid campaigns.
 
 - Explicit `marketingConsentGranted: true` requires `consentCapturedAt` and
   `consentTextVersion` evidence.
-- SMS confirmation and SMS reminders require consent status `opt_in`.
+- Consent is per channel. SMS confirmation and reminders require
+  `smsConsentStatus=opt_in`; class emails require `emailConsentStatus=opt_in`.
+- `consentSms` / `consentEmail` set the channel grants. A `true` grant needs
+  `consentDisclosureText` and `consentTextVersion`; without them the
+  registration is still stored, the channel is recorded as not granted, and M1
+  logs `class.registration.consent_evidence_missing`.
+- Callers that omit `consentSms` fall back to `marketingConsentGranted` as the
+  SMS grant.
+- Contacts created before per-channel consent (no `smsConsentStatus` or
+  `emailConsentStatus`) keep their previous behavior: legacy `opt_in` covers
+  both channels.
 - A contact already marked `opted_out` is not reversed from the web registration
   flow.
-- An `opted_out` contact receives neither customer SMS nor customer email.
+- An SMS opt-out (STOP) blocks customer SMS and outbound calls, not email.
 - An existing `opt_in` remains valid when a later registration contains no new
   grant; the timeline records that no new explicit consent was captured.
 - Twilio STOP still wins and updates CRM consent through the existing inbound
@@ -256,32 +322,34 @@ Para probarlo bien, hazlo en este orden:
 dotnet test RNM.Platform.sln --configuration Release
 ```
 
-Debe pasar todo. La última vez quedó en:
+Debe pasar todo:
 
 ```text
-The current unit test count reported by the command
-and all integration tests must pass with `0 failed`.
+All unit and integration tests must pass with `0 failed`.
 ```
 
 **2. Configura el tenant**
 En el tenant que vas a usar, confirma que existe:
 
 ```json
-"classes": {
-  "allowedRegistrationOrigins": [
-    "https://tu-funnel.com"
-  ],
-  "maxRegistrationsPerMinute": 60,
-  "reminderOffsetsMinutes": [1440, 60],
-  "registrationTemplates": {
-    "smsBodyTemplate": "...",
-    "emailSubjectTemplate": "...",
-    "emailBodyTemplate": "..."
-  },
-  "reminderTemplates": {
-    "smsBodyTemplate": "...",
-    "emailSubjectTemplate": "...",
-    "emailBodyTemplate": "..."
+{
+  "classes": {
+    "allowedRegistrationOrigins": [
+      "https://rnmglobalsolutions.com",
+      "https://www.rnmglobalsolutions.com"
+    ],
+    "maxRegistrationsPerMinute": 60,
+    "reminderOffsetsMinutes": [1440, 60],
+    "registrationTemplates": {
+      "smsBodyTemplate": "...",
+      "emailSubjectTemplate": "...",
+      "emailBodyTemplate": "..."
+    },
+    "reminderTemplates": {
+      "smsBodyTemplate": "...",
+      "emailSubjectTemplate": "...",
+      "emailBodyTemplate": "..."
+    }
   }
 }
 ```
@@ -292,7 +360,7 @@ value in Key Vault before testing.
 Para reminders automáticos de masterclass, en Azure Function App agrega:
 
 ```text
-RNM_ACTIVE_TENANTS=rnm-insurance-agents
+RNM_ACTIVE_TENANTS=yartex
 ```
 
 o el tenant real de masterclass que estés probando. Kenny Commercial Real Estate
@@ -328,6 +396,33 @@ Body:
 Verifica que responda OK y que exista en `RnmClassSessions`.
 
 **5. Registra un lead**
+
+Para probar como navegador desde la pagina publica:
+
+```http
+POST /api/tenants/{tenantId}/funnels/masterclass/{classSessionId}/registrations
+Content-Type: application/json
+Origin: https://rnmglobalsolutions.com
+```
+
+```json
+{
+  "customerName": "Jane Lead",
+  "customerPhoneNumber": "+15551234567",
+  "customerEmail": "jane@example.com",
+  "campaignId": "financial-video-v1",
+  "funnelType": "financial_education",
+  "primaryGoal": "family_protection",
+  "timeline": "under_30_days",
+  "state": "TX",
+  "consentSms": true,
+  "consentEmail": true,
+  "companyWebsiteConfirm": ""
+}
+```
+
+Para Postman/server-to-server usa el endpoint interno de registro:
+
 ```http
 POST /api/tenants/{tenantId}/classes/{classSessionId}/registrations
 Content-Type: application/json
@@ -344,8 +439,11 @@ Para Postman usa `x-rnm-api-key` o
   "campaignId": "financial-education-july",
   "source": "WebRegistration",
   "marketingConsentGranted": true,
+  "consentSms": true,
+  "consentEmail": true,
   "consentCapturedAt": "2026-09-18T15:00:00Z",
   "consentTextVersion": "class-registration-v1",
+  "consentDisclosureText": "I agree to receive class notifications by SMS and email. Reply STOP to opt out.",
   "attributes": {
     "intent": "masterclass"
   }
@@ -356,29 +454,38 @@ Verifica:
 
 - Se crea/actualiza el contacto en CRM.
 - Se crea registro en `RnmClassRegistrations`.
-- Se envía email.
-- Se envía SMS si `marketingConsentGranted = true`.
+- Se envía email si `consentEmail = true`.
+- Se envía SMS si `consentSms = true` (o, en integraciones antiguas sin
+  `consentSms`, si `marketingConsentGranted = true`).
 - Se crean reminders en `RnmClassReminderDue`.
 
 **6. Prueba consentimiento**
 Haz otro registro con:
 
 ```json
-"marketingConsentGranted": false
+"marketingConsentGranted": false,
+"consentSms": false,
+"consentEmail": false
 ```
 
 Resultado esperado:
 
-- El registro se guarda, pero no sale SMS por falta de `opt_in`.
-- El email puede salir mientras el contacto no esté `opted_out`.
-- SMS debe quedar skipped por falta de consentimiento.
+- El registro se guarda, pero no sale SMS ni email por falta de `opt_in` en
+  cada canal.
+- SMS y email deben quedar skipped por falta de consentimiento.
 - No debe romper el registro.
 
-Luego prueba un contacto previamente `opted_out`:
+Repite con `consentSms: true` sin `consentDisclosureText`:
+
+- El registro se guarda.
+- `smsConsentStatus` queda `unknown` y no sale SMS.
+- Application Insights registra `class.registration.consent_evidence_missing`.
+
+Luego prueba un contacto que respondió STOP:
 
 - M1 no debe revertirlo desde web registration.
 - No debe enviar SMS.
-- No debe enviar email al contacto.
+- El email depende solo de `emailConsentStatus`; STOP no lo bloquea.
 - Debe dejar timeline/evento de consentimiento bloqueado o declinado.
 
 **7. Prueba reminders manualmente**
@@ -414,9 +521,15 @@ Debe devolver conteos reales:
 - opted-out registrations
 
 **9. Prueba desde funnel real**
-El navegador envía el formulario a tu backend de confianza. Ese backend llama a
-M1 con `X-RNM-Class-Registration-Secret`. El `Origin` debe coincidir para recibir
-headers CORS, pero una solicitud sin secreto siempre debe devolver `401`.
+El navegador en `https://rnmglobalsolutions.com/masterclass/register` envia el
+formulario al endpoint publico:
+
+```text
+/api/tenants/yartex/funnels/masterclass/{classSessionId}/registrations
+```
+
+No debe incluir `X-RNM-Class-Registration-Secret` ni `x-rnm-api-key`. El `Origin`
+debe coincidir con los origenes permitidos del tenant.
 
 **Criterio de éxito**
 El flujo está funcionando si puedes hacer esto completo:

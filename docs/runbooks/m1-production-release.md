@@ -6,6 +6,9 @@ M1 is releasable when the complete revenue path works:
 Call -> Qualification -> Service Area -> Booking -> CRM -> SMS/Email -> Logs
 ```
 
+For RNM's Meta/ManyChat campaign motion, the funnel path is a supplemental
+release gate. It must not replace the primary inbound voice gate.
+
 ## Automated Gate
 
 Run:
@@ -52,6 +55,57 @@ RNM_OPERATIONS_ALERT_EMAIL
 - Readiness returns `status: "ready"` for the tenant.
 - The onboarding acceptance calls pass.
 
+## Campaign And Funnel Gate
+
+Required when the production release includes Meta, Instagram, Facebook,
+ManyChat, consultation funnels, or masterclass registration.
+
+- Public RNM website pages are hosted outside M1.
+- M1 only exposes the public funnel APIs and keeps static funnel files under
+  `docs/examples/rnm-funnels` as implementation references.
+- ManyChat sends leads to the tenant ManyChat webhook with a valid internal API
+  key.
+- ManyChat receives `leadClassification`, `recommendedRoute`,
+  `classificationReasons`, and `nextAction`.
+- Tenant routing actions point to the real RNM website URLs:
+
+```text
+https://rnmglobalsolutions.com/consultation
+https://rnmglobalsolutions.com/masterclass/register
+```
+
+- The public website calls the browser-safe M1 funnel endpoints:
+
+```text
+POST /api/tenants/{tenantId}/funnels/consultation
+POST /api/tenants/{tenantId}/funnels/masterclass/{classSessionId}/registrations
+```
+
+- Browser JavaScript never includes `x-rnm-api-key`,
+  `X-RNM-Class-Registration-Secret`, provider secrets, or CRM credentials.
+- The public funnel origin is explicitly allowed in tenant configuration.
+- Honeypot fields are present and hidden on public forms.
+- For masterclass registrations, a real `ClassSession` exists before traffic is
+  sent to the page.
+- The `ClassSession` contains the real `startsAt`, timezone, capacity, and
+  `zoomUrl`.
+- M1 does not create Zoom meetings. The stored `zoomUrl` is shared by every
+  registrant in that class session.
+- Confirmation templates pass tenant preflight, including campaign-aware tokens
+  such as `{{campaignId}}` when used.
+- A controlled end-to-end campaign test passes:
+
+```text
+Meta/Instagram/Facebook interaction
+-> ManyChat webhook
+-> M1 classification and nextAction
+-> RNM website funnel page
+-> M1 public funnel endpoint
+-> CRM/contact capture
+-> SMS/email confirmation
+-> Logs with correlationId and tenantId
+```
+
 ## Operating Gate
 
 Daily:
@@ -66,6 +120,8 @@ Weekly:
 - Review latency and booking conversion.
 - Export unresolved leads requiring human follow-up.
 - Confirm costs per call, SMS, email, and booking.
+- Review campaign leads, consultation requests, and masterclass registrations
+  that failed CRM sync or confirmation delivery.
 
 Incident priorities:
 
@@ -96,3 +152,11 @@ Target metrics:
 - At least 98% successful backend booking workflows when providers are healthy
 - Alert response tested
 - Confirmation retry tested
+
+If the Meta/ManyChat campaign path is part of the release, also complete:
+
+- At least 10 controlled ManyChat lead captures
+- At least 5 public consultation form submissions
+- At least 5 public masterclass registrations
+- No browser-exposed secrets in the deployed RNM website pages
+- Confirmation SMS/email delivered for each successful registration

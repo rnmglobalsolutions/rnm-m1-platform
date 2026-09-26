@@ -211,6 +211,9 @@ public sealed class CrmApplicationServiceTests
         Assert.Equal(CrmConsentStatuses.OptIn, result.ConsentStatus);
         Assert.Equal(1, adapter.UpsertCallCount);
         Assert.Equal(CrmConsentStatuses.OptIn, adapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.ConsentStatus]);
+        Assert.Equal(CrmConsentStatuses.OptIn, adapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.SmsConsentStatus]);
+        Assert.Equal("record_contact_consent", adapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.SmsConsentSourceField]);
+        Assert.False(string.IsNullOrWhiteSpace(adapter.LastUpsertRequest?.Attributes[CrmContactAttributeNames.SmsConsentDisclosureText]));
         var consentEvent = Assert.Single(adapter.TimelineEvents);
         Assert.Equal(CrmTimelineEventTypes.MarketingConsentInboundCallGranted, consentEvent.EventType);
         Assert.Equal("explicit_inbound_call_permission", consentEvent.Metadata["basis"]);
