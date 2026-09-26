@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Domain.Tenancy;
@@ -40,8 +41,17 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         }
 
         var json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
-        var dto = JsonSerializer.Deserialize<TenantConfigurationDto>(json, JsonOptions)
-            ?? throw new ConfigurationException($"Tenant configuration '{tenantId}' is empty or invalid JSON.");
+        TenantConfigurationDto dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<TenantConfigurationDto>(json, JsonOptions)
+                ?? throw new ConfigurationException($"Tenant configuration '{tenantId}' is empty or invalid JSON.");
+        }
+        catch (JsonException exception)
+        {
+            throw new ConfigurationException(
+                $"Tenant configuration '{tenantId}' is invalid or does not match the required schema: {exception.Message}");
+        }
 
         var configuration = dto.ToDomain();
         if (!string.Equals(configuration.TenantId.Value, tenantId, StringComparison.Ordinal))
@@ -296,7 +306,7 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? BusinessNotificationPhoneNumber,
         bool? NotifyBusinessBySmsForUrgentOnly,
         BusinessSmsNotificationConfigurationDto? BusinessSmsNotification,
-        AppointmentReminderConfigurationDto? AppointmentReminders);
+        [property: JsonRequired] AppointmentReminderConfigurationDto? AppointmentReminders);
 
     private static BusinessSmsNotificationConfiguration CreateBusinessSmsNotificationConfiguration(
         CommunicationConfigurationDto? communication)
@@ -331,9 +341,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         IReadOnlyCollection<string>? EqualsAny);
 
     private sealed record AppointmentReminderConfigurationDto(
-        ConfirmationTemplateConfigurationDto? Templates,
-        IReadOnlyCollection<int>? ReminderOffsetsMinutes,
-        int? ReminderStalenessCutoffMinutes);
+        [property: JsonRequired] ConfirmationTemplateConfigurationDto? Templates,
+        [property: JsonRequired] IReadOnlyCollection<int>? ReminderOffsetsMinutes,
+        [property: JsonRequired] int? ReminderStalenessCutoffMinutes);
 
     private sealed record ConfirmationTemplateConfigurationDto(
         string? SmsBodyTemplate,

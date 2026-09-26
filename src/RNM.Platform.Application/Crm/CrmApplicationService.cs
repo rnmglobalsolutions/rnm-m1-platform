@@ -720,8 +720,14 @@ public sealed class CrmApplicationService
             var tenant = await tenantConfigurationProvider
                 .GetTenantConfigurationAsync(request.TenantId, cancellationToken)
                 .ConfigureAwait(false);
-            var reminderConfig = tenant.Communication.EffectiveAppointmentReminders;
-            var futureOffsets = reminderConfig.EffectiveReminderOffsetsMinutes
+            var reminderConfig = tenant.Communication.AppointmentReminders;
+            if (reminderConfig?.IsEnabled is not true
+                || reminderConfig.ReminderOffsetsMinutes is not { Count: > 0 } reminderOffsets)
+            {
+                return;
+            }
+
+            var futureOffsets = reminderOffsets
                 .Distinct()
                 .Where(offsetMinutes => offsetMinutes > 0 && selectedSlot.StartsAt.AddMinutes(-offsetMinutes) > now)
                 .ToArray();

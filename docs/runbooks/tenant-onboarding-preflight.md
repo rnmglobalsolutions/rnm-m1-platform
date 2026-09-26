@@ -25,6 +25,12 @@ currently blocks unsupported providers, invalid tenant/vertical configuration,
 wildcard service areas, placeholder phone numbers, invalid email addresses, and
 placeholder secret names.
 
+Every tenant must include `communication.appointmentReminders`. Configure its
+`templates`, `reminderOffsetsMinutes`, and `reminderStalenessCutoffMinutes`
+fields in full when 1:1 appointment reminders are enabled. If the tenant does
+not use 1:1 appointments, keep the object and set all three fields explicitly to
+`null`. Omission and partial configuration are structural errors.
+
 It also lists, without reading their values:
 
 - the exact Key Vault secret names required by the selected providers;

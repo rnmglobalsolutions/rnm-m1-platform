@@ -53,6 +53,11 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                   "smsBodyTemplate": "Configured SMS {{bookingDate}}",
                   "emailSubjectTemplate": "Configured subject {{bookingDate}}",
                   "emailBodyTemplate": "Configured body {{bookingStart}}"
+                },
+                "appointmentReminders": {
+                  "templates": null,
+                  "reminderOffsetsMinutes": null,
+                  "reminderStalenessCutoffMinutes": null
                 }
               }
             }
@@ -70,6 +75,23 @@ public sealed class JsonConfigurationProviderTests : IDisposable
         Assert.Equal("tenant-a-twilio-auth-token", configuration.SecretNames.TwilioAuthToken);
         Assert.Equal("+15550001000", configuration.Communication.SmsFromPhoneNumber);
         Assert.Equal("Configured SMS {{bookingDate}}", configuration.Communication.ConfirmationTemplates.SmsBodyTemplate);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_RejectsAppointmentRemindersWithOmittedFields()
+    {
+        var json = CreateTenantJson("tenant-a", "[\"75001\"]")
+            .Replace("\"templates\": null,\n", string.Empty, StringComparison.Ordinal);
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            json);
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var exception = await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None));
+
+        Assert.Contains("required schema", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("templates", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -101,7 +123,12 @@ public sealed class JsonConfigurationProviderTests : IDisposable
               },
               "communication": {
                 "smsFromPhoneNumber": "+15550001000",
-                "confirmationTemplates": { "smsBodyTemplate": "Received" }
+                "confirmationTemplates": { "smsBodyTemplate": "Received" },
+                "appointmentReminders": {
+                  "templates": null,
+                  "reminderOffsetsMinutes": null,
+                  "reminderStalenessCutoffMinutes": null
+                }
               },
               "integrations": {
                 "manyChat": {
@@ -187,6 +214,11 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "confirmationTemplates": {
                   "smsBodyTemplate": "Configured SMS {{attr.intent}}",
                   "businessSmsBodyTemplate": "Business SMS {{attr.leadStatus}}"
+                },
+                "appointmentReminders": {
+                  "templates": null,
+                  "reminderOffsetsMinutes": null,
+                  "reminderStalenessCutoffMinutes": null
                 }
               }
             }
@@ -234,6 +266,11 @@ public sealed class JsonConfigurationProviderTests : IDisposable
                 "confirmationTemplates": {
                   "smsBodyTemplate": "Configured SMS {{bookingDate}}",
                   "businessSmsBodyTemplate": "Business SMS {{urgency}}"
+                },
+                "appointmentReminders": {
+                  "templates": null,
+                  "reminderOffsetsMinutes": null,
+                  "reminderStalenessCutoffMinutes": null
                 }
               }
             }
@@ -381,6 +418,11 @@ public sealed class JsonConfigurationProviderTests : IDisposable
             "emailFromAddress": "booking@example.com",
             "confirmationTemplates": {
               "smsBodyTemplate": "Booked {{bookingDateToken}}"
+            },
+            "appointmentReminders": {
+              "templates": null,
+              "reminderOffsetsMinutes": null,
+              "reminderStalenessCutoffMinutes": null
             }
           }
         }

@@ -33,6 +33,21 @@ Rules:
 - Phone numbers use E.164 format.
 - Use tenant-specific Key Vault secret names.
 - Do not share Twilio subaccounts or webhook secrets between customers.
+- Always include `communication.appointmentReminders` so every tenant manifest
+  has the same schema. For tenants that do not use 1:1 appointments, configure
+  the explicit disabled shape:
+
+```json
+"appointmentReminders": {
+  "templates": null,
+  "reminderOffsetsMinutes": null,
+  "reminderStalenessCutoffMinutes": null
+}
+```
+
+For tenants that use 1:1 appointments, all three fields are required. Reminder
+offsets and staleness tolerance must be supplied by the tenant; M1 does not
+provide timing defaults.
 
 ## Provider Setup
 

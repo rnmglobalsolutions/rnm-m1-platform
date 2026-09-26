@@ -81,8 +81,6 @@ public sealed record CommunicationConfiguration(
                 ["urgent", "emergency", "asap", "same-day", "today"])
             : BusinessSmsNotificationConfiguration.Always());
 
-    public AppointmentReminderConfiguration EffectiveAppointmentReminders =>
-        AppointmentReminders ?? new AppointmentReminderConfiguration();
 }
 
 public sealed record BusinessSmsNotificationConfiguration(
@@ -118,11 +116,10 @@ public sealed record AppointmentReminderConfiguration(
     IReadOnlyCollection<int>? ReminderOffsetsMinutes = null,
     int? ReminderStalenessCutoffMinutes = null)
 {
-    public IReadOnlyCollection<int> EffectiveReminderOffsetsMinutes =>
-        ReminderOffsetsMinutes is { Count: > 0 } ? ReminderOffsetsMinutes : [1440, 60];
-
-    public int EffectiveReminderStalenessCutoffMinutes =>
-        ReminderStalenessCutoffMinutes ?? 60;
+    public bool IsEnabled =>
+        Templates is not null
+        || ReminderOffsetsMinutes is not null
+        || ReminderStalenessCutoffMinutes is not null;
 }
 
 public sealed record ReportingConfiguration(

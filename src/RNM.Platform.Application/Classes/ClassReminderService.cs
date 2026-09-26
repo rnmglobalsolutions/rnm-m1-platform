@@ -260,8 +260,16 @@ public sealed class ClassReminderService
             return ClassReminderStatuses.Skipped;
         }
 
-        var appointmentReminderConfig = tenant.Communication.EffectiveAppointmentReminders;
-        var stalenessCutoff = TimeSpan.FromMinutes(appointmentReminderConfig.EffectiveReminderStalenessCutoffMinutes);
+        var appointmentReminderConfig = tenant.Communication.AppointmentReminders;
+        if (appointmentReminderConfig?.IsEnabled is not true
+            || appointmentReminderConfig.ReminderStalenessCutoffMinutes is not { } stalenessCutoffMinutes)
+        {
+            await RecordAppointmentReminderTimelineAsync(reminder, correlationId, CrmTimelineEventTypes.AppointmentReminderSkipped, "Appointment reminder skipped because appointment reminders are disabled.", "reminders_disabled", cancellationToken)
+                .ConfigureAwait(false);
+            return ClassReminderStatuses.Skipped;
+        }
+
+        var stalenessCutoff = TimeSpan.FromMinutes(stalenessCutoffMinutes);
         if (asOf - reminder.DueAt > stalenessCutoff)
         {
             await RecordAppointmentReminderTimelineAsync(reminder, correlationId, CrmTimelineEventTypes.AppointmentReminderSkipped, "Appointment reminder skipped because it was stale.", "stale", cancellationToken)

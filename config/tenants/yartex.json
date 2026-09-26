@@ -72,6 +72,15 @@
       "businessSmsBodyTemplate": "New Yartex lead\n{{customerName}}\n{{customerPhoneNumber}}\nFunnel: {{attr.funnelType}}\nClass: {{attr.leadClassification}}\nRoute: {{attr.recommendedRoute}}\nRef: {{correlationId}}",
       "businessEmailSubjectTemplate": "New Yartex lead: {{customerName}}",
       "businessEmailBodyTemplate": "New Yartex lead received\n\nName: {{customerName}}\nPhone: {{customerPhoneNumber}}\nEmail: {{customerEmail}}\nCampaign: {{campaignId}}\nFunnel: {{attr.funnelType}}\nMeta channel: {{attr.metaChannel}}\nTrigger: {{attr.triggerType}}\nKeyword: {{attr.keyword}}\nGoal: {{attr.primaryGoal}}\nTimeline: {{attr.timeline}}\nState: {{attr.state}}\nRequested next step: {{attr.requestedNextStep}}\nClassification: {{attr.leadClassification}}\nRecommended route: {{attr.recommendedRoute}}\nReasons: {{attr.classificationReasons}}\nReference: {{correlationId}}"
+    },
+    "appointmentReminders": {
+      "reminderOffsetsMinutes": [1440, 60],
+      "reminderStalenessCutoffMinutes": 60,
+      "templates": {
+        "smsBodyTemplate": "Reminder: your 1:1 consultation with {{businessName}} is scheduled for {{bookingDate}} at {{bookingTime}} {{timeZone}}.\nJoin: {{onlineMeetingUrl}}\nReply STOP to opt out.",
+        "emailSubjectTemplate": "Reminder: your 1:1 consultation with {{businessName}}",
+        "emailBodyTemplate": "Hi {{customerName}},\n\nThis is a reminder for your 1:1 consultation with {{businessName}}.\n\nDate: {{bookingDate}}\nTime: {{bookingTime}} {{timeZone}}\nJoin: {{onlineMeetingUrl}}\n\nReference: {{correlationId}}"
+      }
     }
   },
   "followUps": {

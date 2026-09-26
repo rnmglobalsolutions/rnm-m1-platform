@@ -304,9 +304,32 @@ public sealed class ConfigurationValidator : IConfigurationValidator
     {
         if (appointmentReminders is null)
         {
+            errors.Add("communication.appointmentReminders must be configured. Use null fields when appointment reminders are disabled.");
             return;
         }
 
+        if (!appointmentReminders.IsEnabled)
+        {
+            return;
+        }
+
+        if (appointmentReminders.Templates is null)
+        {
+            errors.Add("communication.appointmentReminders.templates is required when appointment reminders are enabled.");
+        }
+
+        AddRequired(
+            errors,
+            appointmentReminders.Templates?.SmsBodyTemplate,
+            "communication.appointmentReminders.templates.smsBodyTemplate");
+        AddRequired(
+            errors,
+            appointmentReminders.Templates?.EmailSubjectTemplate,
+            "communication.appointmentReminders.templates.emailSubjectTemplate");
+        AddRequired(
+            errors,
+            appointmentReminders.Templates?.EmailBodyTemplate,
+            "communication.appointmentReminders.templates.emailBodyTemplate");
         ValidateConfirmationTemplate(
             errors,
             appointmentReminders.Templates?.SmsBodyTemplate,
@@ -323,7 +346,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             "communication.appointmentReminders.templates.emailBodyTemplate",
             MaxEmailBodyTemplateLength);
 
-        if (appointmentReminders.ReminderOffsetsMinutes?.Any(value => value <= 0) is true)
+        if (appointmentReminders.ReminderOffsetsMinutes is not { Count: > 0 } reminderOffsets)
+        {
+            errors.Add("communication.appointmentReminders.reminderOffsetsMinutes is required when appointment reminders are enabled.");
+        }
+        else if (reminderOffsets.Any(value => value <= 0))
         {
             errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain positive minute values.");
         }
@@ -333,7 +360,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("communication.appointmentReminders.reminderOffsetsMinutes must contain five values or fewer.");
         }
 
-        if (appointmentReminders.ReminderStalenessCutoffMinutes is < 1)
+        if (appointmentReminders.ReminderStalenessCutoffMinutes is null)
+        {
+            errors.Add("communication.appointmentReminders.reminderStalenessCutoffMinutes is required when appointment reminders are enabled.");
+        }
+        else if (appointmentReminders.ReminderStalenessCutoffMinutes is < 1)
         {
             errors.Add("communication.appointmentReminders.reminderStalenessCutoffMinutes must be one or greater.");
         }

@@ -51,9 +51,9 @@ RNM_ACTIVE_TENANTS=yartex
 
 Multiple tenants are comma-separated.
 
-The same timer and due-work table also process appointment reminders. Configure
-appointment reminders under `communication.appointmentReminders`; do not create a
-second runner.
+The same timer and due-work table also process appointment reminders. Every
+tenant must include `communication.appointmentReminders`; do not create a second
+runner. Tenants that offer 1:1 appointments configure all fields:
 
 ```json
 {
@@ -70,6 +70,24 @@ second runner.
   }
 }
 ```
+
+Tenants that do not offer 1:1 appointments retain the same schema and disable
+the feature explicitly:
+
+```json
+{
+  "communication": {
+    "appointmentReminders": {
+      "templates": null,
+      "reminderOffsetsMinutes": null,
+      "reminderStalenessCutoffMinutes": null
+    }
+  }
+}
+```
+
+M1 does not supply appointment reminder timing defaults. An omitted or partially
+configured `appointmentReminders` block fails tenant configuration validation.
 
 ## Flow
 

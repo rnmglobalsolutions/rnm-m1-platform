@@ -35,6 +35,66 @@ public sealed class ConfigurationValidatorTests
     }
 
     [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenAppointmentRemindersAreNotConfigured()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                AppointmentReminders = null
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("communication.appointmentReminders", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsValid_WhenAppointmentRemindersAreExplicitlyDisabled()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                AppointmentReminders = new AppointmentReminderConfiguration(null, null, null)
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_ReturnsErrors_WhenAppointmentRemindersArePartiallyConfigured()
+    {
+        var validator = new ConfigurationValidator();
+        var validConfiguration = CreateValidTenantConfiguration();
+        var configuration = validConfiguration with
+        {
+            Communication = validConfiguration.Communication with
+            {
+                AppointmentReminders = new AppointmentReminderConfiguration(
+                    Templates: null,
+                    ReminderOffsetsMinutes: [1440, 60],
+                    ReminderStalenessCutoffMinutes: null)
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("appointmentReminders.templates", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("reminderStalenessCutoffMinutes", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValidateTenant_ReturnsErrors_WhenConfirmationTemplateUsesUnsupportedToken()
     {
         var validator = new ConfigurationValidator();
@@ -306,6 +366,7 @@ public sealed class ConfigurationValidatorTests
                 new ConfirmationTemplateConfiguration(
                     "SMS template {{bookingDate}}",
                     "Email subject {{bookingDate}}",
-                    "Email body {{bookingStart}}")));
+                    "Email body {{bookingStart}}"),
+                AppointmentReminders: new AppointmentReminderConfiguration(null, null, null)));
     }
 }
