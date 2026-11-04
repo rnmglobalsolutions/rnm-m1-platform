@@ -24,7 +24,7 @@ public sealed class ApplicationInsightsEventLogger : IEventLogger
     {
         try
         {
-            var safeProperties = properties
+            var safeProperties = CallTelemetryContext.Enrich(properties)
             .Where(property => !SafeTelemetryProperties.IsSensitiveName(property.Key))
             .ToDictionary(
                 property => property.Key,

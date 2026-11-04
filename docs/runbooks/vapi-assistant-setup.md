@@ -237,7 +237,7 @@ For the Vapi `apiRequest` Tool UI:
 - Add the request body fields manually if the UI does not allow pasting the whole schema.
 - Keep all required fields marked required.
 - Enable schema lock/no additional properties after all fields are added.
-- Do not add static body fields for the first M1 test.
+- Add one static parameter to every `apiRequest` tool (both `check_availability` and `book_appointment`): name `callId`, value `{{ call.id }}`. Vapi merges static parameters into the request body, so the direct body carries a root `callId` and M1 can link the tool calls of one call. Do not add other static body fields. Do not add `callId` to the schema's required fields or to the LLM-filled properties; Vapi fills it, not the model. Vapi documents `{{ call.id }}` for static parameters but this is not yet tested live: confirm on the first live test call (see "Trace a call by callId").
 - If the browser-based Test Tool shows a network/CORS error, retry with Vapi's CORS proxy option or test from Postman. Do not enable broad CORS on the main Function App for webhooks.
 
 Tool parameters:
@@ -468,6 +468,97 @@ Use another valid ZIP example:
 My heater is not working. I am at 456 Oak Street, Dallas, Texas 99999. I would like next Monday morning.
 ```
 
+## Trace a call by callId
+
+Use this to follow one phone call from the availability check to the booking, CRM, and confirmations.
+
+What carries `callId`:
+
+- Every custom event logged while handling an authenticated Vapi webhook, after the payload is parsed, has a `callId` custom dimension. M1 reads it from the payload (`callId`, `call.id`, or `message.callId`; `call` can be at the root or inside `message`).
+- The first events of each request do not have it: `webhook.received`, `tenant.resolved`, and the signature validation events (`webhook.validation_succeeded`, `webhook.validation_failed`), plus an `api.request_failed` for an unreadable payload. M1 reads `callId` only after the webhook secret is validated. KQL 1 reaches these events through `correlationId`.
+- The correlation ID stays one per webhook request (or the `x-correlation-id` header). One call has several correlation IDs, for example one for the availability check and one for the booking. `callId` ties them together.
+- Events from later invocations (confirmation retries, follow-ups, reminders) and Function App traces do not carry `callId`. Use the correlation ID stored with the booking or contact for those.
+
+Where to find the `callId`: Vapi dashboard, Call Logs, open the call. The call ID is shown at the top of the call detail (UUID).
+
+Run these in Application Insights, Logs, for the Function App resource. Set the time range to cover the call.
+
+KQL 1, full chain of a call. Replace `<CALL_ID>`:
+
+```kusto
+let targetCallId = "<CALL_ID>";
+let lookback = 3d;
+let correlationIds = customEvents
+    | where timestamp > ago(lookback)
+    | where tostring(customDimensions.callId) == targetCallId
+    | distinct correlationId = tostring(customDimensions.correlationId)
+    | where isnotempty(correlationId);
+customEvents
+| where timestamp > ago(lookback)
+| where tostring(customDimensions.correlationId) in (correlationIds)
+| project
+    timestamp,
+    name,
+    callId = tostring(customDimensions.callId),
+    correlationId = tostring(customDimensions.correlationId),
+    tenantId = tostring(customDimensions.tenantId),
+    toolName = tostring(customDimensions.toolName),
+    providerEventType = tostring(customDimensions.providerEventType),
+    outcome = tostring(customDimensions.outcome),
+    qualificationState = tostring(customDimensions.qualificationState),
+    serviceAreaState = tostring(customDimensions.serviceAreaState),
+    bookingState = tostring(customDimensions.bookingState),
+    bookingFailureReason = tostring(customDimensions.bookingFailureReason),
+    crmState = tostring(customDimensions.crmState),
+    confirmationState = tostring(customDimensions.confirmationState)
+| order by timestamp asc
+```
+
+Rows with an empty `callId` are the early events of the same requests. Rows where `outcome` or a state column is empty are events that do not report that field.
+
+KQL 2, recent callIds for a tenant. Replace `<TENANT_ID>`:
+
+```kusto
+customEvents
+| where timestamp > ago(1d)
+| where name == "voice.tool_call_received"
+| where tostring(customDimensions.tenantId) == "<TENANT_ID>"
+| where isnotempty(tostring(customDimensions.callId))
+| summarize
+    firstSeen = min(timestamp),
+    lastSeen = max(timestamp),
+    toolCalls = count()
+    by callId = tostring(customDimensions.callId)
+| order by lastSeen desc
+```
+
+KQL 3, coverage check: how many `voice.*` events have a `callId`, by event name.
+
+```kusto
+customEvents
+| where timestamp > ago(1d)
+| where name startswith "voice."
+| summarize
+    withCallId = countif(isnotempty(tostring(customDimensions.callId))),
+    withoutCallId = countif(isempty(tostring(customDimensions.callId)))
+    by name
+| order by name asc
+```
+
+Expected: `voice.tool_call_received`, `voice.tool_call_responded`, `voice.event_processed`, and `voice.event_unsupported` have `withoutCallId = 0` for Vapi calls. A non-zero `withoutCallId` means Vapi did not send a call ID in that message type, or the `apiRequest` static parameter is missing. Outbound campaign events are not part of this check.
+
+### Live-call check (Raisel)
+
+Run once after this change is deployed:
+
+1. Make one test call that reaches an availability check and a booking.
+2. Copy the `callId` from the Vapi dashboard Call Logs.
+3. Run KQL 1 with that `callId`.
+4. Confirm `callId` appears on the `voice.tool_call_received` and `voice.tool_call_responded` events for both tools, and that the availability and booking requests have different `correlationId` values but the same `callId`.
+5. Confirm `callId` appears on the `end-of-call-report` event (`voice.event_unsupported` or `voice.event_processed`) and on any `status-update` events. If a message type has none, note which one; the Vapi docs do not confirm `call` on every message type.
+6. For `apiRequest` tools, confirm the `callId` parameter arrives: the tool-call events show the call's `callId`. If they do not, check the `callId` = `{{ call.id }}` static parameter on that tool in Vapi and report the result.
+7. Run KQL 3 and confirm there are no `voice.*` events without `callId` from this call.
+
 ## Verification
 
 Before client demos:
@@ -484,7 +575,7 @@ Before client demos:
    - Google Calendar appointment created with the service address visible as the event location.
    - Twilio SMS sent when SMS is enabled.
    - SendGrid email sent to the confirmed email address.
-   - Application Insights has webhook, workflow, booking, CRM, confirmation, and SMS status telemetry under the correlation ID.
+   - Application Insights has webhook, workflow, booking, CRM, confirmation, and SMS status telemetry for the call. Use KQL 1 in "Trace a call by callId" with the call's `callId`; one call has several correlation IDs, one per webhook request.
 9. Make one test call using ZIP `99999` and verify the valid ZIP is accepted for the demo.
 10. Make one test call with an invalid ZIP such as `75A01` and verify the assistant asks for the ZIP again.
 11. Make one call where the issue sounds serious but the caller does not confirm urgency; verify the assistant uses `urgency=non_urgent` and asks for a preferred window.

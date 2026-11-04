@@ -108,6 +108,7 @@ public sealed class VapiInboundWebhookFunction
         var correlationContext = correlationContextFactory.FromRequest(request);
         var correlationId = correlationContext.Value;
         TenantContext? tenantContext = null;
+        IDisposable? callScope = null;
 
         try
         {
@@ -170,6 +171,9 @@ public sealed class VapiInboundWebhookFunction
                     HttpStatusCode.BadRequest,
                     safeErrorResponseFactory.CreateBadRequest(correlationId));
             }
+
+            // Only an authenticated, parsed webhook may attach its provider call ID to telemetry.
+            callScope = CallTelemetryContext.BeginCall(parseResult.Envelope.CallId);
 
             var inboundCallEvent = webhookMapper.Map(parseResult.Envelope, tenantContext, correlationId);
             if (inboundCallEvent.EventType is InboundCallEventType.Unsupported)
@@ -529,6 +533,10 @@ public sealed class VapiInboundWebhookFunction
                 request,
                 HttpStatusCode.InternalServerError,
                 safeErrorResponseFactory.CreateInternalServerError(correlationId));
+        }
+        finally
+        {
+            callScope?.Dispose();
         }
     }
 

@@ -33,7 +33,11 @@ service area.
   do not add a third path.
 - **`check_availability` runs the whole workflow** and ends in `MarkFollowUpRequired`
   (item 6).
-- **Each Vapi webhook gets a new correlation ID**, and `callId` is not logged (item 7a).
+- **One correlation ID per Vapi webhook request; one call has several.** Since #7a, events
+  logged after signature validation and parsing carry `callId` from `CallTelemetryContext`
+  (set once in `VapiInboundWebhookFunction`). Do not add `callId` by hand. In direct
+  `apiRequest` mode the parser also uses the root `callId` as `ToolCallId`, so never use
+  `ToolCallId`/`ProviderActionId` as an idempotency key there.
 - **Service area** (since #2): mode `zip`, `state`, or `none` from `ServiceAreaPolicy.Resolve`
   (tenant mode, else vertical, else `zip`). The caller's state comes only from a tool
   argument (`stateFields` aliases), normalized by `UsStates`; never log the value. An empty

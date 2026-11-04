@@ -29,7 +29,7 @@ Numbers are IDs, not build order. The build order and phases are in
 | 4 | Appointment type per tenant: onsite, Google Meet, or Zoom | Booking | todo |
 | 5 | SMS replies reach the business and stop follow-ups | Follow-up | todo |
 | 6 | Follow-up starts and stops at the right moments | Follow-up | todo |
-| 7a | Per-call tracing | Logs | todo |
+| 7a | Per-call tracing | Logs | done |
 | 7b | Hang-ups captured | Lead | todo |
 | 8 | Master class registration from every channel | Booking | todo |
 | 9 | Zoom created automatically for master classes | Booking | todo |

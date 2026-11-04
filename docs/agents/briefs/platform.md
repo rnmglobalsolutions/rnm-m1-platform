@@ -63,6 +63,10 @@
 - A contact attribute filtered server-side (`Attr_x eq ...`) must be a
   `CrmContactAttributeNames` constant; otherwise it can land in `AttributesOverflowJson`
   and the filter misses it (#17).
+- `ApplicationInsightsEventLogger` adds `callId` from `CallTelemetryContext` to every event
+  inside a Vapi call scope (#7a). Events logged elsewhere through other sinks do not get it.
+  Any new ambient (`AsyncLocal`) scope: open it only after authentication, synchronously,
+  dispose it in `finally`, and test that it is cleared after the handler returns.
 - Unused scaffold types: `Domain/Calls`, `Domain/Leads`, `Domain/Appointments`,
   `Contracts/Booking`, `Contracts/Messaging`, `SharedKernel/Results`, `SharedKernel/Time`.
   Do not build on them.
