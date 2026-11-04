@@ -89,6 +89,8 @@ public sealed class PackagingAndHostingTests
         Assert.Contains("'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.TwilioSmsInboundWebhook.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.ConfirmationRetry.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.SendGridEventWebhook.Disabled': 'true'", bicep);
+        Assert.Contains("'AzureWebJobs.EmailUnsubscribe.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.Readiness.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.TestEmailSend.Disabled': 'true'", bicep);
         Assert.Contains("'AzureWebJobs.Health.Disabled': 'true'", bicep);

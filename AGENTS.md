@@ -10,7 +10,7 @@ This repository is the long-term, industry-agnostic platform for RNM Global Solu
 
 The platform must support multiple industries over time:
 
-* HVAC (initial wedge)
+* HVAC
 * real estate
 * law
 * dental
@@ -29,10 +29,28 @@ The goal is to build a production-ready, multi-tenant, AI-powered revenue captur
 
 Build the smallest production slice that generates revenue now, without creating architectural damage later.
 
-Current wedge:
-HVAC inbound AI booking system
+Platform goal (M1):
 
-HVAC is not the platform identity.
+Every incoming lead, for any tenant, is captured, filtered, booked when qualified,
+stored in the CRM, and followed up automatically. Leads that do not book receive
+follow-up and nurturing. Each tenant receives a useful monthly report.
+
+Entry channels (tenant-agnostic):
+
+* Voice AI via Vapi
+* Facebook, Instagram, and WhatsApp via ManyChat
+* Web form (M1 public funnel)
+
+What a qualified lead can book:
+
+* 1:1 appointments, onsite or online
+* Master classes (one-to-many sessions)
+
+Calendars: Google Calendar or another provider behind `IBookingAdapter`.
+Online meetings: Google Meet or Zoom, chosen per tenant. Zoom meetings are always
+created in the tenant's own Zoom account, never in RNM's.
+
+Verticals are configuration only. A new vertical must ship with zero code.
 
 ---
 
@@ -40,16 +58,27 @@ HVAC is not the platform identity.
 
 ### ACTIVE
 
-Build only:
+Build only what is in `docs/backlog.md`. That backlog is the single source of
+priority. Anything not in it is deferred.
 
-1. inbound voice agent
-2. qualification flow
-3. service area validation
-4. booking adapter
-5. CRM adapter
-6. SMS and email confirmation
-7. logging and observability
-8. tenant and vertical configuration foundation
+`docs/implementation-plan.md` defines the phases, the agent team, how agents hand work
+to each other, and how they record lessons in `docs/agents/lessons.md`. Every agent
+follows it.
+
+`RNM_Global_Solutions_MegaPrompt.md` (outside this repo) is the business vision and
+moat roadmap. Where it differs from this file or the plan, this file and the plan win.
+Next after the current plan: **Platform RNM 2.0** (UI + Azure SQL).
+
+---
+
+### FROZEN
+
+These features exist. Keep them working, but do not extend them unless a backlog
+item requires it:
+
+* outbound calling campaigns
+* lead CSV import
+* contact system review form
 
 ---
 
@@ -58,17 +87,17 @@ Build only:
 * RAG systems
 * multi-agent orchestration layer (M3)
 * full dashboards or UI
-* multi-industry feature parity
-* complex analytics
+* website chat widget (ManyChat no longer offers one; websites link to Messenger, Instagram, or WhatsApp)
+* complex analytics beyond the monthly report
 * overengineered abstractions
 
 ---
 
 ## SUCCESS CRITERIA
 
-System is complete when:
+System is complete when, for any tenant:
 
-Call → Qualification → Booking → CRM → SMS/Email → Logs
+Lead (call, chat, or form) → Qualification and service area → Availability → Booking (1:1 or master class) → CRM → SMS/email confirmation and reminders → Follow-up / nurturing when not booked → Logs → Monthly report
 
 If this does not work end-to-end, stop adding features.
 
@@ -130,7 +159,7 @@ The current phase must not include:
 
 If a requested change crosses these boundaries, defer it unless it is required to complete:
 
-Call → Qualification → Booking → CRM → SMS/Email → Logs
+Lead → Qualification → Booking (1:1 or master class) → CRM → Confirmations and reminders → Follow-up / nurturing → Logs → Monthly report
 
 ---
 
@@ -155,7 +184,7 @@ Rules:
 
 Do not add features until this path works end-to-end:
 
-Call → Qualification → Booking → CRM → SMS/Email → Logs
+Lead → Qualification → Booking (1:1 or master class) → CRM → Confirmations and reminders → Follow-up / nurturing → Logs → Monthly report
 
 Rules:
 
@@ -176,6 +205,33 @@ Rules:
 * Tenant isolation is mandatory
 * Simplicity over complexity
 * Revenue-first over feature-first
+* Customizable per tenant without forking (see TENANT CUSTOMIZATION)
+
+---
+
+## TENANT CUSTOMIZATION
+
+M1 must adapt to each tenant's needs while staying one platform. Solve every tenant
+request at the lowest level that works:
+
+1. **Configuration.** Tenant JSON overrides the vertical: qualification fields and
+   rules, routes, templates, follow-up sequences, hours, service area, appointment
+   type, language, providers, and voice prompt additions. Custom lead fields need no
+   code: they are stored as contact attributes and used in templates as
+   `{{attr.fieldName}}`.
+2. **Connectors.** A new provider (CRM, calendar, meeting) is a new adapter behind an
+   existing port (`ICrmAdapter`, `IBookingAdapter`, conferencing adapter). Built once,
+   then available to every tenant through configuration.
+3. **Tenant events.** M1 sends signed events to a URL the tenant configures. The tenant
+   extends M1 with its own systems (Zapier, Make, its own API) without changing M1.
+4. **Custom code, last resort.** If nothing above works, build it as a general feature
+   behind a configuration flag that any tenant can enable.
+
+Never:
+
+* fork the code or keep a branch per tenant
+* check a tenant ID or tenant name in code (`if tenant == ...`)
+* build a generic plugin system before a tenant needs it
 
 ---
 
@@ -227,9 +283,10 @@ Rules:
 
 Rules:
 
-* Keep minimal for now
-* Do not build full UI yet
-* Must be ready for M3 expansion
+* Do not build UI in the current plan
+* The UI is built in **Platform RNM 2.0**, together with the move from Azure Table
+  Storage to Azure SQL (ADR 0004)
+* Keep current code ready for that move: storage stays behind adapters
 
 ---
 

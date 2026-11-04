@@ -264,6 +264,47 @@ public sealed class ConfigurationValidatorTests
     }
 
     [Theory]
+    [InlineData("not-an-email", null, null, "communication.replyToAddress must be a valid email address.")]
+    [InlineData(null, "Yartex <news@example.com>", null, "communication.marketingEmailFromAddress must be a plain email address.")]
+    [InlineData(null, null, "Line 1\nLine 2", "communication.postalAddress must be 1 to 300 characters on a single line.")]
+    public void ValidateTenant_ValidatesEmailSenderFields(string? replyTo, string? marketingFrom, string? postalAddress, string expectedError)
+    {
+        var validator = new ConfigurationValidator();
+        var valid = CreateValidTenantConfiguration();
+        var configuration = valid with
+        {
+            Communication = valid.Communication with
+            {
+                ReplyToAddress = replyTo,
+                MarketingEmailFromAddress = marketingFrom,
+                PostalAddress = postalAddress
+            }
+        };
+
+        var result = validator.ValidateTenant(configuration);
+
+        Assert.Contains(expectedError, result.Errors);
+    }
+
+    [Fact]
+    public void ValidateTenant_AcceptsEmailSenderFields()
+    {
+        var validator = new ConfigurationValidator();
+        var valid = CreateValidTenantConfiguration();
+        var configuration = valid with
+        {
+            Communication = valid.Communication with
+            {
+                ReplyToAddress = "owner@example.com",
+                MarketingEmailFromAddress = "news@news.example.com",
+                PostalAddress = "100 Main St, Austin, TX 78701"
+            }
+        };
+
+        Assert.True(validator.ValidateTenant(configuration).IsValid);
+    }
+
+    [Theory]
     [InlineData("tenant-a-twilio-auth-token", "must start with 'rnm-tenant-'")]
     [InlineData("rnm-tenant-a_twilio_token", "must be a valid Key Vault secret name")]
     public void ValidateTenant_ReturnsErrors_WhenSecretNameBreaksTheNamingRule(string secretName, string expectedError)

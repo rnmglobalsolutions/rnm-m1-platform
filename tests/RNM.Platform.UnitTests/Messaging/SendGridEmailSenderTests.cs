@@ -1,5 +1,6 @@
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.Confirmations;
+using RNM.Platform.Application.Ports.Messaging;
 using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Domain.Tenancy;
 using RNM.Platform.Infrastructure.Messaging;
@@ -8,6 +9,7 @@ using Xunit;
 
 namespace RNM.Platform.UnitTests.Messaging;
 
+[Collection(SendGridEnvironmentCollection.Name)]
 public sealed class SendGridEmailSenderTests
 {
     [Fact]
@@ -18,6 +20,7 @@ public sealed class SendGridEmailSenderTests
         var sender = new SendGridEmailSender(
             new FakeTenantConfigurationProvider(),
             transport,
+            new FakeUnsubscribeLinkFactory(),
             NullLogger<SendGridEmailSender>.Instance);
 
         var result = await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
@@ -38,6 +41,7 @@ public sealed class SendGridEmailSenderTests
         var sender = new SendGridEmailSender(
             new FakeTenantConfigurationProvider(),
             transport,
+            new FakeUnsubscribeLinkFactory(),
             NullLogger<SendGridEmailSender>.Instance);
 
         var result = await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
@@ -58,6 +62,7 @@ public sealed class SendGridEmailSenderTests
             {
                 Response = new SendGridEmailSendResponse(false)
             },
+            new FakeUnsubscribeLinkFactory(),
             NullLogger<SendGridEmailSender>.Instance);
 
         var result = await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
@@ -78,6 +83,7 @@ public sealed class SendGridEmailSenderTests
             {
                 ExceptionToThrow = new OperationCanceledException()
             },
+            new FakeUnsubscribeLinkFactory(),
             NullLogger<SendGridEmailSender>.Instance);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -91,6 +97,79 @@ public sealed class SendGridEmailSenderTests
             "lead@example.com",
             "Email subject",
             "Email body");
+
+    [Fact]
+    public async Task SendEmailAsync_Transactional_SetsReplyToTrackingOffAndTenantMetadata()
+    {
+        using var _ = TemporaryEnvironmentVariable.Set("SENDGRID_API_KEY", "sendgrid-key");
+        var transport = new FakeSendGridEmailTransport();
+        var sender = CreateSender(transport, new FakeTenantConfigurationProvider { ReplyTo = "owner@example.com" });
+
+        await sender.SendEmailAsync(CreateRequest(), CancellationToken.None);
+
+        var message = Assert.IsType<SendGridEmailMessage>(transport.LastMessage);
+        Assert.Equal("owner@example.com", message.ReplyToEmail);
+        Assert.Equal("tenant-a", message.CustomArgs[SendGridCustomArgs.TenantId]);
+        Assert.Equal("corr-123", message.CustomArgs[SendGridCustomArgs.CorrelationId]);
+        Assert.Equal("transactional", message.CustomArgs[SendGridCustomArgs.EmailCategory]);
+        Assert.Equal(["transactional", "tenant-tenant-a"], message.Categories);
+        Assert.Empty(message.Headers);
+        Assert.Equal("Email body", message.Body);
+    }
+
+    [Fact]
+    public async Task SendEmailAsync_Marketing_UsesMarketingSenderUnsubscribeHeadersAndFooter()
+    {
+        using var _ = TemporaryEnvironmentVariable.Set("SENDGRID_API_KEY", "sendgrid-key");
+        var transport = new FakeSendGridEmailTransport();
+        var sender = CreateSender(transport, new FakeTenantConfigurationProvider
+        {
+            MarketingFrom = "news@news.example.com",
+            PostalAddress = "100 Main St, Austin, TX 78701"
+        });
+
+        var result = await sender.SendEmailAsync(CreateRequest() with { Category = EmailCategory.Marketing }, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        var message = Assert.IsType<SendGridEmailMessage>(transport.LastMessage);
+        Assert.Equal("news@news.example.com", message.FromEmail);
+        Assert.Equal("<https://m1.example.com/unsubscribe>", message.Headers["List-Unsubscribe"]);
+        Assert.Equal("List-Unsubscribe=One-Click", message.Headers["List-Unsubscribe-Post"]);
+        Assert.Contains("100 Main St, Austin, TX 78701", message.Body);
+        Assert.Contains("https://m1.example.com/unsubscribe", message.Body);
+        Assert.Equal("marketing", message.CustomArgs[SendGridCustomArgs.EmailCategory]);
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("100 Main St, Austin, TX 78701", false)]
+    public async Task SendEmailAsync_Marketing_IsNotSentWithoutPostalAddressOrUnsubscribeLink(string? postalAddress, bool linkAvailable)
+    {
+        using var _ = TemporaryEnvironmentVariable.Set("SENDGRID_API_KEY", "sendgrid-key");
+        var transport = new FakeSendGridEmailTransport();
+        var sender = new SendGridEmailSender(
+            new FakeTenantConfigurationProvider { PostalAddress = postalAddress },
+            transport,
+            new FakeUnsubscribeLinkFactory { Available = linkAvailable },
+            NullLogger<SendGridEmailSender>.Instance);
+
+        var result = await sender.SendEmailAsync(CreateRequest() with { Category = EmailCategory.Marketing }, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("marketing_compliance_unavailable", result.Message);
+        Assert.Equal(0, transport.SendCallCount);
+    }
+
+    private static SendGridEmailSender CreateSender(FakeSendGridEmailTransport transport, FakeTenantConfigurationProvider tenants) =>
+        new(tenants, transport, new FakeUnsubscribeLinkFactory(), NullLogger<SendGridEmailSender>.Instance);
+
+    private sealed class FakeUnsubscribeLinkFactory : IEmailUnsubscribeLinkFactory
+    {
+        public bool Available { get; init; } = true;
+
+        public Task<Uri?> CreateAsync(string tenantId, string email, CancellationToken cancellationToken) =>
+            Task.FromResult(Available ? new Uri("https://m1.example.com/unsubscribe") : null);
+    }
 
     private sealed class FakeSendGridEmailTransport : ISendGridEmailTransport
     {
@@ -121,6 +200,12 @@ public sealed class SendGridEmailSenderTests
 
     private sealed class FakeTenantConfigurationProvider : ITenantConfigurationProvider
     {
+        public string? ReplyTo { get; init; }
+
+        public string? MarketingFrom { get; init; }
+
+        public string? PostalAddress { get; init; }
+
         public Task<TenantConfiguration> GetTenantConfigurationAsync(
             string tenantId,
             CancellationToken cancellationToken)
@@ -145,7 +230,10 @@ public sealed class SendGridEmailSenderTests
                     new ConfirmationTemplateConfiguration(
                         "Sms body",
                         "Email subject",
-                        "Email body"))));
+                        "Email body"),
+                    ReplyToAddress: ReplyTo,
+                    MarketingEmailFromAddress: MarketingFrom,
+                    PostalAddress: PostalAddress)));
         }
     }
 

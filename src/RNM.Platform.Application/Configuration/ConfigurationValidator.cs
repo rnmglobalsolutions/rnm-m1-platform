@@ -121,6 +121,14 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         {
             errors.Add("communication.smsRetryStalenessCutoffMinutes must be one or greater when configured.");
         }
+
+        ValidateOptionalEmail(errors, tenantConfiguration.Communication.ReplyToAddress, "communication.replyToAddress");
+        ValidateOptionalEmail(errors, tenantConfiguration.Communication.MarketingEmailFromAddress, "communication.marketingEmailFromAddress");
+        if (tenantConfiguration.Communication.PostalAddress is { } postalAddress
+            && (string.IsNullOrWhiteSpace(postalAddress) || postalAddress.Length > 300 || postalAddress.Any(char.IsControl)))
+        {
+            errors.Add("communication.postalAddress must be 1 to 300 characters on a single line.");
+        }
         AddRequired(errors, tenantConfiguration.Communication.ConfirmationTemplates.SmsBodyTemplate, "communication.confirmationTemplates.smsBodyTemplate");
         ValidateConfirmationTemplate(
             errors,
@@ -236,6 +244,26 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             {
                 errors.Add($"secretNames.{field} must be a valid Key Vault secret name (letters, digits and '-', up to 127 characters).");
             }
+        }
+    }
+
+    private static void ValidateOptionalEmail(ICollection<string> errors, string? value, string fieldName)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!string.Equals(new System.Net.Mail.MailAddress(value).Address, value, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{fieldName} must be a plain email address.");
+            }
+        }
+        catch (FormatException)
+        {
+            errors.Add($"{fieldName} must be a valid email address.");
         }
     }
 

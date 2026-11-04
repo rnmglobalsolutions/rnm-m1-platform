@@ -5,6 +5,8 @@ set -euo pipefail
 PLATFORM_SECRETS=(
   "internalApiKey:rnm-internal-api-key"
   "sendGridApiKey:rnm-sendgrid-api-key"
+  "sendGridWebhookVerificationKey:rnm-sendgrid-webhook-verification-key"
+  "emailUnsubscribeSigningKey:rnm-email-unsubscribe-signing-key"
 )
 
 usage() {

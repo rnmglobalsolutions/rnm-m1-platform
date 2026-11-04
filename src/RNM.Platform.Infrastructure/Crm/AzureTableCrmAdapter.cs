@@ -605,27 +605,42 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
                 .ConfigureAwait(false);
             var existingPhone = ReadString(existingEntity, "Phone");
             var optedOutAt = DateTimeOffset.UtcNow;
+            var isEmail = request.Channel is ConsentChannel.Email;
             var contact = new TableEntity(request.TenantId, providerContactId)
             {
-                // STOP revokes SMS and outbound-call consent (outbound campaigns read consentStatus); email is unaffected.
-                [AttributePropertyName(CrmContactAttributeNames.ConsentStatus)] = CrmConsentStatuses.OptedOut,
-                [AttributePropertyName(CrmContactAttributeNames.SmsConsentStatus)] = CrmConsentStatuses.OptedOut,
-                [AttributePropertyName(CrmContactAttributeNames.ConsentOptedOutAt)] = optedOutAt.ToString("O"),
                 ["UpdatedAt"] = optedOutAt,
                 ["CorrelationId"] = request.CorrelationId
             };
+            if (isEmail)
+            {
+                // Email unsubscribe or complaint: SMS and outbound-call consent are unaffected.
+                contact[AttributePropertyName(CrmContactAttributeNames.EmailConsentStatus)] = CrmConsentStatuses.OptedOut;
+                contact[AttributePropertyName(CrmContactAttributeNames.EmailConsentOptedOutAt)] = optedOutAt.ToString("O");
+            }
+            else
+            {
+                // STOP revokes SMS and outbound-call consent (outbound campaigns read consentStatus); email is unaffected.
+                contact[AttributePropertyName(CrmContactAttributeNames.ConsentStatus)] = CrmConsentStatuses.OptedOut;
+                contact[AttributePropertyName(CrmContactAttributeNames.SmsConsentStatus)] = CrmConsentStatuses.OptedOut;
+                contact[AttributePropertyName(CrmContactAttributeNames.ConsentOptedOutAt)] = optedOutAt.ToString("O");
+            }
+
             AddIfPresent(contact, "Phone", Normalize(request.PhoneNumber));
             AddIfPresent(contact, "Email", Normalize(request.Email));
 
             await table.UpsertEntityAsync(contact, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
-            await TryUpdatePhoneIndexAsync(
-                    request.TenantId,
-                    providerContactId,
-                    existingPhone,
-                    request.PhoneNumber,
-                    request.CorrelationId,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
+            {
+                // Only when the request carries a phone; otherwise the existing index entry would be deleted.
+                await TryUpdatePhoneIndexAsync(
+                        request.TenantId,
+                        providerContactId,
+                        existingPhone,
+                        request.PhoneNumber,
+                        request.CorrelationId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             await TryAddTimelineEventAsync(
                     request.TenantId,
@@ -637,9 +652,8 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
                     {
                         ["source"] = request.Source,
                         ["reason"] = request.Reason ?? string.Empty,
-                        ["channel"] = "sms",
-                        ["consentStatus"] = CrmConsentStatuses.OptedOut,
-                        ["smsConsentStatus"] = CrmConsentStatuses.OptedOut,
+                        ["channel"] = isEmail ? "email" : "sms",
+                        [isEmail ? "emailConsentStatus" : "smsConsentStatus"] = CrmConsentStatuses.OptedOut,
                         ["optedOutAt"] = optedOutAt.ToString("O")
                     },
                     cancellationToken)

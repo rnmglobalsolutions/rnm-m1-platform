@@ -14,15 +14,18 @@ public sealed partial class SendGridEmailSender : IEmailSender
     private const string ApiKeyEnvironmentVariableName = "SENDGRID_API_KEY";
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
     private readonly ISendGridEmailTransport transport;
+    private readonly IEmailUnsubscribeLinkFactory unsubscribeLinkFactory;
     private readonly ILogger<SendGridEmailSender> logger;
 
     public SendGridEmailSender(
         ITenantConfigurationProvider tenantConfigurationProvider,
         ISendGridEmailTransport transport,
+        IEmailUnsubscribeLinkFactory unsubscribeLinkFactory,
         ILogger<SendGridEmailSender> logger)
     {
         this.tenantConfigurationProvider = tenantConfigurationProvider;
         this.transport = transport;
+        this.unsubscribeLinkFactory = unsubscribeLinkFactory;
         this.logger = logger;
     }
 
@@ -46,7 +49,9 @@ public sealed partial class SendGridEmailSender : IEmailSender
                 .GetTenantConfigurationAsync(request.TenantId, cancellationToken)
                 .ConfigureAwait(false);
 
-            var fromEmail = tenantConfiguration.Communication.EmailFromAddress;
+            var communication = tenantConfiguration.Communication;
+            var isMarketing = request.Category is EmailCategory.Marketing;
+            var fromEmail = isMarketing ? communication.EffectiveMarketingEmailFromAddress : communication.EmailFromAddress;
             if (string.IsNullOrWhiteSpace(fromEmail))
             {
                 logger.LogWarning(
@@ -56,12 +61,49 @@ public sealed partial class SendGridEmailSender : IEmailSender
                 return Failed("missing_sender");
             }
 
+            var body = request.Body;
+            var headers = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (isMarketing)
+            {
+                // CAN-SPAM and the Gmail/Yahoo sender rules: marketing mail needs a working one-click
+                // unsubscribe and the sender's postal address. Without both, the email is not sent.
+                var unsubscribeLink = string.IsNullOrWhiteSpace(communication.PostalAddress)
+                    ? null
+                    : await unsubscribeLinkFactory.CreateAsync(request.TenantId, request.ToEmail, cancellationToken).ConfigureAwait(false);
+                if (unsubscribeLink is null)
+                {
+                    logger.LogWarning(
+                        "SendGrid marketing email skipped because the postal address or unsubscribe link is unavailable. TenantId={TenantId} CorrelationId={CorrelationId} HasPostalAddress={HasPostalAddress}",
+                        request.TenantId,
+                        request.CorrelationId,
+                        !string.IsNullOrWhiteSpace(communication.PostalAddress));
+                    return Failed("marketing_compliance_unavailable");
+                }
+
+                body = $"{body}\n\n--\n{tenantConfiguration.BusinessName}\n{communication.PostalAddress}\nDarse de baja / Unsubscribe: {unsubscribeLink}";
+                headers["List-Unsubscribe"] = $"<{unsubscribeLink}>";
+                headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+            }
+
+            var category = isMarketing ? "marketing" : "transactional";
             var message = new SendGridEmailMessage(
                 FromEmail: fromEmail,
                 FromName: tenantConfiguration.BusinessName,
                 ToEmail: request.ToEmail,
                 Subject: request.Subject,
-                Body: request.Body);
+                Body: body)
+            {
+                ReplyToEmail = communication.ReplyToAddress,
+                Headers = headers,
+                // Returned on every Event Webhook event so bounces and complaints map back to the tenant.
+                CustomArgs = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [SendGridCustomArgs.TenantId] = request.TenantId,
+                    [SendGridCustomArgs.CorrelationId] = request.CorrelationId,
+                    [SendGridCustomArgs.EmailCategory] = category
+                },
+                Categories = [category, $"tenant-{request.TenantId}"]
+            };
 
             logger.LogInformation(
                 "Sending SendGrid email. TenantId={TenantId} CorrelationId={CorrelationId} FromDomain={FromDomain} ToDomain={ToDomain} SubjectLength={SubjectLength} BodyLength={BodyLength}",
@@ -163,7 +205,26 @@ public sealed record SendGridEmailMessage(
     string? FromName,
     string ToEmail,
     string Subject,
-    string Body);
+    string Body)
+{
+    public string? ReplyToEmail { get; init; }
+
+    public IReadOnlyDictionary<string, string> Headers { get; init; } = new Dictionary<string, string>();
+
+    public IReadOnlyDictionary<string, string> CustomArgs { get; init; } = new Dictionary<string, string>();
+
+    public IReadOnlyList<string> Categories { get; init; } = [];
+}
+
+/// <summary>
+/// custom_args names M1 attaches to every message; the Event Webhook echoes them on each event.
+/// </summary>
+public static class SendGridCustomArgs
+{
+    public const string TenantId = "rnmTenantId";
+    public const string CorrelationId = "rnmCorrelationId";
+    public const string EmailCategory = "rnmEmailCategory";
+}
 
 public sealed record SendGridEmailSendResponse(
     bool IsSuccess,
@@ -193,6 +254,31 @@ public sealed class SendGridEmailTransport : ISendGridEmailTransport
             PlainTextContent = message.Body
         };
         sendGridMessage.AddTo(new EmailAddress(message.ToEmail));
+        if (!string.IsNullOrWhiteSpace(message.ReplyToEmail))
+        {
+            sendGridMessage.SetReplyTo(new EmailAddress(message.ReplyToEmail));
+        }
+
+        foreach (var (name, value) in message.Headers)
+        {
+            sendGridMessage.AddHeader(name, value);
+        }
+
+        foreach (var (name, value) in message.CustomArgs)
+        {
+            sendGridMessage.AddCustomArg(name, value);
+        }
+
+        if (message.Categories.Count > 0)
+        {
+            sendGridMessage.AddCategories(message.Categories.ToList());
+        }
+
+        // Link rewriting breaks meeting links and looks like phishing; opens are not needed. Unsubscribe is
+        // handled by M1 per tenant, never by SendGrid's account-wide subscription tracking.
+        sendGridMessage.SetClickTracking(false, false);
+        sendGridMessage.SetOpenTracking(false);
+        sendGridMessage.SetSubscriptionTracking(false);
 
         var response = await client
             .SendEmailAsync(sendGridMessage, cancellationToken)

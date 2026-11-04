@@ -149,7 +149,10 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                                     Communication.AppointmentReminders.Templates.BusinessEmailBodyTemplate),
                             Communication.AppointmentReminders.ReminderOffsetsMinutes,
                             Communication.AppointmentReminders.ReminderStalenessCutoffMinutes),
-                    Communication?.SmsRetryStalenessCutoffMinutes),
+                    Communication?.SmsRetryStalenessCutoffMinutes,
+                    Communication?.ReplyToAddress,
+                    Communication?.MarketingEmailFromAddress,
+                    Communication?.PostalAddress),
                 new ReportingConfiguration(
                     Reporting?.CloseRate,
                     Reporting?.AvgCommissionValue,
@@ -322,7 +325,10 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
         string? BusinessNotificationPhoneNumber,
         bool? NotifyBusinessBySmsForUrgentOnly,
         BusinessSmsNotificationConfigurationDto? BusinessSmsNotification,
-        [property: JsonRequired] AppointmentReminderConfigurationDto? AppointmentReminders);
+        [property: JsonRequired] AppointmentReminderConfigurationDto? AppointmentReminders,
+        string? ReplyToAddress,
+        string? MarketingEmailFromAddress,
+        string? PostalAddress);
 
     private static BusinessSmsNotificationConfiguration CreateBusinessSmsNotificationConfiguration(
         CommunicationConfigurationDto? communication)
