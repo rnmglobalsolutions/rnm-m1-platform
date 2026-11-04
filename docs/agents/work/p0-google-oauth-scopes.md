@@ -1,6 +1,6 @@
 # P0-5: Full Google OAuth scope list for M1
 
-Status: waiting for Raisel
+Status: decided
 Branch: none (documentation only)
 
 Source: `docs/implementation-plan.md`, Phase 0, step 5; `docs/backlog.md`, Google OAuth
@@ -66,4 +66,18 @@ Sources:
 
 ## Decision
 
-(Raisel: approve the list above, or change it, before requesting verification.)
+Approved by Raisel on 2026-11-03: request these five scopes at verification, exactly as
+in the table above.
+
+```text
+https://www.googleapis.com/auth/calendar.events
+https://www.googleapis.com/auth/calendar.freebusy
+https://www.googleapis.com/auth/meetings.space.readonly
+openid
+https://www.googleapis.com/auth/userinfo.email
+```
+
+Follow-up done in the same change: the manual connect script and runbook request all
+five, so tenants connected from now on do not need to reconnect when items 10 and 13
+start using the new scopes. Open for item 10: Meet participants have no email (see
+Research).

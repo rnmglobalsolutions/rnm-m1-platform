@@ -38,19 +38,26 @@ Use one Google Cloud project for this manual pilot.
 1. Open Google Cloud Console.
 2. Select or create the project used for M1 calendar integrations.
 3. Go to **APIs & Services > Library**.
-4. Enable **Google Calendar API**.
+4. Enable **Google Calendar API** and **Google Meet REST API** (Meet is used later for
+   master class attendance, item 10).
 5. Go to **APIs & Services > OAuth consent screen**.
 6. Choose **External** user type.
 7. Complete the app information.
-8. Keep the app in **Testing** for the pilot.
-9. Add Kenny's Google account as a **Test user**.
-10. Add yourself as a test user first so you can smoke test with your own
-    calendar before Kenny.
-11. Add these scopes:
+8. Publish the app (**In production**). Do not leave it in **Testing**: in Testing,
+   refresh tokens with calendar scopes expire after 7 days and every connected calendar
+   stops working. Until Google verifies the app, tenants see an "unverified app" warning
+   and there is a cap of 100 users.
+9. Reconnect any calendar that was authorized while the app was in Testing.
+10. Smoke test with your own calendar before connecting a tenant.
+11. Add these scopes (the full list approved for verification; request them all now so
+    tenants do not have to reconnect later):
 
 ```text
 https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/calendar.freebusy
+https://www.googleapis.com/auth/meetings.space.readonly
+openid
+https://www.googleapis.com/auth/userinfo.email
 ```
 
 12. Go to **APIs & Services > Credentials**.
@@ -118,14 +125,20 @@ The response should include:
   "access_token": "...",
   "expires_in": 3599,
   "refresh_token": "...",
-  "scope": "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy",
+  "scope": "openid https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/userinfo.email",
   "token_type": "Bearer"
 }
 ```
 
 If `refresh_token` is missing, revoke the app access in the Google account and
-repeat the authorization with `prompt=consent`. Also confirm the user is listed
-as a test user while the app is in Testing mode.
+repeat the authorization with `prompt=consent`. If the response also has an
+`id_token`, ignore it; M1 stores only the refresh token.
+
+A refresh token also stops working if it is unused for 6 months, if the user revokes
+access, or if the same Google account authorizes this client more than 100 times (the
+oldest token is dropped). Google then answers token refreshes with `invalid_grant`;
+reconnect with this runbook. M1 does not detect this on its own yet (item 13 adds the
+daily connection check and alert).
 
 ## Tenant Secret Format
 
