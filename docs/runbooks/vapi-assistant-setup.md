@@ -324,6 +324,9 @@ Tool parameters:
 
 ## State-Mode Assistants (Life Insurance)
 
+The base voice prompt for these assistants is `config/prompts/life-insurance-inbound-voice.md`
+(the HVAC one is `config/prompts/hvac-inbound-voice.md`).
+
 The HVAC schemas above are for ZIP-mode verticals. A vertical or tenant whose
 effective service area mode is `state` (the `life-insurance` vertical, for
 example Yartex) qualifies a caller by US state, not by ZIP. Its tools differ from

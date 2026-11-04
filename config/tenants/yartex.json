@@ -7,7 +7,7 @@
     "states": ["CA", "FL", "NE", "TX"],
     "zipCodes": [],
     "cities": [],
-    "referralMessage": "Yartex can review the request and follow up with next steps."
+    "referralMessage": "Yartex is currently licensed in California, Florida, Nebraska, and Texas. A team member can follow up with you about other options."
   },
   "providers": {
     "crmProvider": "AzureTable",
