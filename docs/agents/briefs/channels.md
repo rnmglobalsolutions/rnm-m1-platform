@@ -33,7 +33,11 @@ service area.
   do not add a third path.
 - **`check_availability` runs the whole workflow** and ends in `MarkFollowUpRequired`
   (item 6).
-- **Each Vapi webhook gets a new correlation ID**, and `callId` is not logged (item 7a).
+- **One correlation ID per Vapi webhook request; one call has several.** Since #7a, events
+  logged after signature validation and parsing carry `callId` from `CallTelemetryContext`
+  (set once in `VapiInboundWebhookFunction`). Do not add `callId` by hand. In direct
+  `apiRequest` mode the parser also uses the root `callId` as `ToolCallId`, so never use
+  `ToolCallId`/`ProviderActionId` as an idempotency key there.
 - **Service area**: an empty `zipCodes` list returns `NeedsEscalation`; a missing ZIP
   returns `MissingRequiredFields`. `cities` is never read (item 2).
 - **HVAC words are hardcoded** in `VapiInboundWebhookFunction` (urgency signals). Move

@@ -1453,7 +1453,7 @@ public sealed class EndpointTelemetryTests
         return Assert.Single(values);
     }
 
-    private sealed class RecordingCrmAdapter : ICrmAdapter
+    internal sealed class RecordingCrmAdapter : ICrmAdapter
     {
         public CrmContactLookupResult LookupResult { get; init; } = new(false, null);
 
