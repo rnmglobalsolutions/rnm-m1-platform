@@ -1,5 +1,6 @@
 using Azure.Core;
 using Azure.Data.Tables;
+using RNM.Platform.Application.Observability;
 using RNM.Platform.Infrastructure.Crm;
 using Xunit;
 
@@ -96,7 +97,7 @@ public sealed class AzuriteTableFixture : IAsyncLifetime
     /// Builds a real <see cref="AzureTableCrmAdapter"/> against Azurite. The adapter reads its settings from
     /// environment variables in its constructor, so they are set only for the construction and then restored.
     /// </summary>
-    public AzureTableCrmAdapter CreateAdapter()
+    public AzureTableCrmAdapter CreateAdapter(IEventLogger? eventLogger = null)
     {
         var saved = AdapterVariables.ToDictionary(name => name, Environment.GetEnvironmentVariable);
         try
@@ -112,7 +113,7 @@ public sealed class AzuriteTableFixture : IAsyncLifetime
                 Environment.SetEnvironmentVariable(name, value);
             }
 
-            return new AzureTableCrmAdapter();
+            return new AzureTableCrmAdapter(eventLogger);
         }
         finally
         {
@@ -122,6 +123,12 @@ public sealed class AzuriteTableFixture : IAsyncLifetime
             }
         }
     }
+
+    /// <summary>
+    /// Raw client for this run's contacts table, so tests can inspect the stored row itself
+    /// (Azurite does not enforce the 255-property limit).
+    /// </summary>
+    public TableClient GetContactsTableClient() => new(ConnectionString, tableNames["RNM_CRM_CONTACTS_TABLE_NAME"]);
 
     private static void EnsureEmulatorOnly(string connectionString)
     {
