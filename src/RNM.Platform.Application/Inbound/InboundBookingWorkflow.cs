@@ -21,6 +21,9 @@ public interface IInboundBookingWorkflow
 
 public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
 {
+    private const string VoiceLeadSource = "InboundVoice";
+    private const string VoiceCampaignId = "inbound-voice";
+
     private readonly ITenantConfigurationProvider tenantConfigurationProvider;
     private readonly IVerticalConfigurationProvider verticalConfigurationProvider;
     private readonly QualificationService qualificationService;
@@ -364,17 +367,29 @@ public sealed class InboundBookingWorkflow : IInboundBookingWorkflow
                 .Where(field => !string.Equals(field, "preferredTime", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
 
+        var serviceAreaPolicy = ServiceAreaPolicy.Resolve(verticalConfiguration, tenantConfiguration);
+
+        // M1 knows these two, the caller does not. They are defaults: a value the tool sends wins.
+        var channelDefaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leadSource"] = VoiceLeadSource,
+            ["campaignId"] = VoiceCampaignId
+        };
+
         return new QualificationRequest(
             inboundCallEvent.TenantId,
             inboundCallEvent.VerticalId,
             inboundCallEvent.CorrelationId,
             inboundCallEvent,
             requiredFields,
-            tenantConfiguration.ServiceArea.ZipCodes,
-            StructuredFields: null,
+            serviceAreaPolicy.ZipCodes,
+            channelDefaults,
             new ServiceAreaFieldAliases(
                 verticalConfiguration.ServiceAreaFieldAliases.ZipCodeFields,
-                verticalConfiguration.ServiceAreaFieldAliases.AddressFields));
+                verticalConfiguration.ServiceAreaFieldAliases.AddressFields,
+                verticalConfiguration.ServiceAreaFieldAliases.StateFields),
+            serviceAreaPolicy.Mode,
+            serviceAreaPolicy.States);
     }
 
     private static string? GetFieldValue(

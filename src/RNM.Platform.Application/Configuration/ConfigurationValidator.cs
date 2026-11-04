@@ -1,4 +1,5 @@
 using RNM.Platform.Application.LeadIntake;
+using RNM.Platform.Application.Qualification;
 using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Configuration;
@@ -98,10 +99,7 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             }
         }
 
-        if (tenantConfiguration.ServiceArea.ZipCodes.Count == 0 && tenantConfiguration.ServiceArea.Cities.Count == 0)
-        {
-            errors.Add("serviceArea must include at least one zip code or city.");
-        }
+        ValidateTenantServiceArea(errors, tenantConfiguration.ServiceArea);
 
         AddRequired(errors, tenantConfiguration.Providers.CrmProvider, "providers.crmProvider");
         AddRequired(errors, tenantConfiguration.Providers.BookingProvider, "providers.bookingProvider");
@@ -225,9 +223,61 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("serviceAreaFieldAliases.addressFields must include at least one field.");
         }
 
+        if (verticalConfiguration.ServiceAreaFieldAliases.StateFields is { Count: 0 })
+        {
+            errors.Add("serviceAreaFieldAliases.stateFields must include at least one field when set.");
+        }
+
+        if (verticalConfiguration.ServiceArea is not null)
+        {
+            ValidateServiceAreaModeAndStates(
+                errors,
+                verticalConfiguration.ServiceArea.Mode,
+                verticalConfiguration.ServiceArea.States);
+        }
+
         LeadClassificationPolicy.Validate(verticalConfiguration.LeadClassification, "leadClassification", errors);
 
         return errors.Count == 0 ? ConfigurationValidationResult.Valid : new ConfigurationValidationResult(errors);
+    }
+
+    private static void ValidateTenantServiceArea(ICollection<string> errors, ServiceAreaConfiguration serviceArea)
+    {
+        ValidateServiceAreaModeAndStates(errors, serviceArea.Mode, serviceArea.States);
+
+        var hasStates = serviceArea.States is { Count: > 0 };
+        if (string.Equals(serviceArea.Mode, ServiceAreaModes.Zip, StringComparison.Ordinal)
+            && serviceArea.ZipCodes.Count == 0)
+        {
+            errors.Add("serviceArea.zipCodes must include at least one zip code when mode is zip.");
+        }
+        else if (string.Equals(serviceArea.Mode, ServiceAreaModes.State, StringComparison.Ordinal) && !hasStates)
+        {
+            errors.Add("serviceArea.states must include at least one state when mode is state.");
+        }
+        else if (string.IsNullOrWhiteSpace(serviceArea.Mode)
+            && serviceArea.ZipCodes.Count == 0
+            && serviceArea.Cities.Count == 0
+            && !hasStates)
+        {
+            errors.Add("serviceArea must include at least one zip code, state, or city.");
+        }
+    }
+
+    private static void ValidateServiceAreaModeAndStates(
+        ICollection<string> errors,
+        string? mode,
+        IReadOnlyCollection<string>? states)
+    {
+        if (!string.IsNullOrWhiteSpace(mode) && !ServiceAreaModes.IsValid(mode))
+        {
+            errors.Add("serviceArea.mode must be one of: zip, state, none.");
+        }
+
+        if (states is not null && states.Any(state => !UsStates.IsValidCode(state)))
+        {
+            errors.Add("serviceArea.states must contain only uppercase USPS state codes (for example TX).");
+        }
     }
 
     private static void ValidateSecretNames(ICollection<string> errors, SecretNameConfiguration secretNames)

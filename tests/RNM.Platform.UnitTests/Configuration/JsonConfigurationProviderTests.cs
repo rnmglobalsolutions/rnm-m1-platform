@@ -433,6 +433,103 @@ public sealed class JsonConfigurationProviderTests : IDisposable
             () => provider.GetVerticalConfigurationAsync("vertical-a", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task GetTenantConfigurationAsync_ParsesServiceAreaModeAndStates()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            CreateTenantJson("tenant-a", "[]").Replace(
+                "\"cities\": []",
+                "\"cities\": [], \"mode\": \"state\", \"states\": [\"CA\", \"TX\"]",
+                StringComparison.Ordinal));
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
+
+        Assert.Equal("state", configuration.ServiceArea.Mode);
+        Assert.Equal(["CA", "TX"], configuration.ServiceArea.States);
+    }
+
+    [Fact]
+    public async Task GetTenantConfigurationAsync_LeavesModeUnsetForExistingTenantJson()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "tenants", "tenant-a.json"),
+            CreateTenantJson("tenant-a", "[\"75001\"]"));
+        var provider = new JsonTenantConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetTenantConfigurationAsync("tenant-a", CancellationToken.None);
+
+        Assert.Null(configuration.ServiceArea.Mode);
+        Assert.Empty(configuration.ServiceArea.States ?? []);
+    }
+
+    [Fact]
+    public async Task GetVerticalConfigurationAsync_ParsesServiceAreaAndStateFields()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "verticals", "vertical-a.json"),
+            """
+            {
+              "verticalId": "vertical-a",
+              "displayName": "Vertical A",
+              "qualificationFields": ["name"],
+              "supportedCallTypes": ["GeneralInquiry"],
+              "serviceArea": { "mode": "state", "states": ["TX"] },
+              "serviceAreaFieldAliases": { "stateFields": ["state", "region"] }
+            }
+            """);
+        var provider = new JsonVerticalConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetVerticalConfigurationAsync("vertical-a", CancellationToken.None);
+
+        Assert.Equal("state", configuration.ServiceArea?.Mode);
+        Assert.Equal(["TX"], configuration.ServiceArea?.States);
+        Assert.Equal(["state", "region"], configuration.ServiceAreaFieldAliases.StateFields);
+        Assert.Contains("zipCode", configuration.ServiceAreaFieldAliases.ZipCodeFields);
+    }
+
+    [Fact]
+    public async Task GetVerticalConfigurationAsync_DefaultsStateFieldsAndLeavesServiceAreaUnset()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "verticals", "vertical-a.json"),
+            """
+            {
+              "verticalId": "vertical-a",
+              "displayName": "Vertical A",
+              "qualificationFields": ["name"],
+              "supportedCallTypes": ["GeneralInquiry"]
+            }
+            """);
+        var provider = new JsonVerticalConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        var configuration = await provider.GetVerticalConfigurationAsync("vertical-a", CancellationToken.None);
+
+        Assert.Null(configuration.ServiceArea);
+        Assert.Equal(["state", "stateCode", "serviceState"], configuration.ServiceAreaFieldAliases.StateFields);
+    }
+
+    [Fact]
+    public async Task GetVerticalConfigurationAsync_RejectsInvalidServiceAreaMode()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(configRoot, "verticals", "vertical-a.json"),
+            """
+            {
+              "verticalId": "vertical-a",
+              "displayName": "Vertical A",
+              "qualificationFields": ["name"],
+              "supportedCallTypes": ["GeneralInquiry"],
+              "serviceArea": { "mode": "radius" }
+            }
+            """);
+        var provider = new JsonVerticalConfigurationProvider(configRoot, new ConfigurationValidator());
+
+        await Assert.ThrowsAsync<ConfigurationException>(
+            () => provider.GetVerticalConfigurationAsync("vertical-a", CancellationToken.None));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(configRoot))

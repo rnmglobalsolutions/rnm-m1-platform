@@ -1,6 +1,7 @@
 using RNM.Platform.Application.Inbound;
 using RNM.Platform.Application.Observability;
 using RNM.Platform.Application.Qualification;
+using RNM.Platform.Domain.Configuration;
 using Xunit;
 
 namespace RNM.Platform.UnitTests.Qualification;
@@ -376,6 +377,177 @@ public sealed class QualificationServiceTests
         Assert.Equal("Repair", result.LeadData.Fields["serviceNeed"]);
     }
 
+    [Fact]
+    public async Task QualifyAsync_StateMode_QualifiesWithStateAndNoZip()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "tx" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.Qualified, result.State);
+        Assert.Equal(ServiceAreaDecisionState.InServiceArea, result.ServiceAreaDecision.State);
+        Assert.Null(result.LeadData.ZipCode);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_StoresNormalizedStateCode()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "Texas" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.Qualified, result.State);
+        Assert.Equal("TX", result.LeadData.Fields["state"]);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_UsesStateFieldAliasesAndStoresStateField()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(
+                new Dictionary<string, string> { ["name"] = "Jane", ["region"] = "California" },
+                new ServiceAreaFieldAliases(["zipCode"], ["serviceAddress"], ["region"])),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.Qualified, result.State);
+        Assert.Equal("CA", result.LeadData.Fields["state"]);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_ReturnsMissingRequiredFields_WhenStateIsMissing()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["zipCode"] = "75001" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.MissingRequiredFields, result.State);
+        Assert.Equal(ServiceAreaDecisionState.MissingState, result.ServiceAreaDecision.State);
+        Assert.Contains("state", result.MissingRequiredFields);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_ReturnsInvalidInput_WhenStateIsNotRecognized()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "Narnia" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.InvalidInput, result.State);
+        Assert.Equal(ServiceAreaDecisionState.InvalidState, result.ServiceAreaDecision.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_ReturnsOutOfServiceArea_WhenStateIsNotAllowed()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "NY" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.OutOfServiceArea, result.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_ReturnsNeedsEscalation_WhenNoStatesAreConfigured()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "TX" }, allowedStates: []),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.NeedsEscalation, result.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_DoesNotParseStateFromAddress()
+    {
+        var result = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string>
+            {
+                ["name"] = "Jane",
+                ["serviceAddress"] = "123 Main St, Addison, TX 75001"
+            }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.MissingRequiredFields, result.State);
+        Assert.Equal(ServiceAreaDecisionState.MissingState, result.ServiceAreaDecision.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_StateMode_CapturesValidZipAndDropsInvalidZip()
+    {
+        var withZip = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "TX", ["zipCode"] = "75001" }),
+            CancellationToken.None);
+        var withBadZip = await CreateService().QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "TX", ["zipCode"] = "abc" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.Qualified, withZip.State);
+        Assert.Equal("75001", withZip.LeadData.ZipCode);
+        Assert.Equal(QualificationResultState.Qualified, withBadZip.State);
+        Assert.Null(withBadZip.LeadData.ZipCode);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_NoneMode_QualifiesWithoutZipOrState()
+    {
+        var result = await CreateService().QualifyAsync(
+            CreateRequest(
+                requiredFields: ["name"],
+                fields: new Dictionary<string, string> { ["name"] = "Jane" },
+                serviceAreaMode: ServiceAreaModes.None,
+                allowedZipCodes: []),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.Qualified, result.State);
+        Assert.Equal(ServiceAreaDecisionState.NotRequired, result.ServiceAreaDecision.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_ZipMode_StillRequiresZip_AndIgnoresState()
+    {
+        var result = await CreateService().QualifyAsync(
+            CreateRequest(
+                requiredFields: ["name"],
+                fields: new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "TX" }),
+            CancellationToken.None);
+
+        Assert.Equal(QualificationResultState.MissingRequiredFields, result.State);
+        Assert.Equal(ServiceAreaDecisionState.MissingZipCode, result.ServiceAreaDecision.State);
+    }
+
+    [Fact]
+    public async Task QualifyAsync_LogsServiceAreaModeButNeverTheStateValue()
+    {
+        var eventLogger = new RecordingQualificationEventLogger();
+
+        await CreateService(eventLogger).QualifyAsync(
+            StateRequest(new Dictionary<string, string> { ["name"] = "Jane", ["state"] = "Nebraska" }, allowedStates: ["TX"]),
+            CancellationToken.None);
+
+        Assert.NotEmpty(eventLogger.Events);
+        Assert.All(eventLogger.Events, recordedEvent =>
+        {
+            Assert.Equal(ServiceAreaModes.State, recordedEvent.Properties["serviceAreaMode"]);
+            Assert.DoesNotContain(recordedEvent.Properties.Values, value =>
+                value.Contains("Nebraska", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "NE", StringComparison.Ordinal));
+        });
+    }
+
+    private static QualificationRequest StateRequest(
+        IReadOnlyDictionary<string, string> fields,
+        ServiceAreaFieldAliases? aliases = null,
+        IReadOnlyCollection<string>? allowedStates = null)
+    {
+        return CreateRequest(
+            requiredFields: ["name"],
+            fields: fields,
+            allowedZipCodes: [],
+            serviceAreaFieldAliases: aliases,
+            serviceAreaMode: ServiceAreaModes.State,
+            allowedStates: allowedStates ?? ["CA", "TX"]);
+    }
+
     private static QualificationService CreateService(RecordingQualificationEventLogger? eventLogger = null)
     {
         return new QualificationService(
@@ -388,7 +560,9 @@ public sealed class QualificationServiceTests
         IReadOnlyDictionary<string, string> fields,
         string verticalId = "vertical-a",
         IReadOnlyCollection<string>? allowedZipCodes = null,
-        ServiceAreaFieldAliases? serviceAreaFieldAliases = null)
+        ServiceAreaFieldAliases? serviceAreaFieldAliases = null,
+        string serviceAreaMode = ServiceAreaModes.Zip,
+        IReadOnlyCollection<string>? allowedStates = null)
     {
         return new QualificationRequest(
             "tenant-a",
@@ -398,7 +572,9 @@ public sealed class QualificationServiceTests
             requiredFields,
             allowedZipCodes ?? ["75001", "75002"],
             fields,
-            serviceAreaFieldAliases);
+            serviceAreaFieldAliases,
+            serviceAreaMode,
+            allowedStates);
     }
 
     private static InboundCallEvent CreateInboundCallEvent(StructuredActionRequest? actionRequest = null)

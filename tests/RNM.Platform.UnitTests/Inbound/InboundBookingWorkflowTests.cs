@@ -346,12 +346,123 @@ public sealed class InboundBookingWorkflowTests
             && bookingState == BookingDecisionState.Booked.ToString());
     }
 
+    private const string StateArguments = """
+        {
+          "serviceNeed": "Consultation",
+          "state": "Texas",
+          "phoneNumber": "+15551234567",
+          "name": "Jane Customer",
+          "email": "lead@example.com",
+          "preferredTime": "Afternoon"
+        }
+        """;
+
+    private static readonly string[] StateFields = ["name", "phoneNumber", "email", "serviceNeed", "preferredTime"];
+
+    [Fact]
+    public async Task ProcessAsync_StateModeVertical_QualifiesWithStateAndNoZip()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                serviceArea: new ServiceAreaConfiguration([], [], null, null, ["TX"])),
+            verticalConfigurationProvider: new StubVerticalConfigurationProvider(
+                StateFields,
+                new VerticalServiceAreaConfiguration(ServiceAreaModes.State, null)));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: StateArguments), CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(ServiceAreaDecisionState.InServiceArea, result.ServiceAreaState);
+        Assert.Equal(1, harness.CrmAdapter.UpsertCallCount);
+        Assert.Null(harness.CrmAdapter.LastUpsertRequest?.ZipCode);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StateModeVertical_StopsWhenStateIsOutsideTenantStates()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                serviceArea: new ServiceAreaConfiguration([], [], null, null, ["CA"])),
+            verticalConfigurationProvider: new StubVerticalConfigurationProvider(
+                StateFields,
+                new VerticalServiceAreaConfiguration(ServiceAreaModes.State, null)));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: StateArguments), CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.QualificationStopped, result.Outcome);
+        Assert.Equal(QualificationResultState.OutOfServiceArea, result.QualificationState);
+        Assert.Equal(0, harness.BookingAdapter.CreateBookingCallCount);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_TenantNoneMode_OverridesVerticalAndNeedsNoZip()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                serviceArea: new ServiceAreaConfiguration([], [], null, ServiceAreaModes.None)),
+            verticalConfigurationProvider: new StubVerticalConfigurationProvider(
+                StateFields,
+                new VerticalServiceAreaConfiguration(ServiceAreaModes.State, ["TX"])));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: StateArguments), CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(ServiceAreaDecisionState.NotRequired, result.ServiceAreaState);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ZipModeHvac_StillRequiresZip()
+    {
+        var harness = CreateHarness();
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: CreateArgumentsJson(serviceAddress: "123 Main St, Addison")),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.QualificationStopped, result.Outcome);
+        Assert.Equal(ServiceAreaDecisionState.MissingZipCode, result.ServiceAreaState);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_FillsLeadSourceAndCampaignId_WhenToolSendsNone()
+    {
+        var harness = CreateHarness(
+            verticalConfigurationProvider: new StubVerticalConfigurationProvider(
+                ["name", "serviceNeed", "serviceAddress", "leadSource", "campaignId", "preferredTime"]));
+
+        var result = await harness.Workflow.ProcessAsync(CreateWorkflowRequest(), CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal("InboundVoice", harness.CrmAdapter.LastUpsertRequest?.Attributes["leadSource"]);
+        Assert.Equal("inbound-voice", harness.CrmAdapter.LastUpsertRequest?.Attributes["campaignId"]);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_KeepsLeadSourceTheToolSent()
+    {
+        var harness = CreateHarness(
+            verticalConfigurationProvider: new StubVerticalConfigurationProvider(
+                ["name", "serviceNeed", "serviceAddress", "leadSource", "campaignId", "preferredTime"]));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: CreateArgumentsJson(leadSource: "zillow")),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal("zillow", harness.CrmAdapter.LastUpsertRequest?.Attributes["leadSource"]);
+        Assert.Equal("inbound-voice", harness.CrmAdapter.LastUpsertRequest?.Attributes["campaignId"]);
+    }
+
     private static WorkflowHarness CreateHarness(
         FakeBookingAdapter? bookingAdapter = null,
         FakeCrmAdapter? crmAdapter = null,
         FakeSmsSender? smsSender = null,
         FakeEmailSender? emailSender = null,
-        ITenantConfigurationProvider? tenantConfigurationProvider = null)
+        ITenantConfigurationProvider? tenantConfigurationProvider = null,
+        IVerticalConfigurationProvider? verticalConfigurationProvider = null)
     {
         var eventLogger = new RecordingWorkflowEventLogger();
         var finalBookingAdapter = bookingAdapter ?? new FakeBookingAdapter();
@@ -360,7 +471,7 @@ public sealed class InboundBookingWorkflowTests
         var finalEmailSender = emailSender ?? new FakeEmailSender();
         var workflow = new InboundBookingWorkflow(
             tenantConfigurationProvider ?? new StubTenantConfigurationProvider(),
-            new StubVerticalConfigurationProvider(),
+            verticalConfigurationProvider ?? new StubVerticalConfigurationProvider(),
             new QualificationService(new ServiceAreaValidator(), eventLogger),
             new BookingApplicationService(finalBookingAdapter, eventLogger),
             new CrmApplicationService(finalCrmAdapter, eventLogger),
@@ -464,13 +575,16 @@ public sealed class InboundBookingWorkflowTests
     {
         private readonly bool useInvalidConfirmationTemplates;
         private readonly CommunicationConfiguration? communication;
+        private readonly ServiceAreaConfiguration serviceArea;
 
         public StubTenantConfigurationProvider(
             bool useInvalidConfirmationTemplates = false,
-            CommunicationConfiguration? communication = null)
+            CommunicationConfiguration? communication = null,
+            ServiceAreaConfiguration? serviceArea = null)
         {
             this.useInvalidConfirmationTemplates = useInvalidConfirmationTemplates;
             this.communication = communication;
+            this.serviceArea = serviceArea ?? new ServiceAreaConfiguration(["75001"], ["Addison"], null);
         }
 
         public Task<TenantConfiguration> GetTenantConfigurationAsync(
@@ -482,7 +596,7 @@ public sealed class InboundBookingWorkflowTests
                 new VerticalId("hvac"),
                 "Tenant A",
                 "America/Chicago",
-                new ServiceAreaConfiguration(["75001"], ["Addison"], null),
+                serviceArea,
                 new ProviderConfiguration("Crm", "Booking", "Sms", "Email"),
                 new SecretNameConfiguration("crm", "booking", "vapi", "sid", "token", "email"),
                 communication ?? new CommunicationConfiguration(
@@ -499,6 +613,18 @@ public sealed class InboundBookingWorkflowTests
 
     private sealed class StubVerticalConfigurationProvider : IVerticalConfigurationProvider
     {
+        private readonly IReadOnlyCollection<string> qualificationFields;
+        private readonly VerticalServiceAreaConfiguration? serviceArea;
+
+        public StubVerticalConfigurationProvider(
+            IReadOnlyCollection<string>? qualificationFields = null,
+            VerticalServiceAreaConfiguration? serviceArea = null)
+        {
+            this.qualificationFields = qualificationFields ??
+                ["name", "phoneNumber", "email", "serviceNeed", "propertyType", "serviceAddress", "urgency", "preferredTime"];
+            this.serviceArea = serviceArea;
+        }
+
         public Task<VerticalConfiguration> GetVerticalConfigurationAsync(
             string verticalId,
             CancellationToken cancellationToken)
@@ -506,9 +632,10 @@ public sealed class InboundBookingWorkflowTests
             return Task.FromResult(new VerticalConfiguration(
                 new VerticalId(verticalId),
                 "HVAC",
-                ["name", "phoneNumber", "email", "serviceNeed", "propertyType", "serviceAddress", "urgency", "preferredTime"],
+                qualificationFields,
                 ["GeneralInquiry"],
-                ServiceAreaFieldAliasConfiguration.Defaults()));
+                ServiceAreaFieldAliasConfiguration.Defaults(),
+                ServiceArea: serviceArea));
         }
     }
 
@@ -559,6 +686,8 @@ public sealed class InboundBookingWorkflowTests
 
         public int UpsertCallCount { get; private set; }
 
+        public CrmContactUpsertRequest? LastUpsertRequest { get; private set; }
+
         public int LinkBookingCallCount { get; private set; }
 
         public int FollowUpCallCount { get; private set; }
@@ -577,6 +706,7 @@ public sealed class InboundBookingWorkflowTests
             CancellationToken cancellationToken)
         {
             UpsertCallCount++;
+            LastUpsertRequest = request;
             return Task.FromResult(UpsertResult);
         }
 

@@ -1,4 +1,5 @@
 using RNM.Platform.Application.Inbound;
+using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Qualification;
 
@@ -10,7 +11,9 @@ public sealed record QualificationRequest(
     IReadOnlyCollection<string> RequiredFields,
     IReadOnlyCollection<string> AllowedZipCodes,
     IReadOnlyDictionary<string, string>? StructuredFields = null,
-    ServiceAreaFieldAliases? ServiceAreaFieldAliases = null);
+    ServiceAreaFieldAliases? ServiceAreaFieldAliases = null,
+    string ServiceAreaMode = ServiceAreaModes.Zip,
+    IReadOnlyCollection<string>? AllowedStates = null);
 
 public sealed record QualificationResult(
     QualificationResultState State,
@@ -52,6 +55,12 @@ public sealed record ServiceAreaDecision(
     public static ServiceAreaDecision InvalidZipCode() => new(ServiceAreaDecisionState.InvalidZipCode);
 
     public static ServiceAreaDecision NeedsEscalation() => new(ServiceAreaDecisionState.NeedsEscalation);
+
+    public static ServiceAreaDecision MissingState() => new(ServiceAreaDecisionState.MissingState);
+
+    public static ServiceAreaDecision InvalidState() => new(ServiceAreaDecisionState.InvalidState);
+
+    public static ServiceAreaDecision NotRequired() => new(ServiceAreaDecisionState.NotRequired);
 }
 
 public enum ServiceAreaDecisionState
@@ -60,15 +69,20 @@ public enum ServiceAreaDecisionState
     OutOfServiceArea = 1,
     MissingZipCode = 2,
     InvalidZipCode = 3,
-    NeedsEscalation = 4
+    NeedsEscalation = 4,
+    MissingState = 5,
+    InvalidState = 6,
+    NotRequired = 7
 }
 
 public sealed record ServiceAreaFieldAliases(
     IReadOnlyCollection<string> ZipCodeFields,
-    IReadOnlyCollection<string> AddressFields)
+    IReadOnlyCollection<string> AddressFields,
+    IReadOnlyCollection<string>? StateFields = null)
 {
     public static ServiceAreaFieldAliases Defaults() =>
         new(
             ["zipCode", "zip", "postalCode", "serviceZipCode"],
-            ["serviceAddress"]);
+            ["serviceAddress"],
+            ServiceAreaFieldAliasConfiguration.DefaultStateFields);
 }

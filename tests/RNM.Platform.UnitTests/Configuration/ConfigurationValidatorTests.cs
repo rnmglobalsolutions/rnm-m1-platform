@@ -422,6 +422,127 @@ public sealed class ConfigurationValidatorTests
         Assert.Contains(result.Errors, error => error.Contains("supportedCallTypes", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void ValidateTenant_AcceptsStateMode_WithStatesAndNoZipCodes()
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration([], [], null, ServiceAreaModes.State, ["CA", "TX"])));
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_AcceptsNoMode_WithOnlyStates()
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration([], [], null, null, ["TX"])));
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_AcceptsNoneMode_WithoutAnyList()
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration([], [], null, ServiceAreaModes.None)));
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateTenant_RejectsUnknownMode()
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration(["75001"], [], null, "radius")));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("serviceArea.mode", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_RejectsStateMode_WithoutStates()
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration([], ["Austin"], null, ServiceAreaModes.State)));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("serviceArea.states", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateTenant_RejectsZipMode_WithoutZipCodes()
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration([], ["Austin"], null, ServiceAreaModes.Zip)));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("serviceArea.zipCodes", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Texas")]
+    [InlineData("tx")]
+    [InlineData("*")]
+    [InlineData("AE")]
+    public void ValidateTenant_RejectsStatesThatAreNotUspsCodes(string state)
+    {
+        var result = new ConfigurationValidator().ValidateTenant(WithServiceArea(
+            new ServiceAreaConfiguration([], [], null, ServiceAreaModes.State, [state])));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("serviceArea.states", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateVertical_AcceptsServiceAreaModeAndStates()
+    {
+        var result = new ConfigurationValidator().ValidateVertical(VerticalWith(
+            new VerticalServiceAreaConfiguration(ServiceAreaModes.State, ["TX"]),
+            ServiceAreaFieldAliasConfiguration.Defaults()));
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void ValidateVertical_RejectsUnknownModeAndBadStates()
+    {
+        var validator = new ConfigurationValidator();
+
+        var badMode = validator.ValidateVertical(VerticalWith(
+            new VerticalServiceAreaConfiguration("radius", null),
+            ServiceAreaFieldAliasConfiguration.Defaults()));
+        var badState = validator.ValidateVertical(VerticalWith(
+            new VerticalServiceAreaConfiguration(ServiceAreaModes.State, ["Texas"]),
+            ServiceAreaFieldAliasConfiguration.Defaults()));
+
+        Assert.Contains(badMode.Errors, error => error.Contains("serviceArea.mode", StringComparison.Ordinal));
+        Assert.Contains(badState.Errors, error => error.Contains("serviceArea.states", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValidateVertical_RejectsEmptyStateFields()
+    {
+        var aliases = ServiceAreaFieldAliasConfiguration.Defaults() with { StateFields = [] };
+
+        var result = new ConfigurationValidator().ValidateVertical(VerticalWith(null, aliases));
+
+        Assert.Contains(result.Errors, error => error.Contains("serviceAreaFieldAliases.stateFields", StringComparison.Ordinal));
+    }
+
+    private static VerticalConfiguration VerticalWith(
+        VerticalServiceAreaConfiguration? serviceArea,
+        ServiceAreaFieldAliasConfiguration aliases) =>
+        new(
+            new VerticalId("any-vertical"),
+            "Any Vertical",
+            ["serviceNeed"],
+            ["GeneralInquiry"],
+            aliases,
+            ServiceArea: serviceArea);
+
+    private static TenantConfiguration WithServiceArea(ServiceAreaConfiguration serviceArea) =>
+        CreateValidTenantConfiguration() with { ServiceArea = serviceArea };
+
     private static TenantConfiguration CreateValidTenantConfiguration()
     {
         return new TenantConfiguration(
