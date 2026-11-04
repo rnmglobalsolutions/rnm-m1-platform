@@ -40,7 +40,7 @@ Numbers are IDs, not build order. The build order and phases are in
 | 14 | Tenant events to the tenant's own systems | Customization | todo |
 | 15 | Voice prompt additions per tenant | Customization | todo |
 | 16 | Language per lead (English or Spanish) | Confirmations, Follow-up | todo |
-| 17 | Contact attribute limit guard | CRM | todo |
+| 17 | Contact attribute limit guard | CRM | done |
 | 18 | Appointment outcome by email (attended, closed) | CRM, Monthly report | todo |
 | 19 | Date-range queries and history archiving (only when measured) | CRM, Monthly report | deferred |
 | 20 | Unsubscribe links without the email address in the URL | Follow-up, Logs | todo |

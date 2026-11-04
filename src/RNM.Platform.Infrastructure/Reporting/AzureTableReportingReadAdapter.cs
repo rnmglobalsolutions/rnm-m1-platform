@@ -4,6 +4,7 @@ using Azure.Data.Tables;
 using RNM.Platform.Application.Crm;
 using RNM.Platform.Application.Ports.Reporting;
 using RNM.Platform.Application.Reporting;
+using RNM.Platform.Infrastructure.Crm;
 
 namespace RNM.Platform.Infrastructure.Reporting;
 
@@ -157,7 +158,7 @@ public sealed class AzureTableReportingReadAdapter : IReportingReadAdapter
         int.TryParse(ReadAttributeString(entity, attributeName), out var value) ? value : 0;
 
     private static string? ReadAttributeString(TableEntity entity, string attributeName) =>
-        ReadString(entity, $"Attr_{SanitizePropertyName(attributeName)}");
+        ContactAttributeStorage.ReadAttribute(entity, attributeName);
 
     private static DateTimeOffset? ReadDateTimeOffset(TableEntity entity, string propertyName)
     {
@@ -216,13 +217,4 @@ public sealed class AzureTableReportingReadAdapter : IReportingReadAdapter
     }
 
     private static string EscapeODataString(string value) => value.Replace("'", "''", StringComparison.Ordinal);
-
-    private static string SanitizePropertyName(string value)
-    {
-        var characters = value
-            .Where(char.IsLetterOrDigit)
-            .Take(48)
-            .ToArray();
-        return characters.Length == 0 ? "Value" : new string(characters);
-    }
 }

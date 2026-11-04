@@ -144,15 +144,28 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
                 entity["CreatedAt"] = DateTimeOffset.UtcNow;
             }
 
+            var resolvedAttributes = new List<KeyValuePair<string, string>>();
             foreach (var attribute in request.Attributes)
             {
                 if (!string.IsNullOrWhiteSpace(attribute.Key) && attribute.Value is not null)
                 {
-                    var propertyName = $"Attr_{SanitizePropertyName(attribute.Key)}";
-                    entity[propertyName] = ShouldPreserveExistingOptOut(attribute.Key, attribute.Value, existingEntity, request.AllowOptOutReversal)
-                        ? CrmConsentStatuses.OptedOut
-                        : attribute.Value;
+                    resolvedAttributes.Add(new KeyValuePair<string, string>(
+                        attribute.Key,
+                        ShouldPreserveExistingOptOut(attribute.Key, attribute.Value, existingEntity, request.AllowOptOutReversal)
+                            ? CrmConsentStatuses.OptedOut
+                            : attribute.Value));
                 }
+            }
+
+            var placement = ContactAttributeStorage.Place(existingEntity, resolvedAttributes);
+            foreach (var column in placement.Columns)
+            {
+                entity[column.Key] = column.Value;
+            }
+
+            if (placement.OverflowJson is not null)
+            {
+                entity[ContactAttributeStorage.OverflowPropertyName] = placement.OverflowJson;
             }
 
             await table.UpsertEntityAsync(entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
@@ -164,6 +177,8 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
                     request.CorrelationId,
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            await LogAttributesOverflowedAsync(request, created, placement, cancellationToken).ConfigureAwait(false);
 
             return new CrmContactUpsertResult(true, created, rowKey);
         }
@@ -1110,13 +1125,7 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
 
     private static CrmContactRecord MaterializeContact(TableEntity entity)
     {
-        var attributes = entity
-            .Where(property => property.Key.StartsWith("Attr_", StringComparison.Ordinal))
-            .Where(property => property.Value is not null)
-            .ToDictionary(
-                property => property.Key["Attr_".Length..],
-                property => property.Value.ToString() ?? string.Empty,
-                StringComparer.Ordinal);
+        var attributes = ContactAttributeStorage.ReadAll(entity);
 
         return new CrmContactRecord(
             entity.PartitionKey,
@@ -1162,7 +1171,7 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
     }
 
     private static string AttributePropertyName(string attributeName) =>
-        $"Attr_{SanitizePropertyName(attributeName)}";
+        ContactAttributeStorage.PropertyName(attributeName);
 
     private static string? GetAttribute(TableEntity? entity, string attributeName) =>
         ReadString(entity, AttributePropertyName(attributeName));
@@ -1322,6 +1331,45 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
         }
     }
 
+    private async Task LogAttributesOverflowedAsync(
+        CrmContactUpsertRequest request,
+        bool created,
+        ContactAttributePlacement placement,
+        CancellationToken cancellationToken)
+    {
+        if (eventLogger is null
+            || (placement.NewOverflowAttributeCount == 0
+                && placement.DroppedAttributeCount == 0
+                && placement.TruncatedValueCount == 0))
+        {
+            return;
+        }
+
+        try
+        {
+            // Counts only: no attribute names, values, or contact identifiers.
+            await eventLogger.LogEventAsync(
+                    TelemetryEventNames.CrmContactAttributesOverflowed,
+                    new SafeTelemetryProperties()
+                        .Add("tenantId", request.TenantId)
+                        .Add("correlationId", request.CorrelationId)
+                        .Add("contactCreated", created ? "true" : "false")
+                        .Add("attributeColumnCount", placement.AttributeColumnCount.ToString())
+                        .Add("overflowAttributeCount", placement.OverflowAttributeCount.ToString())
+                        .Add("newOverflowAttributeCount", placement.NewOverflowAttributeCount.ToString())
+                        .Add("droppedAttributeCount", placement.DroppedAttributeCount.ToString())
+                        .Add("truncatedValueCount", placement.TruncatedValueCount.ToString())
+                        .Add("overflowJsonLength", placement.OverflowJsonLength.ToString())
+                        .ToDictionary(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // The contact is already saved; telemetry is best effort.
+        }
+    }
+
     private async Task LogPhoneIndexBackfillAsync(
         CrmContactPhoneIndexBackfillResult result,
         CancellationToken cancellationToken)
@@ -1363,15 +1411,6 @@ public sealed class AzureTableCrmAdapter : ICrmProviderAdapter, IContactPhoneInd
     }
 
     private static string EscapeODataString(string value) => value.Replace("'", "''", StringComparison.Ordinal);
-
-    private static string SanitizePropertyName(string value)
-    {
-        var characters = value
-            .Where(char.IsLetterOrDigit)
-            .Take(48)
-            .ToArray();
-        return characters.Length == 0 ? "Value" : new string(characters);
-    }
 
     private static CrmContactUpsertResult FailedUpsert(string message, string? providerContactId) =>
         new(false, Created: false, providerContactId, CrmFailureReason.ContactUpsertFailed, message);

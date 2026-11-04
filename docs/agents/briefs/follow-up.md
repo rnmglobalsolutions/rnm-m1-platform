@@ -32,7 +32,9 @@
   `AzureTableCrmAdapter` on Azurite.
 - **Inbound SMS that is not STOP is accepted and dropped**, while follow-up templates
   ask leads to reply (item 5).
-- **255 properties per row.** Every incoming field becomes an `Attr_*` column (item 17).
+- **255 properties per row** (including PartitionKey, RowKey, Timestamp). Since #17, attributes
+  past the column limit go into `AttributesOverflowJson`; read them only through
+  `CrmContactRecord.Attributes` (or `ContactAttributeStorage`), never as raw `Attr_*` columns.
 - `FindContactByPhoneOrEmailAsync` swallows exceptions and returns "not found".
 - The follow-up row key starts with the due time, so the "dedupe" hash does not stop a
   second schedule for the same contact and sequence.

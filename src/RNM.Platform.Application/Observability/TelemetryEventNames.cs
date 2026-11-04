@@ -104,4 +104,5 @@ public static class TelemetryEventNames
     public const string LeadClassificationUnexpectedValue = "lead_intake.classification.unexpected_value";
     public const string LeadIntakeBusinessNotificationQueued = "lead_intake.business_notification.queued";
     public const string LeadIntakeBusinessNotificationFailed = "lead_intake.business_notification.failed";
+    public const string CrmContactAttributesOverflowed = "crm.contact_attributes.overflowed";
 }
