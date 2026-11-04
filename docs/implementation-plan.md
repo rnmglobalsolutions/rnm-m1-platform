@@ -289,7 +289,9 @@ the same file.
    there; it does not push.
 5. Orchestrator starts the verifier with its own worktree; its first step is
    `git checkout --detach <implementer commit>` (git does not allow one branch in two
-   worktrees).
+   worktrees). If the verifier adds tests, it commits them on that detached HEAD and
+   reports the SHA; the orchestrator cherry-picks that commit onto the implementer's
+   branch.
 6. Fail: the findings go back to the SAME implementer, which keeps its context. Repeat
    from 5.
 7. Pass: orchestrator checks the changed paths match the agents' allowed areas and

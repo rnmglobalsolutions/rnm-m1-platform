@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(gh pr merge *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push origin main *)",
+      "Bash(git push origin main)",
+      "Bash(git push origin HEAD:main *)",
+      "Bash(git push origin HEAD:main)",
+      "Bash(az keyvault secret set *)",
+      "Bash(az keyvault secret delete *)",
+      "Bash(az keyvault secret purge *)",
+      "Bash(az deployment *)",
+      "Bash(az functionapp deployment *)",
+      "Bash(az group delete *)",
+      "Bash(func azure *)",
+      "Bash(scripts/seed-tenant-secrets.sh *)",
+      "Bash(scripts/seed-sample-hvac-tenant-secrets.sh *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/enforce_agent_boundaries.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
