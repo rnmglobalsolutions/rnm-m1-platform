@@ -351,8 +351,10 @@ Done when:
   3. This week: request Google verification. **Request every scope M1 will need, not
      only today's**: calendar events and free/busy now, plus the Google Meet scope for
      reading attendance (item 10). Adding a scope later means a new verification and
-     every tenant reconnecting. The researcher agent confirms the exact scope list
-     first. Needs a privacy
+     every tenant reconnecting. Scope list confirmed and approved on 2026-11-03
+     (`docs/agents/work/p0-google-oauth-scopes.md`): `calendar.events`,
+     `calendar.freebusy`, `meetings.space.readonly`, `openid`, `userinfo.email`.
+     Needs a privacy
      policy page and homepage on rnmglobalsolutions.com, the domain verified in Google
      Search Console, a scope justification, and a demo video of the connection flow.
      It can take several weeks.
