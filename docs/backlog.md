@@ -67,6 +67,11 @@ Done when:
   The monthly report (item 11) depends on these two fields.
 - The lead's route (`consultation` = 1:1, `master_class`, `follow_up`, `none`) decides
   what the channel offers next.
+- A voice lead stopped at qualification (out of service area, escalation) is saved as a CRM
+  contact and gets follow-up. Today it is lost (found in #2). Must be done before Yartex
+  goes live: its voice prompt promises follow-up to out-of-state callers.
+- The `OutOfServiceArea` tool result carries the tenant's `serviceArea.referralMessage`, so
+  the assistant speaks it from M1 instead of a copy in the prompt.
 
 ### 2. Configurable service area
 
