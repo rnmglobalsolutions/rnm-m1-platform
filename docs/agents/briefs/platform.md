@@ -58,6 +58,11 @@
 - The adapter reads its connection and table names from environment variables at
   construction; the fixture sets and restores them. Do not set them anywhere else in
   tests.
+- Azurite does not enforce the 255-property row limit. Azurite tests that write many
+  contact attributes must assert the stored property count themselves (#17).
+- A contact attribute filtered server-side (`Attr_x eq ...`) must be a
+  `CrmContactAttributeNames` constant; otherwise it can land in `AttributesOverflowJson`
+  and the filter misses it (#17).
 - Unused scaffold types: `Domain/Calls`, `Domain/Leads`, `Domain/Appointments`,
   `Contracts/Booking`, `Contracts/Messaging`, `SharedKernel/Results`, `SharedKernel/Time`.
   Do not build on them.

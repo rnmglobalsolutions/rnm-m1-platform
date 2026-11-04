@@ -191,6 +191,64 @@ Each event stores:
 
 Set `RNM_CRM_TIMELINE_TABLE_NAME` to override the default table name.
 
+## Contact attributes and overflow
+
+Azure Table Storage allows 255 properties per row, including `PartitionKey`, `RowKey`, and
+`Timestamp`. Azurite does not enforce this limit, so a local test can pass with a row that
+Azure would reject. To keep a lead from being lost, `RnmContacts` stores attributes in two places.
+
+Rules:
+
+- Platform-managed attributes (the `CrmContactAttributeNames` constants) are always `Attr_*` columns.
+- Other attributes get an `Attr_*` column until the limit is reached (168 today).
+  After that they go into one JSON column, `AttributesOverflowJson`.
+- Readers see both: templates (`{{attr.name}}`), follow-up, and reports.
+- An attribute never moves from a column to the overflow.
+- The overflow JSON holds at most 32,000 characters. Attributes that do not fit are dropped and counted.
+- Any single value over 32,000 characters is truncated and counted.
+
+New attributes that the server filters on (for example by status or campaign) must be
+`CrmContactAttributeNames` constants. Otherwise they could land in the overflow and the
+server-side filters would not find them.
+
+Known limitation: two simultaneous updates of the same overflowed contact can overwrite
+each other's overflow entries.
+
+### Event `crm.contact_attributes.overflowed`
+
+Logged after a successful save when a contact has new overflow attributes, dropped
+attributes, or truncated values. Properties are counts only (no attribute names or values):
+
+- `tenantId`, `correlationId`, `contactCreated`
+- `attributeColumnCount`
+- `overflowAttributeCount`, `newOverflowAttributeCount`
+- `droppedAttributeCount`, `truncatedValueCount`
+- `overflowJsonLength`
+
+Query in Application Insights (Logs), replacing the tenant ID:
+
+```kusto
+customEvents
+| where name == "crm.contact_attributes.overflowed"
+| where tostring(customDimensions.tenantId) == "<tenantId>"
+| project timestamp,
+    correlationId = tostring(customDimensions.correlationId),
+    overflow = toint(customDimensions.overflowAttributeCount),
+    dropped = toint(customDimensions.droppedAttributeCount),
+    truncated = toint(customDimensions.truncatedValueCount),
+    overflowJsonLength = toint(customDimensions.overflowJsonLength)
+| order by timestamp desc
+```
+
+What to do:
+
+- `droppedAttributeCount = 0`: nothing is lost. The tenant sends many custom fields and
+  the extra ones are in the overflow. No action needed.
+- `droppedAttributeCount > 0`: data is being lost. The tenant is sending too many fields.
+  Reduce the fields in the tenant's ManyChat or web form mapping.
+- `truncatedValueCount > 0`: a field value is over 32,000 characters. Check which field
+  the tenant maps and stop sending long free text.
+
 ## Pilot Reporting v0.5
 
 The pilot reporting endpoint reads the native CRM tables directly and computes metrics on
