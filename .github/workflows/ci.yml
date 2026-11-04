@@ -25,6 +25,13 @@ jobs:
   validate:
     name: Build, test, and validate infrastructure
     runs-on: ubuntu-latest
+    services:
+      # Azurite (local Azure Storage emulator) for the Category=Azurite integration tests.
+      # Tests connect to 127.0.0.1:10002 by default. Pinned to match local development.
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+        ports:
+          - 10002:10002
 
     steps:
       - name: Checkout

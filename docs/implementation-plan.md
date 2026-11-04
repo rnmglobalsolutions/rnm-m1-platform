@@ -34,8 +34,9 @@ Agents and the orchestrator must respect these facts:
 - Tests run with the .NET 10 SDK at `~/.dotnet` locally:
   `export DOTNET_ROOT=$HOME/.dotnet PATH=$HOME/.dotnet:$PATH`. The default `dotnet`
   on this machine fails with exit 145.
-- No test touches real Table Storage today; CRM behavior is tested only with in-memory
-  doubles. Phase 0 adds Azurite.
+- CRM behavior is tested against the real `AzureTableCrmAdapter` on Azurite 3.37.0
+  (`Category=Azurite` integration tests). Locally, start Azurite before `dotnet test`;
+  in CI it runs as a service container. See `docs/agents/briefs/platform.md`.
 
 ---
 
