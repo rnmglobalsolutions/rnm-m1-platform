@@ -1,6 +1,6 @@
 # P0-6: Azurite for tests and one real AzureTableCrmAdapter round-trip test
 
-Status: verified, PR open
+Status: done (PR #54, merged 2026-11-03)
 Branch: feature/m1-p0-azurite
 Hot files: none in the plan list; `.github/workflows/ci.yml`, `deploy-staging.yml`, `deploy-prod.yml` treated as exclusive
 
