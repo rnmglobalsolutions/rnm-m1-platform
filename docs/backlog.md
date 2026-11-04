@@ -24,7 +24,7 @@ Numbers are IDs, not build order. The build order and phases are in
 | # | Item | Flow step | Status |
 |---|---|---|---|
 | 1 | One qualification for every channel | Qualification | todo |
-| 2 | Configurable service area | Qualification | todo |
+| 2 | Configurable service area | Qualification | done |
 | 3 | 1:1 booking from ManyChat and the web form | Booking | todo |
 | 4 | Appointment type per tenant: onsite, Google Meet, or Zoom | Booking | todo |
 | 5 | SMS replies reach the business and stop follow-ups | Follow-up | todo |
