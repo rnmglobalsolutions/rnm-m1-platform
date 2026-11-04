@@ -38,12 +38,18 @@ service area.
   (set once in `VapiInboundWebhookFunction`). Do not add `callId` by hand. In direct
   `apiRequest` mode the parser also uses the root `callId` as `ToolCallId`, so never use
   `ToolCallId`/`ProviderActionId` as an idempotency key there.
-- **Service area**: an empty `zipCodes` list returns `NeedsEscalation`; a missing ZIP
-  returns `MissingRequiredFields`. `cities` is never read (item 2).
+- **Service area** (since #2): mode `zip`, `state`, or `none` from `ServiceAreaPolicy.Resolve`
+  (tenant mode, else vertical, else `zip`). The caller's state comes only from a tool
+  argument (`stateFields` aliases), normalized by `UsStates`; never log the value. An empty
+  list for the mode still returns `NeedsEscalation`. `cities` is never read. Two-letter
+  English words ("in", "or") are valid codes, so tools must send the USPS code.
 - **HVAC words are hardcoded** in `VapiInboundWebhookFunction` (urgency signals). Move
   them to config when you touch that code; do not add more.
-- Vertical `qualificationFields` are all required for voice, including fields a caller
-  cannot know (`leadSource`, `campaignId`) (item 2).
+- Vertical `qualificationFields` are all required for voice. M1 fills `leadSource`
+  (`InboundVoice`) and `campaignId` (`inbound-voice`) when the tool sends none; do not list
+  fields a caller cannot know there.
+- **Voice leads stopped at qualification (out of area, escalation) create no CRM contact**
+  (found in #2; fix in #1 or #7b).
 - ManyChat no longer offers a website chat widget; websites link to Messenger,
   Instagram, or WhatsApp with a ref parameter.
 - Rate limiting is in memory, per instance, per tenant, and copied in three functions.

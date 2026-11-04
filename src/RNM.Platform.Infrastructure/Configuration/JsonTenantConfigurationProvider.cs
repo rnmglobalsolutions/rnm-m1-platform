@@ -104,7 +104,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
                 new ServiceAreaConfiguration(
                     ServiceArea?.ZipCodes ?? [],
                     ServiceArea?.Cities ?? [],
-                    ServiceArea?.ReferralMessage),
+                    ServiceArea?.ReferralMessage,
+                    ServiceArea?.Mode,
+                    ServiceArea?.States),
                 new ProviderConfiguration(
                     Providers?.CrmProvider ?? string.Empty,
                     Providers?.BookingProvider ?? string.Empty,
@@ -248,7 +250,9 @@ public sealed class JsonTenantConfigurationProvider : ITenantConfigurationProvid
     private sealed record ServiceAreaConfigurationDto(
         IReadOnlyCollection<string> ZipCodes,
         IReadOnlyCollection<string> Cities,
-        string? ReferralMessage);
+        string? ReferralMessage,
+        string? Mode = null,
+        IReadOnlyCollection<string>? States = null);
 
     private sealed record ProviderConfigurationDto(
         string? CrmProvider,

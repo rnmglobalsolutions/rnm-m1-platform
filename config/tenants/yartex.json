@@ -4,8 +4,9 @@
   "businessName": "Yartex",
   "timeZone": "America/Chicago",
   "serviceArea": {
+    "states": ["CA", "FL", "NE", "TX"],
     "zipCodes": [],
-    "cities": ["United States"],
+    "cities": [],
     "referralMessage": "Yartex can review the request and follow up with next steps."
   },
   "providers": {

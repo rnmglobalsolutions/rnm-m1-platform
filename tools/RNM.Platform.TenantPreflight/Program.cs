@@ -2,6 +2,7 @@ using System.Net.Mail;
 using System.Text.Json;
 using RNM.Platform.Application.Configuration;
 using RNM.Platform.Application.LeadIntake;
+using RNM.Platform.Application.Qualification;
 using RNM.Platform.Domain.Configuration;
 using RNM.Platform.Infrastructure.Configuration;
 using RNM.Platform.Infrastructure.Providers;
@@ -146,6 +147,8 @@ internal static class TenantPreflightProgram
                 routingErrors.Count == 0
                     ? $"Every reachable route is actionable: {string.Join(", ", LeadClassificationPolicy.ReachableRoutes(classification.Policy))}."
                     : string.Join(" ", routingErrors));
+
+            AddServiceAreaChecks(checks, ServiceAreaPolicy.Resolve(vertical, tenant), environment);
         }
         catch (Exception exception) when (exception is ConfigurationException or JsonException or IOException)
         {
@@ -163,6 +166,41 @@ internal static class TenantPreflightProgram
             checks,
             requiredSecrets,
             appSettings);
+    }
+
+    private static void AddServiceAreaChecks(
+        ICollection<PreflightCheck> checks,
+        ServiceAreaPolicy policy,
+        string environment)
+    {
+        var production = string.Equals(environment, "production", StringComparison.OrdinalIgnoreCase);
+        var severity = production ? PreflightSeverity.Required : PreflightSeverity.Warning;
+
+        // Merged tenant and vertical states: each layer is validated on load, this catches the combination.
+        var invalidStates = policy.States.Where(state => !UsStates.IsValidCode(state)).ToArray();
+        Add(
+            checks,
+            "serviceArea.policy",
+            invalidStates.Length == 0,
+            invalidStates.Length == 0
+                ? $"Effective service area mode is '{policy.Mode}'."
+                : $"Effective service area mode is '{policy.Mode}' but it lists states that are not USPS codes.",
+            severity);
+
+        var detail = policy.Mode switch
+        {
+            ServiceAreaModes.State => $"{policy.States.Count} allowed state(s) configured.",
+            ServiceAreaModes.None => "No service area check: every caller qualifies.",
+            _ => $"{policy.ZipCodes.Count} allowed ZIP code(s) configured."
+        };
+        Add(
+            checks,
+            "serviceArea.configured",
+            policy.IsConfigured,
+            policy.IsConfigured
+                ? detail
+                : $"Service area mode '{policy.Mode}' has no {(policy.Mode == ServiceAreaModes.State ? "states" : "ZIP codes")}: voice leads would escalate instead of booking.",
+            severity);
     }
 
     private static void AddSupportedProviderChecks(

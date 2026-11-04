@@ -2,6 +2,7 @@ using System.Net.Mail;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using RNM.Platform.Application.Observability;
+using RNM.Platform.Domain.Configuration;
 
 namespace RNM.Platform.Application.Qualification;
 
@@ -24,6 +25,16 @@ public sealed class QualificationService
         CancellationToken cancellationToken)
     {
         var fields = ExtractFields(request);
+        var serviceAreaMode = ResolveMode(request.ServiceAreaMode);
+        var stateInput = serviceAreaMode == ServiceAreaModes.State
+            ? FindState(request, fields)
+            : null;
+        if (stateInput is not null && UsStates.TryNormalize(stateInput, out var stateCode))
+        {
+            // The USPS code is what is stored and reported; the state value is never logged.
+            fields["state"] = stateCode;
+        }
+
         var requiredFields = request.RequiredFields
             .Where(field => !string.IsNullOrWhiteSpace(field))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -37,10 +48,28 @@ public sealed class QualificationService
             .ToList();
 
         var zipCode = FindZipCode(request, fields);
-        var serviceAreaDecision = serviceAreaValidator.Validate(zipCode, request.AllowedZipCodes);
+        if (serviceAreaMode != ServiceAreaModes.Zip
+            && zipCode is not null
+            && !ServiceAreaValidator.IsValidUsZipCode(zipCode))
+        {
+            // A ZIP is optional outside zip mode: keep a valid one, drop an invalid one.
+            zipCode = null;
+        }
+
+        var serviceAreaDecision = serviceAreaValidator.Validate(
+            serviceAreaMode,
+            zipCode,
+            request.AllowedZipCodes,
+            stateInput,
+            request.AllowedStates ?? []);
         if (serviceAreaDecision.State is ServiceAreaDecisionState.MissingZipCode)
         {
             missingRequiredFields.Add("zipCode");
+        }
+
+        if (serviceAreaDecision.State is ServiceAreaDecisionState.MissingState)
+        {
+            missingRequiredFields.Add("state");
         }
         var hasInvalidContactFields = HasInvalidContactFields(fields);
 
@@ -55,11 +84,15 @@ public sealed class QualificationService
         var state = serviceAreaDecision.State switch
         {
             ServiceAreaDecisionState.InvalidZipCode => QualificationResultState.InvalidInput,
+            ServiceAreaDecisionState.InvalidState => QualificationResultState.InvalidInput,
             _ when hasInvalidContactFields => QualificationResultState.InvalidInput,
             _ when distinctMissingRequiredFields.Length > 0 => QualificationResultState.MissingRequiredFields,
             ServiceAreaDecisionState.InServiceArea => QualificationResultState.Qualified,
+            ServiceAreaDecisionState.NotRequired => QualificationResultState.Qualified,
             ServiceAreaDecisionState.OutOfServiceArea => QualificationResultState.OutOfServiceArea,
             ServiceAreaDecisionState.NeedsEscalation => QualificationResultState.NeedsEscalation,
+            ServiceAreaDecisionState.MissingZipCode => QualificationResultState.MissingRequiredFields,
+            ServiceAreaDecisionState.MissingState => QualificationResultState.MissingRequiredFields,
             _ => QualificationResultState.MissingRequiredFields
         };
 
@@ -93,7 +126,27 @@ public sealed class QualificationService
         return finalResult;
     }
 
-    private static IReadOnlyDictionary<string, string> ExtractFields(QualificationRequest request)
+    private static string ResolveMode(string? mode)
+    {
+        return ServiceAreaModes.IsValid(mode) ? mode! : ServiceAreaModes.Zip;
+    }
+
+    private static string? FindState(QualificationRequest request, IReadOnlyDictionary<string, string> fields)
+    {
+        // State comes from a tool argument only; it is never parsed out of an address.
+        var aliases = request.ServiceAreaFieldAliases?.StateFields ?? ServiceAreaFieldAliasConfiguration.DefaultStateFields;
+        foreach (var fieldName in aliases)
+        {
+            if (fields.TryGetValue(fieldName, out var state) && !string.IsNullOrWhiteSpace(state))
+            {
+                return state;
+            }
+        }
+
+        return null;
+    }
+
+    private static Dictionary<string, string> ExtractFields(QualificationRequest request)
     {
         var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -258,6 +311,7 @@ public sealed class QualificationService
             .Add("verticalId", request.VerticalId)
             .Add("state", result.State.ToString())
             .Add("serviceAreaState", result.ServiceAreaDecision.State.ToString())
+            .Add("serviceAreaMode", ResolveMode(request.ServiceAreaMode))
             .Add("requiredFieldCount", result.RequiredFields.Count.ToString())
             .Add("missingFieldCount", result.MissingRequiredFields.Count.ToString())
             .ToDictionary();

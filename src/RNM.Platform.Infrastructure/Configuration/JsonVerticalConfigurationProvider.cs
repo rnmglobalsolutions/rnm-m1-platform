@@ -63,7 +63,8 @@ public sealed class JsonVerticalConfigurationProvider : IVerticalConfigurationPr
         IReadOnlyCollection<string>? QualificationFields,
         IReadOnlyCollection<string>? SupportedCallTypes,
         ServiceAreaFieldAliasesDto? ServiceAreaFieldAliases,
-        LeadClassificationConfigurationDto? LeadClassification)
+        LeadClassificationConfigurationDto? LeadClassification,
+        VerticalServiceAreaDto? ServiceArea = null)
     {
         public VerticalConfiguration ToDomain()
         {
@@ -75,12 +76,19 @@ public sealed class JsonVerticalConfigurationProvider : IVerticalConfigurationPr
                 SupportedCallTypes ?? [],
                 new ServiceAreaFieldAliasConfiguration(
                     ServiceAreaFieldAliases?.ZipCodeFields ?? defaultAliases.ZipCodeFields,
-                    ServiceAreaFieldAliases?.AddressFields ?? defaultAliases.AddressFields),
-                LeadClassification?.ToDomain());
+                    ServiceAreaFieldAliases?.AddressFields ?? defaultAliases.AddressFields,
+                    ServiceAreaFieldAliases?.StateFields ?? defaultAliases.StateFields),
+                LeadClassification?.ToDomain(),
+                ServiceArea is null ? null : new VerticalServiceAreaConfiguration(ServiceArea.Mode, ServiceArea.States));
         }
     }
 
     private sealed record ServiceAreaFieldAliasesDto(
         IReadOnlyCollection<string>? ZipCodeFields,
-        IReadOnlyCollection<string>? AddressFields);
+        IReadOnlyCollection<string>? AddressFields,
+        IReadOnlyCollection<string>? StateFields = null);
+
+    private sealed record VerticalServiceAreaDto(
+        string? Mode,
+        IReadOnlyCollection<string>? States);
 }

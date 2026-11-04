@@ -19,6 +19,7 @@
     "GeneralInquiry",
     "Complaint"
   ],
+  "serviceArea": { "mode": "zip" },
   "serviceAreaFieldAliases": {
     "zipCodeFields": ["zipCode", "zip", "postalCode", "serviceZipCode"],
     "addressFields": ["serviceAddress"]

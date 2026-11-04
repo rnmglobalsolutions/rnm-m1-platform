@@ -18,6 +18,7 @@
     "HomeValuation",
     "GeneralInquiry"
   ],
+  "serviceArea": { "mode": "zip" },
   "serviceAreaFieldAliases": {
     "zipCodeFields": ["zipCode", "zip", "postalCode"],
     "addressFields": ["targetPropertyAddress", "serviceAddress"]

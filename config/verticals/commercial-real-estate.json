@@ -21,6 +21,7 @@
     "Consultation",
     "GeneralInquiry"
   ],
+  "serviceArea": { "mode": "zip" },
   "serviceAreaFieldAliases": {
     "zipCodeFields": ["zipCode", "zip", "postalCode", "serviceZipCode"],
     "addressFields": ["serviceAddress", "targetPropertyAddress"]
