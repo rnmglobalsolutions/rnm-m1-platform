@@ -2,6 +2,9 @@
 
 This runbook verifies RNM Platform M1 email sending through SendGrid in Azure dev.
 
+Account, DNS, sender, unsubscribe and Event Webhook setup live in
+`sendgrid-setup.md`.
+
 ## 1. Confirm infrastructure settings
 
 Bicep configures `SENDGRID_API_KEY` as a Key Vault reference on both Function Apps:

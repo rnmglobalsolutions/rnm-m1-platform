@@ -220,6 +220,11 @@ public sealed record CrmOptOutRequest(
     public string? PhoneNumber { get; init; }
 
     public string? Email { get; init; }
+
+    /// <summary>
+    /// SMS opt-out (STOP) also revokes outbound-call consent; email opt-out only affects email.
+    /// </summary>
+    public ConsentChannel Channel { get; init; } = ConsentChannel.Sms;
 }
 
 public sealed record CrmMarketingConsentRequest(
@@ -398,6 +403,7 @@ public static class CrmTimelineEventTypes
     public const string SmsSent = "sms.sent";
     public const string SmsSkipped = "sms.skipped";
     public const string EmailSent = "email.sent";
+    public const string EmailBounced = "email.bounced";
     public const string FollowUpScheduled = "followup.scheduled";
     public const string FollowUpSent = "followup.sent";
     public const string FollowUpSkipped = "followup.skipped";
@@ -431,6 +437,8 @@ public static class CrmContactAttributeNames
     public const string SmsConsentSource = "smsConsentSource";
     public const string EmailConsentSource = "emailConsentSource";
     public const string ConsentOptedOutAt = "consentOptedOutAt";
+    public const string EmailConsentOptedOutAt = "emailConsentOptedOutAt";
+    public const string EmailDeliverability = "emailDeliverability";
     public const string SourceSessionId = "sourceSessionId";
     public const string SourceRegistrationId = "sourceRegistrationId";
     public const string SourceFunnel = "sourceFunnel";

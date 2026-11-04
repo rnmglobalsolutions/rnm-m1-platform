@@ -107,8 +107,18 @@ public sealed record CommunicationConfiguration(
     bool NotifyBusinessBySmsForUrgentOnly = false,
     BusinessSmsNotificationConfiguration? BusinessSmsNotification = null,
     AppointmentReminderConfiguration? AppointmentReminders = null,
-    int? SmsRetryStalenessCutoffMinutes = null)
+    int? SmsRetryStalenessCutoffMinutes = null,
+    string? ReplyToAddress = null,
+    string? MarketingEmailFromAddress = null,
+    string? PostalAddress = null)
 {
+    /// <summary>
+    /// Sender for marketing (follow-up) email; defaults to the transactional sender. Keep it on a separate
+    /// authenticated subdomain so complaints about marketing never affect appointment confirmations.
+    /// </summary>
+    public string? EffectiveMarketingEmailFromAddress =>
+        string.IsNullOrWhiteSpace(MarketingEmailFromAddress) ? EmailFromAddress : MarketingEmailFromAddress;
+
     public int EffectiveSmsRetryStalenessCutoffMinutes => SmsRetryStalenessCutoffMinutes ?? 60;
 
     public BusinessSmsNotificationConfiguration EffectiveBusinessSmsNotification =>

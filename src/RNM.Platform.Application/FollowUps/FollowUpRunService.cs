@@ -337,7 +337,10 @@ public sealed class FollowUpRunService
                         correlationId,
                         contact.Email,
                         RenderTemplate(step.EmailSubjectTemplate, followUp, tenant, contact, attributes, correlationId),
-                        RenderTemplate(step.EmailBodyTemplate, followUp, tenant, contact, attributes, correlationId)),
+                        RenderTemplate(step.EmailBodyTemplate, followUp, tenant, contact, attributes, correlationId))
+                    {
+                        Category = EmailCategory.Marketing
+                    },
                     cancellationToken)
                 .ConfigureAwait(false);
             return result.Succeeded

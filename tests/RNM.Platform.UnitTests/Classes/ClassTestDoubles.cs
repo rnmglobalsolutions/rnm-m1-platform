@@ -430,8 +430,15 @@ internal sealed class FakeCrmAdapter : ICrmAdapter
     public Task<CrmOperationResult> MarkLeadReactivatedAsync(CrmLeadReactivationRequest request, CancellationToken cancellationToken) =>
         Task.FromResult(new CrmOperationResult(true));
 
-    public Task<CrmOperationResult> MarkOptOutAsync(CrmOptOutRequest request, CancellationToken cancellationToken) =>
-        Task.FromResult(new CrmOperationResult(true));
+    public List<CrmOptOutRequest> OptOuts { get; } = [];
+
+    public CrmOperationResult OptOutResult { get; init; } = new(true);
+
+    public Task<CrmOperationResult> MarkOptOutAsync(CrmOptOutRequest request, CancellationToken cancellationToken)
+    {
+        OptOuts.Add(request);
+        return Task.FromResult(OptOutResult);
+    }
 }
 
 internal sealed class FakeSmsSender : ISmsSender

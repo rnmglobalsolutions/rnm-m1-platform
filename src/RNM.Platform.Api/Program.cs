@@ -6,6 +6,7 @@ using RNM.Platform.Api.Http;
 using RNM.Platform.Api.Security;
 using RNM.Platform.Api.Voice;
 using RNM.Platform.Api.Runtime;
+using RNM.Platform.Application.EmailPreferences;
 using RNM.Platform.Application.Booking;
 using RNM.Platform.Application.Classes;
 using RNM.Platform.Application.Compliance;
@@ -79,6 +80,8 @@ var host = new HostBuilder()
         services.AddSingleton<ApiKeyRequestValidator>();
         services.AddSingleton<TwilioSignatureValidator>();
         services.AddSingleton<VapiWebhookValidator>();
+        services.AddSingleton<SendGridEventWebhookValidator>();
+        services.AddSingleton<EmailPreferenceService>();
         services.AddSingleton<SafeErrorResponseFactory>();
         services.AddSingleton<SafeHttpResponseWriter>();
         services.AddSingleton<FormUrlEncodedBodyParser>();
@@ -154,6 +157,7 @@ var host = new HostBuilder()
             client.BaseAddress = new Uri("https://api.twilio.com/2010-04-01/");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
+        services.AddSingleton<IEmailUnsubscribeLinkFactory, EmailUnsubscribeLinkFactory>();
         services.AddSingleton<ISendGridEmailTransport, SendGridEmailTransport>();
         services.AddSingleton<IEmailSender, SendGridEmailSender>();
         services.AddSingleton<IEventLogger, ApplicationInsightsEventLogger>();

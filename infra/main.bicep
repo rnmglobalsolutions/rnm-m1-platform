@@ -67,8 +67,10 @@ var mainFunctionAppSettings = union(additionalFunctionAppSettings, {
 })
 var contactFunctionAppSettings = union(additionalFunctionAppSettings, {
   'AzureWebJobs.ConfirmationRetry.Disabled': 'true'
+  'AzureWebJobs.EmailUnsubscribe.Disabled': 'true'
   'AzureWebJobs.Health.Disabled': 'true'
   'AzureWebJobs.Readiness.Disabled': 'true'
+  'AzureWebJobs.SendGridEventWebhook.Disabled': 'true'
   'AzureWebJobs.TestEmailSend.Disabled': 'true'
   'AzureWebJobs.TwilioSmsStatusWebhook.Disabled': 'true'
   'AzureWebJobs.TwilioSmsInboundWebhook.Disabled': 'true'

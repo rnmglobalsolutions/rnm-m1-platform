@@ -150,7 +150,23 @@ public sealed record EmailMessageRequest(
     string CorrelationId,
     string ToEmail,
     string Subject,
-    string Body);
+    string Body)
+{
+    /// <summary>
+    /// Marketing email is sent from the marketing sender and must carry a one-click unsubscribe and the
+    /// tenant postal address; it is never sent without them.
+    /// </summary>
+    public EmailCategory Category { get; init; } = EmailCategory.Transactional;
+}
+
+public enum EmailCategory
+{
+    /// <summary>Confirmations, reminders and business notifications that answer a user action.</summary>
+    Transactional = 0,
+
+    /// <summary>Follow-up and nurture sequences.</summary>
+    Marketing = 1
+}
 
 public sealed record EmailSendResult(
     bool Succeeded,

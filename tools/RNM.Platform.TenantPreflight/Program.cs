@@ -235,6 +235,37 @@ internal static class TenantPreflightProgram
             tenant.Communication.BusinessNotificationEmail,
             required: false,
             operationalSeverity);
+        AddEmailCheck(
+            checks,
+            "communication.marketingEmailFromAddress",
+            tenant.Communication.MarketingEmailFromAddress,
+            required: false,
+            operationalSeverity);
+        Add(
+            checks,
+            "communication.replyToAddress",
+            !string.IsNullOrWhiteSpace(tenant.Communication.ReplyToAddress),
+            string.IsNullOrWhiteSpace(tenant.Communication.ReplyToAddress)
+                ? "Set replyToAddress so lead replies reach the business instead of the sending address."
+                : "Replies go to the business address.",
+            PreflightSeverity.Warning);
+
+        // Marketing email (follow-up sequences) is only sent with the business postal address in the footer.
+        var sendsMarketingEmail = tenant.FollowUps?.EffectiveEnabled is true
+            && tenant.FollowUps.EffectiveSequences
+                .SelectMany(sequence => sequence.EffectiveSteps)
+                .Any(step => string.Equals(step.Channel, "email", StringComparison.OrdinalIgnoreCase));
+        if (sendsMarketingEmail)
+        {
+            Add(
+                checks,
+                "communication.postalAddress",
+                !string.IsNullOrWhiteSpace(tenant.Communication.PostalAddress),
+                string.IsNullOrWhiteSpace(tenant.Communication.PostalAddress)
+                    ? "Follow-up emails are configured: set postalAddress (CAN-SPAM). Without it M1 does not send them."
+                    : "Postal address is set for marketing email.",
+                operationalSeverity);
+        }
 
         var placeholderSecretNames = GetRequiredSecrets(tenant)
             .Where(secret => LooksLikePlaceholder(secret.SecretName))

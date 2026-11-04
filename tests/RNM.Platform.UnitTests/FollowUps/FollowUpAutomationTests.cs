@@ -149,7 +149,8 @@ public sealed class FollowUpAutomationTests
 
         Assert.Equal(1, result.Sent);
         Assert.Empty(sms.Requests);
-        Assert.Single(email.Requests);
+        var request = Assert.Single(email.Requests);
+        Assert.Equal(EmailCategory.Marketing, request.Category);
     }
 
     [Fact]

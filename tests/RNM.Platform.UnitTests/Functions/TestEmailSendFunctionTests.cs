@@ -9,6 +9,7 @@ using Xunit;
 
 namespace RNM.Platform.UnitTests.Functions;
 
+[Collection(SendGridEnvironmentCollection.Name)]
 public sealed class TestEmailSendFunctionTests
 {
     [Theory]
