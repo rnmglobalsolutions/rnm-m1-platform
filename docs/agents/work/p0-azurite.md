@@ -162,8 +162,8 @@ Round 1, 2026-11-03, at `04be29a`: **PASS** (first pass).
   all rejected before any network call.
 - `RNM_CRM_*` variables restored after building the adapter; `AzureWebJobsStorage` is
   never read.
-- CI checked by static review only; the first CI run must show the 3 Azurite tests
-  executed.
+- CI (run 41777031293, push of `feature/m1-p0-azurite`): Azurite 3.37.0 service
+  container healthy; integration tests 4 passed, 0 skipped. Job succeeded.
 - Optional hardening, not done: assert tenant B's contact ID differs from tenant A's;
   duplicate keys in the connection string give a less clear rejection message.
 
