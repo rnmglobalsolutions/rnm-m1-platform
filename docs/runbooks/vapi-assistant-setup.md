@@ -322,6 +322,67 @@ Tool parameters:
 }
 ```
 
+## State-Mode Assistants (Life Insurance)
+
+The HVAC schemas above are for ZIP-mode verticals. A vertical or tenant whose
+effective service area mode is `state` (the `life-insurance` vertical, for
+example Yartex) qualifies a caller by US state, not by ZIP. Its tools differ from
+the HVAC schemas in three ways:
+
+- Add a `state` property and make it required. Remove `zipCode`. `serviceAddress`
+  is not needed for state mode.
+- Do not add `leadSource` or `campaignId`. Callers cannot know them. M1 fills
+  them with `InboundVoice` and `inbound-voice`. If a tool does send a value, the
+  value it sends wins.
+- Keep the other fields the vertical's `qualificationFields` list (`name`,
+  `phoneNumber`, `email`, `intent`, `preferredTime`) and, for the booking tool,
+  the same `selectedSlot*` and `customerConfirmedSlot` fields as the HVAC booking
+  schema.
+
+`state` property:
+
+```json
+"state": {
+  "type": "string",
+  "description": "Two-letter USPS state code, for example TX. Ask the caller which state they live in and convert it to the two-letter code. Do not guess from an address or area code."
+}
+```
+
+Availability tool parameters for a state-mode assistant:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "description": "Caller full name confirmed with the caller." },
+    "phoneNumber": { "type": "string", "description": "Callback phone number confirmed with the caller. Use E.164 format when possible." },
+    "email": { "type": "string", "description": "Valid email address read back and confirmed with the caller." },
+    "state": { "type": "string", "description": "Two-letter USPS state code, for example TX." },
+    "intent": { "type": "string", "description": "Short description of what the caller wants." },
+    "preferredTime": { "type": "string", "description": "Caller preferred appointment window. Preserve explicit ranges and AM/PM." }
+  },
+  "required": ["name", "phoneNumber", "email", "state", "intent"]
+}
+```
+
+M1 normalizes the state (trim, remove dots, two-letter code or English full
+name). The tool should still ask for the two-letter code. M1 compares it with the
+tenant `serviceArea.states` list and never parses a state from an address.
+
+Values of `serviceAreaState` in the tool result for state mode:
+
+| `serviceAreaState` | Meaning | Assistant behavior |
+|---|---|---|
+| `InServiceArea` | State is on the tenant list. | Continue with availability or booking. |
+| `OutOfServiceArea` | State is valid but not on the list. | Do not offer a slot. Say the team cannot book this state and use the tenant referral message. |
+| `MissingState` | No state was sent (`qualificationState` is `MissingRequiredFields`). | Ask "Which state do you live in?" and call the tool again. |
+| `InvalidState` | The value is not a US state (`qualificationState` is `InvalidInput`). | Ask again for the two-letter state code, for example TX. |
+| `NeedsEscalation` | The tenant has no states configured. | Offer human follow-up. This is a configuration problem: run the tenant preflight. |
+| `NotRequired` | Mode is `none`; no state check (`qualificationState` is `Qualified`). | Continue; do not ask for a state. |
+
+Spanish state names are not normalized. The assistant converts them to the
+two-letter code before calling the tool.
+
 ## Expected Tool Result
 
 Availability tool result:

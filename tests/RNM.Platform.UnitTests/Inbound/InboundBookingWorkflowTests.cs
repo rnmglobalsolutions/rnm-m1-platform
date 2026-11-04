@@ -414,6 +414,81 @@ public sealed class InboundBookingWorkflowTests
     }
 
     [Fact]
+    public async Task ProcessAsync_LifeInsuranceVertical_QualifiesWithStateAndNoZip()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                serviceArea: new ServiceAreaConfiguration([], [], null, null, ["TX"])),
+            verticalConfigurationProvider: new RepositoryVerticalProvider("life-insurance"));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: """
+                {
+                  "name": "Jane Customer",
+                  "phoneNumber": "+15551234567",
+                  "email": "lead@example.com",
+                  "intent": "financial_education",
+                  "state": "TX",
+                  "preferredTime": "Afternoon"
+                }
+                """),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+        Assert.Equal(ServiceAreaDecisionState.InServiceArea, result.ServiceAreaState);
+        Assert.Equal("InboundVoice", harness.CrmAdapter.LastUpsertRequest?.Attributes["leadSource"]);
+        Assert.Equal("inbound-voice", harness.CrmAdapter.LastUpsertRequest?.Attributes["campaignId"]);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StateModeWithLifeInsuranceFieldShape_BooksWithoutServiceNeedOrZip()
+    {
+        var harness = CreateHarness(
+            tenantConfigurationProvider: new StubTenantConfigurationProvider(
+                serviceArea: new ServiceAreaConfiguration([], [], null, null, ["TX"])),
+            verticalConfigurationProvider: new StubVerticalConfigurationProvider(
+                ["name", "phoneNumber", "email", "intent", "preferredTime"],
+                new VerticalServiceAreaConfiguration(ServiceAreaModes.State, null)));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: """
+                {
+                  "name": "Jane Customer",
+                  "phoneNumber": "+15551234567",
+                  "email": "lead@example.com",
+                  "intent": "financial_education",
+                  "state": "TX",
+                  "preferredTime": "Afternoon"
+                }
+                """),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.Completed, result.Outcome);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_RepositoryHvacVertical_StillRequiresZip()
+    {
+        var harness = CreateHarness(
+            verticalConfigurationProvider: new RepositoryVerticalProvider("hvac"));
+
+        var result = await harness.Workflow.ProcessAsync(
+            CreateWorkflowRequest(argumentsJson: CreateArgumentsJson(serviceAddress: "123 Main St, Addison")),
+            CancellationToken.None);
+
+        Assert.Equal(InboundBookingWorkflowOutcome.QualificationStopped, result.Outcome);
+        Assert.Equal(ServiceAreaDecisionState.MissingZipCode, result.ServiceAreaState);
+    }
+
+    private sealed class RepositoryVerticalProvider(string repositoryVerticalId) : IVerticalConfigurationProvider
+    {
+        public Task<VerticalConfiguration> GetVerticalConfigurationAsync(
+            string verticalId,
+            CancellationToken cancellationToken) =>
+            RepositoryConfiguration.Verticals().GetVerticalConfigurationAsync(repositoryVerticalId, cancellationToken);
+    }
+
+    [Fact]
     public async Task ProcessAsync_ZipModeHvac_StillRequiresZip()
     {
         var harness = CreateHarness();

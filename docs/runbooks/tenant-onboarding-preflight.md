@@ -39,6 +39,69 @@ It also lists, without reading their values:
   or follow-ups;
 - the readiness endpoint to call after deployment.
 
+### Service Area Checks
+
+Two checks report the effective service area (tenant over vertical):
+
+- `serviceArea.policy`: names the effective mode and fails when the merged
+  states list holds anything that is not an uppercase USPS code.
+- `serviceArea.configured`: fails when the mode needs a list and it is empty
+  (ZIP codes for `zip`, states for `state`). Such a tenant would escalate every
+  voice lead instead of booking. Mode `none` always passes.
+
+Both are Required in `production` (they block) and Warning in `repository` and
+other environments.
+
+Rules:
+
+- `mode` is `zip`, `state`, or `none`. The vertical declares the default
+  (`hvac` and the real estate verticals use `zip`; `life-insurance` uses
+  `state`). With no mode anywhere, the mode is `zip`.
+- `zip`: the tenant needs `zipCodes` (`"*"` is accepted in repository checks,
+  blocked in production).
+- `state`: the tenant (or the vertical) needs `states`. Values are uppercase
+  USPS codes: 50 states, DC, PR, GU, VI, AS, MP. No military codes, no `*`.
+- `none`: no service area check; every caller qualifies.
+- A tenant `states` list replaces the vertical's list. It does not merge.
+- With no `mode` on the tenant, the tenant must still list at least one ZIP
+  code, state, or city.
+
+Example: a life insurance tenant licensed in four states (mode comes from the
+vertical):
+
+```json
+"serviceArea": {
+  "states": ["CA", "FL", "NE", "TX"],
+  "zipCodes": [],
+  "cities": [],
+  "referralMessage": "Yartex can review the request and follow up with next steps."
+}
+```
+
+Override the vertical mode in tenant JSON when the tenant differs. Accept every
+caller (no check):
+
+```json
+"serviceArea": {
+  "mode": "none",
+  "zipCodes": [],
+  "cities": []
+}
+```
+
+Check by ZIP although the vertical uses state:
+
+```json
+"serviceArea": {
+  "mode": "zip",
+  "zipCodes": ["78040", "78041"],
+  "cities": ["Laredo"]
+}
+```
+
+Changing a tenant to `state` mode also means the Vapi tool must send `state`
+(see `vapi-assistant-setup.md`, State-Mode Assistants).
+
 ## Validate Every Checked-In Manifest
 
 ```bash
