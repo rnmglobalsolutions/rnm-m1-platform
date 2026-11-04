@@ -427,3 +427,48 @@ Every agent definition starts with these:
 ## Retros
 
 (Added at the end of each phase.)
+
+### Phase 0 (closed 2026-11-03)
+
+Release gate: passed on `main` at `2fb2297`. Build 0 warnings; tests 524/524 (unit 520,
+integration 4 with 3 on Azurite) locally and in CI; tenant preflight passes; agent files
+exist; Deploy Dev succeeded.
+
+Items:
+- Steps 1 to 3: SendGrid compliance work reviewed and merged (PR #52) with the plan,
+  backlog, and ADRs.
+- Step 4: agents, briefs, lessons, path hook, and deny rules (PR #53). Path hook tested
+  live with a real verifier: edit in `docs/` blocked by the hook, edit outside the
+  worktree blocked (by Claude Code's worktree isolation, before the hook), edit in
+  `tests/` allowed, `git push` and `az` blocked.
+- Step 5: Google OAuth scope list researched
+  (`docs/agents/work/p0-google-oauth-scopes.md`). Waiting for Raisel's decision.
+- Step 6: Azurite for tests and real `AzureTableCrmAdapter` round-trip tests (PR #54),
+  through the full loop: plan, research, approval, implement, verify, PR.
+
+Rework: none. Bugs after merge: none. First-pass verification: 1 of 1 (100%).
+
+Lessons: none added, promoted, or removed in this phase's last steps (two from earlier
+steps remain). Facts went into the platform brief instead.
+
+What we learned and change for Phase 1:
+- The implementer cannot edit `.github/`. When an item needs a workflow change, the
+  planner lists it as an orchestrator task, and Raisel approves deploy workflow changes.
+- The hook does not see files written by shell commands (`echo >`, `sed -i`). The
+  orchestrator's path check before every push stays mandatory.
+- The researcher corrected a planner assumption (GitHub Actions service containers do
+  accept `command`). Keep sending a plan's external questions to the researcher before
+  implementing, even when they look minor.
+- Port 10002 on Raisel's machine is used by another project's Azurite. M1 runs its own on
+  10012 locally (see the platform brief).
+- **Item #10 needs a decision before Phase 3:** the Google Meet API does not return
+  participant emails (only a Google user ID and display name), so matching registrations
+  by email works for Zoom but not for Meet as written. Whether consumer Gmail accounts can
+  use the Meet API is also unconfirmed.
+
+Still open for Raisel (not code): approve the Google scope list, publish the OAuth app
+and request verification, start A2P 10DLC for Yartex, provision Yartex in dev, set
+`operationsAlertEmail`.
+
+Phase 1 entry: met. Yartex provisioning in dev is needed for the Phase 1 gate, not to
+start coding. First item: #17 (attribute limit guard), which reuses `AzuriteTableFixture`.
