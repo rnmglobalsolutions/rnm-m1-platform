@@ -44,6 +44,9 @@ Numbers are IDs, not build order. The build order and phases are in
 | 18 | Appointment outcome by email (attended, closed) | CRM, Monthly report | todo |
 | 19 | Date-range queries and history archiving (only when measured) | CRM, Monthly report | deferred |
 | 20 | Unsubscribe links without the email address in the URL | Follow-up, Logs | todo |
+| 21a | Google client ID and secret at app level | Booking, Onboarding | todo |
+| 21b | Self-service Google Calendar connection link | Booking, Onboarding | todo |
+| 21c | Google disconnection and deletion within 30 days | Booking, Privacy | todo |
 
 Storage decision (Table Storage now, Azure SQL together with the UI in Platform RNM
 2.0): ADR 0004.
@@ -244,6 +247,15 @@ Done when:
 - `/readiness` reports the connection as broken for that tenant.
 - Google access tokens are cached until shortly before they expire (about 1 hour),
   instead of being requested on every call.
+- Extended by #21 (2026-11-06): each tenant has a connection status (`connected`,
+  `disconnected`, `error`), connected email, `connectedAt`, `lastHealthCheckAt`, and
+  `lastError` with no secrets (the store from #21b). The daily job runs with a
+  configurable concurrency limit. `invalid_grant` or `invalid_client` marks the tenant
+  `disconnected` and emails the operator through SendGrid with the tenant ID and error.
+  Temporary errors (429, 5xx, timeouts) retry with backoff and never disconnect.
+- A reconnection takes effect without restarting the Function (short TTL or
+  invalidation on save); any `@Microsoft.KeyVault` reference pinned to a version is
+  reported.
 
 ### 16. Language per lead (English or Spanish)
 
@@ -313,6 +325,52 @@ Done when:
 - A missing or unreadable signing key logs a telemetry event with `tenantId` and
   `correlationId`.
 
+### 21. Self-service Google Calendar connection
+
+Today connecting a tenant's calendar is manual: an OAuth URL, copy the code, exchange it
+with `scripts/google-calendar-oauth-manual.sh`, and paste the refresh token into Key
+Vault. It does not scale, and Google verification needs a real HTTPS connection flow on
+a verified domain for the demo video. Requirements, constraints, and decisions are in
+`docs/agents/work/21-google-connect.md`. Scopes never change in this item (see "Not
+code", Google OAuth app). The manual script keeps working as a fallback.
+
+#### 21a. Google client ID and secret at app level
+
+Done when:
+- The OAuth client ID and secret are read once from app configuration (Key Vault), not
+  from each tenant's secret.
+- A tenant secret that still has `clientId`/`clientSecret` keeps working until migrated.
+- `sample-hvac-tenant` keeps working before, during, and after the migration.
+- Vapi and availability endpoints behave exactly as before.
+
+#### 21b. Self-service Google Calendar connection link
+
+Done when:
+- The operator generates a single-use, expiring link for a tenant (admin endpoint,
+  internal API key); only its hash is stored; a new link invalidates older ones.
+- The customer opens it, picks a Google account, accepts, and sees a "Calendar connected"
+  page with the connected email (English and Spanish).
+- PKCE (S256) and an HMAC-signed `state` (tenant, expiry, single-use nonce). The callback
+  is idempotent, handles cancel, unchecked permissions, and Workspace admin blocks with a
+  clear message, and saves nothing broken.
+- Granted scopes are checked; a free/busy test runs before the connection counts.
+- A new secret version keeps the tenant's schedule settings and changes only the
+  credentials; older versions are disabled. Same account: never revoke. Different
+  account: revoke the old one after the new one works, and email the operator.
+- Credentials go to a separate Key Vault for tenant Google credentials (7-day soft-delete
+  retention; the app can write only there).
+- No log contains tokens, codes, secrets, the full state, or the link token.
+- Production redirect on a verified custom domain; localhost only by configuration.
+
+#### 21c. Google disconnection and deletion within 30 days
+
+Done when:
+- An admin endpoint revokes the tenant's token at Google, deletes the credentials, and
+  marks the tenant `disconnected`.
+- Google-derived data M1 keeps outside Key Vault (event IDs, Meet links, and attendance
+  when #10 exists) is deleted or anonymized within 30 days.
+- The privacy policy text matches what M1 does (Raisel approves).
+
 ### 14. Tenant events to the tenant's own systems
 
 Today M1 cannot notify a tenant's own systems; customization beyond configuration
@@ -353,12 +411,11 @@ Done when:
      "unverified app" warning when connecting, and there is a cap of 100 new users.
   2. Reconnect every calendar authorized while the app was in Testing (those tokens
      still expire).
-  3. This week: request Google verification. **Request every scope M1 will need, not
-     only today's**: calendar events and free/busy now, plus the Google Meet scope for
-     reading attendance (item 10). Adding a scope later means a new verification and
-     every tenant reconnecting. Scope list confirmed and approved on 2026-11-03
-     (`docs/agents/work/p0-google-oauth-scopes.md`): `calendar.events`,
-     `calendar.freebusy`, `meetings.space.readonly`, `openid`, `userinfo.email`.
+  3. Request Google verification with `calendar.events`, `calendar.freebusy`,
+     `openid`, `userinfo.email`. Decided 2026-11-06 (replaces the 2026-11-03 list):
+     **remove `meetings.space.readonly`** from the consent screen before verifying. It is
+     sensitive and unused until item 10, and an unused sensitive scope likely fails
+     verification. Item 10 adds it later (new verification, tenants reconnect).
      Needs a privacy
      policy page and homepage on rnmglobalsolutions.com, the domain verified in Google
      Search Console, a scope justification, and a demo video of the connection flow.

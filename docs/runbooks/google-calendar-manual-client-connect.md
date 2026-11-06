@@ -38,8 +38,8 @@ Use one Google Cloud project for this manual pilot.
 1. Open Google Cloud Console.
 2. Select or create the project used for M1 calendar integrations.
 3. Go to **APIs & Services > Library**.
-4. Enable **Google Calendar API** and **Google Meet REST API** (Meet is used later for
-   master class attendance, item 10).
+4. Enable **Google Calendar API**. The Google Meet REST API and the
+   `meetings.space.readonly` scope come later with item 10 (attendance).
 5. Go to **APIs & Services > OAuth consent screen**.
 6. Choose **External** user type.
 7. Complete the app information.
@@ -49,13 +49,12 @@ Use one Google Cloud project for this manual pilot.
    and there is a cap of 100 users.
 9. Reconnect any calendar that was authorized while the app was in Testing.
 10. Smoke test with your own calendar before connecting a tenant.
-11. Add these scopes (the full list approved for verification; request them all now so
-    tenants do not have to reconnect later):
+11. Add exactly these scopes (the list for Google verification, decided 2026-11-06).
+    If the consent screen still lists `meetings.space.readonly`, remove it:
 
 ```text
 https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/calendar.freebusy
-https://www.googleapis.com/auth/meetings.space.readonly
 openid
 https://www.googleapis.com/auth/userinfo.email
 ```
@@ -125,7 +124,7 @@ The response should include:
   "access_token": "...",
   "expires_in": 3599,
   "refresh_token": "...",
-  "scope": "openid https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy https://www.googleapis.com/auth/meetings.space.readonly https://www.googleapis.com/auth/userinfo.email",
+  "scope": "openid https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy https://www.googleapis.com/auth/userinfo.email",
   "token_type": "Bearer"
 }
 ```

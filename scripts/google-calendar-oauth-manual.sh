@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Full M1 scope list approved for Google verification (docs/agents/work/p0-google-oauth-scopes.md).
-# Requested in full now so tenants do not reconnect when attendance (item 10) starts.
-SCOPES="https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy https://www.googleapis.com/auth/meetings.space.readonly openid https://www.googleapis.com/auth/userinfo.email"
+# Scopes requested for Google verification (decided 2026-11-06, docs/backlog.md "Not code").
+# meetings.space.readonly is added later by item 10 (attendance).
+SCOPES="https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy openid https://www.googleapis.com/auth/userinfo.email"
 TOKEN_URL="https://oauth2.googleapis.com/token"
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
 
