@@ -159,6 +159,73 @@ Open decisions (for the plan approval):
 
 ## Research
 
+Researcher report, 2026-11-06 (official docs; no API calls).
+
+1. **Revocation:** revoking an access token also revokes its refresh token (confirmed).
+   Google says revocation removes the scopes granted "to a project ... for all clients
+   registered under that project" (broader than "this app"). Whether it also kills a token
+   from a later re-consent: likely, not explicit. Revocation may take time to apply.
+2. **Re-consent:** `prompt=consent` issues a new refresh token (confirmed). The old one
+   likely stays valid. Limit: 100 refresh tokens per Google account per client; the 101st
+   silently invalidates the oldest. Tokens die after 6 months unused or on user revoke.
+   **Implication:** after a same-account reconnect, disabling the old Key Vault version
+   does not end the old token's access at Google; only revoke would, and revoke risks the
+   new token. Accepted risk: the old token is never used again and ages out.
+3. **id_token:** signature validation is not required when received directly from the token
+   endpoint over HTTPS. Check `iss` (`https://accounts.google.com` or `accounts.google.com`),
+   `aud` = client ID, `exp`. Use `sub` as the stable account ID, `email` for display. No JWT
+   library needed. Alternative: userinfo endpoint (from the discovery document).
+4. **PKCE on a Web client:** official web-server doc is silent (unconfirmed). Recommended:
+   send `code_challenge` + `S256` and also `client_secret` + `code_verifier` at exchange;
+   do not rely on Google enforcing PKCE.
+5. **Granular consent:** users can uncheck individual scopes (confirmed). The token
+   response `scope` field (space-delimited) is the record; with `include_granted_scopes`
+   it may include earlier grants.
+6. **Errors:** callback `access_denied` (confirmed); `admin_policy_enforced`, `org_internal`,
+   `disallowed_useragent` (Google Help Center, likely). Token endpoint: `invalid_grant`,
+   `invalid_client`, `redirect_uri_mismatch` (confirmed). Show a generic message for any
+   other value.
+7. **Redirects:** HTTPS required except localhost (allowed; keep it behind config). Once
+   `rnmglobalsolutions.com` is an authorized domain, any subdomain (for example
+   `api.rnmglobalsolutions.com`) is covered. Search Console verification of the authorized
+   domain is required for sensitive scopes.
+8. **Verification:** requesting only scopes in use is fine; scopes can be added later.
+   **The 100-user cap applies over the project's lifetime and cannot be reset.** Up to 10
+   days official. Adding a scope later means tenants reconnect (likely).
+9. **Quotas:** 600 requests/min per user, 10,000/min and 1,000,000/day per project. One
+   free/busy per tenant per day is negligible.
+10. **Key Vault:** retention 7–90 days, set only at creation. Purge protection cannot be
+    disabled once on. **A soft-deleted secret keeps its name reserved:** recreating it
+    fails until purged or recovered. "Key Vault Secrets Officer" at vault scope covers
+    set, update, delete (purge likely). Per-secret role scope is not recommended.
+    **Implication:** dedicated vault with 7-day retention and purge protection OFF, so
+    disconnect can delete and purge immediately and a later reconnect reuses the name.
+11. **.NET:** `GetPropertiesOfSecretVersions` lists versions; set `Enabled = false` and
+    `UpdateSecretProperties` to disable one; `SetSecretAsync` creates a new version.
+12. **Flex Consumption:** custom domains and free managed certificates are supported
+    (official, 2026-09-15). **Apps created before the feature have no migration path:**
+    may need a new Flex app. Check the M1 app's creation date. Subdomain CNAME must point
+    directly at `<app>.azurewebsites.net`.
+13. **Table Storage:** no TTL. Store `expiresAt`, check on read, clean with a timer.
+
+Conflicts: revocation scope (project-wide wording); PKCE on Web clients; old third-party
+guides on Flex certificates (outdated).
+
+**New decision needed (ties to "one account, several tenants"):** revocation is
+project-wide for that Google account. If one account may serve several tenants, the
+"different account → revoke the old one" step must skip the revoke while another tenant
+still uses the old account.
+
+Sources: developers.google.com/identity/protocols/oauth2 (web-server, native-app,
+resources/granular-permissions, production-readiness/sensitive-scope-verification),
+developers.google.com/identity/openid-connect/openid-connect,
+developers.google.com/workspace/calendar/api/guides/quota,
+support.google.com/cloud/answer/10311615 and 13463817,
+support.google.com/accounts/answer/16668185,
+learn.microsoft.com (key-vault soft-delete-overview, key-vault-recovery, rbac-guide,
+secrets quick-create-net, SecretClient API; azure-functions flex-consumption-plan and
+how-to; app-service configure-ssl-certificate; storage tables overview).
+
 ## Plan (21a)
 
 ## Implementation
