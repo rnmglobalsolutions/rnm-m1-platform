@@ -228,6 +228,77 @@ how-to; app-service configure-ssl-certificate; storage tables overview).
 
 ## Plan (21a)
 
+Planner report, 2026-11-06. Precondition: Raisel confirms the pending live test call;
+no other branch is changing `GoogleCalendarBookingAdapter.cs`.
+
+Goal: the token refresh takes the OAuth client from two platform Key Vault secrets read
+once per process; a tenant secret that still has `clientId`/`clientSecret` keeps working
+and wins when both are present.
+
+Repo facts (verified): adapter reads the tenant secret every call (192-209); refresh needs
+`refreshToken`+`clientId`+`clientSecret` (211-243); adapter is a typed HttpClient
+(transient), so the cache must be a separate singleton; readiness requires the tenant pair
+(371-389); preflight never reads secret values; existing `@Microsoft.KeyVault` references
+in `functionApp.bicep` (lines 72, 75) are **not pinned** to a version.
+
+Decisions:
+1. Platform secrets `rnm-google-oauth-client-id` and `rnm-google-oauth-client-secret`,
+   read through the existing `ISecretProvider` (same pattern as
+   `rnm-email-unsubscribe-signing-key`). No Bicep change; works locally through
+   `EnvironmentSecretProvider`.
+2. Singleton `GoogleOAuthClientProvider`: first successful read cached for the process
+   (`SemaphoreSlim`), failures never cached, values trimmed. Rotation = new version +
+   restart.
+3. Precedence: tenant pair wins when both values are non-empty; otherwise the app client;
+   never mixed. Legacy tenants send identical requests with no extra reads. A refresh
+   token is likely bound to the client that issued it.
+4. Does not block #21b's separate vault (the client stays in the platform vault).
+
+Files: new `Infrastructure/Booking/GoogleOAuthClientProvider.cs` (`IGoogleOAuthClientProvider`,
+`GoogleOAuthClient` sealed class whose `ToString` never prints the secret);
+`GoogleCalendarBookingAdapter.cs` (constructor + `GetAccessTokenAsync` only);
+`ReadinessFunction.cs` (`googleOAuthClient` check with fixed detail strings, no values;
+`bookingCredentialsShape` = calendarId and accessToken or refreshToken); `Program.cs` (+1
+singleton); `TelemetryEventNames.cs` (+`booking.google_oauth_client_unavailable`);
+`local.settings.json.example` (2 placeholders). Size S.
+
+Hot files: exclusive `GoogleCalendarBookingAdapter.cs`; append-only `Program.cs`,
+`TelemetryEventNames.cs`.
+
+Tests first (21, unit only): provider (reads both names once across concurrent calls,
+failure not cached, blanks → null, trimming, cancellation, `ToString` hides secret);
+adapter (tenant pair used and provider not called; app client used; tenant wins when both;
+never mixed; no client → same failure message, no HTTP call, event with tenantId and
+correlationId and no secrets; same slots legacy vs app-level; booking path; access token
+skips provider); readiness (ready with app client; blocked when missing; legacy match;
+legacy mismatch still ready; body never contains values; non-Google tenants untouched).
+
+Orchestrator / Raisel (not agents): `scripts/seed-tenant-secrets.sh` adds the two platform
+secrets; briefs (`platform.md` secret names, `booking.md` trap and #13/#4 order note).
+config-author: manual-connect runbook (client fields legacy/optional, store the app client
+once, pass it to the script without printing), seed and local-development runbooks.
+
+Migration of `sample-hvac-tenant` (per environment, Raisel runs, values piped never printed):
+1. Merge 21a (nothing changes: tenant pair wins).
+2. Copy `clientId`/`clientSecret` from the tenant secret into the two platform secrets
+   (only if it is the "M1 Calendar Connect" client).
+3. Readiness → "legacy; matches app configuration" (stop if "differs").
+4. Write a new tenant secret version without the client fields (note the old version ID).
+5. Readiness → "from app configuration", ready.
+6. Smoke test availability (Postman) and compare slots.
+7. Rollback: write a new version from the old version ID (do not disable the latest).
+8. After a week green, disable the old version.
+
+Risks: client secret held in a singleton (masked `ToString`, fixed strings in telemetry
+and readiness, tests assert no values); a wrongly copied client breaks a migrated tenant
+(caught by steps 3 and 5, rollback in 7).
+
+Open question (researcher, non-blocking): is a refresh token bound to its OAuth client, and
+which error does a refresh with another client return? Safe either way (tenant pair wins).
+
+Note: `docs/agents/briefs/booking.md` says #13's cache waits for #4; Track B order (21a,
+21b, #13; #4 one at a time on the adapter) takes priority. Orchestrator updates the brief.
+
 ## Implementation
 
 ## Verification
