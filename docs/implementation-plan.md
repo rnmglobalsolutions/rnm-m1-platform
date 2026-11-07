@@ -140,8 +140,8 @@ manual script keeps working, Vapi and availability behavior unchanged.
 Release gate: Raisel connects a test tenant's calendar with only a link; reconnecting
 keeps its schedule settings; a revoked token shows as `disconnected` with an email; the
 demo video for Google verification is recorded on the production flow. Before
-`GoogleConnect:CustomerEmailsEnabled` is turned on in prod (#21d): Google has verified the
-app, and the SendGrid account is out of trial.
+`GoogleConnect:CustomerEmailsEnabled` is turned on in prod (#21d), Google must have verified
+the app.
 
 ### Phase 2: Booking from every channel
 

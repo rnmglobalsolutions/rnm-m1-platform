@@ -477,10 +477,11 @@ Done when:
      to keep the app in Testing.
   5. Check that a calendar connected after publishing still works on day 8.
 
-- **SendGrid plan (checked 2026-11-07).** The account shows "Trial". Domain
+- **SendGrid (checked 2026-11-07): ready.** Email API on the paid Essentials 50K plan.
+  The "Trial" label is the Marketing Campaigns product, whose trial ended; M1 does not
+  use it (every email, including follow-ups, goes through the Email API). Domain
   authentication (root, `news.`, `notify.`), link branding, and DMARC
-  (`p=quarantine`) are in place. Upgrade before the trial ends: confirmations,
-  reminders, alerts, and #21d connection links all stop with it.
+  (`p=quarantine`) are in place.
 - **Custom domain for the Google callback (#21b).** The dev Function App was created
   2026-05-02, before Flex Consumption supported custom domains with managed
   certificates; such apps likely cannot add one. Staging and prod do not exist yet, so a

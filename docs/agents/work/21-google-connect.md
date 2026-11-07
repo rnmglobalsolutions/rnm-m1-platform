@@ -90,7 +90,7 @@ review of manual versus automatic link delivery.
 Checked 2026-11-07 (read-only):
 - SendGrid: domain authentication verified for `rnmglobalsolutions.com`, `news.` and
   `notify.`; link branding verified; single sender `info@rnmglobalsolutions.com`. DMARC
-  `p=quarantine`, relaxed alignment. The account is on **Trial** (see backlog "Not code").
+  `p=quarantine`, relaxed alignment. Email API on the paid Essentials 50K plan; the "Trial" label is Marketing Campaigns, unused by M1.
   `SendGridEmailSender.cs:279` already turns click tracking off, so link tokens are not
   rewritten through the tracking domain.
 - Azure: dev Function App `rnm-m1-dev-wwptb6ha7riuc-func` (Flex Consumption, FC1) created
