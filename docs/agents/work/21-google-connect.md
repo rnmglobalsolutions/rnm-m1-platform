@@ -1,7 +1,7 @@
 # 21: Self-service Google Calendar connection (21a, 21b, 21c; extends #13)
 
 Status: research and planning
-Branches: feature/m1-21a, feature/m1-21b, feature/m1-21c (and feature/m1-13)
+Branches: feature/m1-21a, feature/m1-21b, feature/m1-21c, feature/m1-21d (and feature/m1-13)
 Hot files: `GoogleCalendarBookingAdapter.cs` (exclusive; 21a and #13), `Program.cs`
 (append-only), `TelemetryEventNames.cs` (append-only); others per plan
 
@@ -47,11 +47,59 @@ Tenant secret format today (`rnm-tenant-{tenantId}-google-calendar-credentials`)
 4. Research and planning start now (read-only). No implementation until Raisel confirms
    the pending live test call (demo calendar reconnect plus #7a/#2 check) passed.
 
-Open decisions (for the plan approval):
-- Can one Google account be connected to more than one tenant?
-- Pages: English only, Spanish only, or detect language (prompt says EN + ES by
-  Accept-Language or a parameter)?
-- Link delivery: the endpoint only returns it (Raisel sends), or M1 sends it?
+## Decisions (Raisel, 2026-11-07)
+
+Source: Raisel's onboarding walkthrough ("Cool Air HVAC", owner María) and a critical
+review of manual versus automatic link delivery.
+
+5. **M1 sends the link (new item 21d).** The tenant configuration marks the tenant as
+   `googleConnect: "required"` with the owner's email. One hourly rule sends a link when
+   the tenant must be connected, is not connected, has no valid link, and was not
+   disconnected by an admin. The 21b admin endpoint stays as the manual and emergency
+   path. Order: 21a → 21b → #13 → 21d → 21c.
+6. **One Google account may serve several tenants (option B).** Revoke the old account
+   only when no other tenant uses it (match by `sub`). Applies to account switch (21b)
+   and disconnection (21c).
+7. **Pages follow the browser language** (`Accept-Language`), English by default.
+8. **Added to 21b:** schedule settings come from the tenant configuration and are copied
+   into the secret on connect; operator email on every connection; admin status
+   endpoint; optional expected account or domain; primary calendar only.
+9. **Added to #13:** `invalid_grant` on a live call marks `disconnected` at once (lead
+   goes to follow-up).
+10. **Safeguards from the critical review (binding for 21b, #13, 21d, 21c):**
+    1. Per-environment switch `GoogleConnect:CustomerEmailsEnabled`, on only in prod and
+       only after Google verification; when off, emails go to the operator. Tenant JSON
+       is shared by every environment, so without it dev would email real customers.
+    2. `invalid_client` never contacts a tenant. Safety brake: more than 2 tenants failing
+       in one run → no customer email, operator alert.
+    3. No reminder replaces a valid link (only the hash is stored, so a reminder would
+       need a new link, which kills the one the owner may be opening). A new link is sent
+       only after the old one expires unused. At most 2 automatic sends, then the operator.
+    4. Optional expected account or domain; operator notified with the connected email.
+    5. The link is consumed only on a successful connection, never on open (email
+       scanners such as Outlook Safe Links open links).
+    6. A failed send retries and then alerts; the admin endpoint can return the link for
+       manual delivery.
+    7. Status separates "disconnected by error" from "disconnected by admin"; admin-
+       disconnected tenants are never contacted.
+    8. Expired or used link page: "Send me a new link", only to the configured owner
+       email, rate limited.
+    9. Customer emails need Google verification (no "unsafe" warning; each test account
+       counts toward the lifetime 100-user cap) and an authenticated sender.
+
+Checked 2026-11-07 (read-only):
+- SendGrid: domain authentication verified for `rnmglobalsolutions.com`, `news.` and
+  `notify.`; link branding verified; single sender `info@rnmglobalsolutions.com`. DMARC
+  `p=quarantine`, relaxed alignment. The account is on **Trial** (see backlog "Not code").
+  `SendGridEmailSender.cs:279` already turns click tracking off, so link tokens are not
+  rewritten through the tracking domain.
+- Azure: dev Function App `rnm-m1-dev-wwptb6ha7riuc-func` (Flex Consumption, FC1) created
+  2026-05-02, before Flex supported custom domains with managed certificates (research
+  finding 12). Staging and prod resource groups are empty, so the prod app will be new.
+  `api.rnmglobalsolutions.com` has no DNS record yet. The 21b plan decides the dev
+  redirect (new dev app, or test-only redirect).
+
+Open decisions: none.
 
 ## Components (from the prompt)
 

@@ -127,7 +127,8 @@ needs a real HTTPS connection flow; external pilots need it before Phase 2's mil
 | 1 | #21a Google client ID and secret at app level | S | — | Phase 1 items |
 | 2 | #21b Self-service connection link | L | #21a | Phase 1 items |
 | 3 | #13 Connection health (extended by #21) | M | #21b (status store) | Phase 1 items |
-| 4 | #21c Disconnection and deletion | M | #21b | — |
+| 4 | #21d Link sent automatically to the owner | M | #21b, #13 (status) | — |
+| 5 | #21c Disconnection and deletion | M | #21b | #21d |
 
 #21a, #13 (token cache), and #4 change `GoogleCalendarBookingAdapter.cs` (exclusive):
 one at a time. Phase 1 items do not touch it. The 2-implementer limit counts both tracks.
@@ -138,7 +139,9 @@ manual script keeps working, Vapi and availability behavior unchanged.
 
 Release gate: Raisel connects a test tenant's calendar with only a link; reconnecting
 keeps its schedule settings; a revoked token shows as `disconnected` with an email; the
-demo video for Google verification is recorded on the production flow.
+demo video for Google verification is recorded on the production flow. Before
+`GoogleConnect:CustomerEmailsEnabled` is turned on in prod (#21d): Google has verified the
+app, and the SendGrid account is out of trial.
 
 ### Phase 2: Booking from every channel
 
