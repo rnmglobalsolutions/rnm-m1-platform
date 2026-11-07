@@ -1,4 +1,4 @@
-# 21: Self-service Google Calendar connection (21a, 21b, 21c; extends #13)
+# 21: Self-service Google Calendar connection (21a, 21b, 21c, 21d; extends #13)
 
 Status: research and planning
 Branches: feature/m1-21a, feature/m1-21b, feature/m1-21c, feature/m1-21d (and feature/m1-13)
