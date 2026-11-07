@@ -44,6 +44,10 @@ Numbers are IDs, not build order. The build order and phases are in
 | 18 | Appointment outcome by email (attended, closed) | CRM, Monthly report | todo |
 | 19 | Date-range queries and history archiving (only when measured) | CRM, Monthly report | deferred |
 | 20 | Unsubscribe links without the email address in the URL | Follow-up, Logs | todo |
+| 21a | Google client ID and secret at app level | Booking, Onboarding | todo |
+| 21b | Self-service Google Calendar connection link | Booking, Onboarding | todo |
+| 21c | Google disconnection and deletion within 30 days | Booking, Privacy | todo |
+| 21d | Connection link sent automatically to the business owner | Booking, Onboarding | todo |
 
 Storage decision (Table Storage now, Azure SQL together with the UI in Platform RNM
 2.0): ADR 0004.
@@ -244,6 +248,25 @@ Done when:
 - `/readiness` reports the connection as broken for that tenant.
 - Google access tokens are cached until shortly before they expire (about 1 hour),
   instead of being requested on every call.
+- Extended by #21 (2026-11-06): each tenant has a connection status (`connected`,
+  `disconnected`, `error`), connected email, `connectedAt`, `lastHealthCheckAt`, and
+  `lastError` with no secrets (the store from #21b). The daily job runs with a
+  configurable concurrency limit. `invalid_grant` or `invalid_client` marks the tenant
+  `disconnected` and emails the operator through SendGrid with the tenant ID and error.
+  Temporary errors (429, 5xx, timeouts) retry with backoff and never disconnect.
+- A reconnection takes effect without restarting the Function (short TTL or
+  invalidation on save); any `@Microsoft.KeyVault` reference pinned to a version is
+  reported.
+- Decided 2026-11-07:
+  - `invalid_grant` during a live call also marks the tenant `disconnected` and alerts
+    the operator at once; the lead still goes to follow-up.
+  - `invalid_client` is a platform error: it alerts only the operator and never
+    contacts a tenant.
+  - Safety brake: if more than 2 tenants fail in the same run, M1 contacts no tenant
+    and alerts the operator (likely an RNM-side problem, such as a bad client secret or
+    the OAuth app back in Testing).
+  - The status tells "disconnected by error" (#21d may send a reconnect link) from
+    "disconnected by admin" (#21c; M1 never contacts that tenant again).
 
 ### 16. Language per lead (English or Spanish)
 
@@ -313,6 +336,94 @@ Done when:
 - A missing or unreadable signing key logs a telemetry event with `tenantId` and
   `correlationId`.
 
+### 21. Self-service Google Calendar connection
+
+Today connecting a tenant's calendar is manual: an OAuth URL, copy the code, exchange it
+with `scripts/google-calendar-oauth-manual.sh`, and paste the refresh token into Key
+Vault. It does not scale, and Google verification needs a real HTTPS connection flow on
+a verified domain for the demo video. Requirements, constraints, and decisions are in
+`docs/agents/work/21-google-connect.md`. Scopes never change in this item (see "Not
+code", Google OAuth app). The manual script keeps working as a fallback.
+
+#### 21a. Google client ID and secret at app level
+
+Done when:
+- The OAuth client ID and secret are read once from app configuration (Key Vault), not
+  from each tenant's secret.
+- A tenant secret that still has `clientId`/`clientSecret` keeps working until migrated.
+- `sample-hvac-tenant` keeps working before, during, and after the migration.
+- Vapi and availability endpoints behave exactly as before.
+
+#### 21b. Self-service Google Calendar connection link
+
+Done when:
+- The operator generates a single-use, expiring link for a tenant (admin endpoint,
+  internal API key; default 72 hours); only its hash is stored; a new link invalidates
+  older ones. This endpoint stays as the manual and emergency path after #21d.
+- The link is consumed only when a connection succeeds, never when it is opened (email
+  security scanners open links).
+- The customer opens it, picks a Google account, accepts, and sees a "Calendar connected"
+  page with the connected email. Pages follow the browser language (English or Spanish),
+  English by default.
+- The tenant's schedule settings (time zone, hours, appointment length, weekends) come
+  from the tenant configuration and are copied into the secret on connect; defaults
+  apply when absent. Availability keeps reading them from the secret (reading them from
+  the tenant configuration directly is a later item).
+- Optional per tenant: the expected Google account or domain (for example
+  `@coolairhvac.com`); a different account is rejected with a clear message.
+- The operator gets an email on every connection (tenant and connected email), and an
+  admin endpoint returns each tenant's connection status.
+- One Google account may serve several tenants (decided 2026-11-07). The old account is
+  revoked only when no other tenant uses it (matched by Google account ID, `sub`).
+- Only the account's primary calendar is connected; secondary calendars are later.
+- PKCE (S256) and an HMAC-signed `state` (tenant, expiry, single-use nonce). The callback
+  is idempotent, handles cancel, unchecked permissions, and Workspace admin blocks with a
+  clear message, and saves nothing broken.
+- Granted scopes are checked; a free/busy test runs before the connection counts.
+- A new secret version keeps the tenant's schedule settings and changes only the
+  credentials; older versions are disabled. Same account: never revoke. Different
+  account: revoke the old one after the new one works, and email the operator.
+- Credentials go to a separate Key Vault for tenant Google credentials (7-day soft-delete
+  retention; the app can write only there).
+- No log contains tokens, codes, secrets, the full state, or the link token.
+- Production redirect on a verified custom domain; localhost only by configuration.
+
+#### 21c. Google disconnection and deletion within 30 days
+
+Done when:
+- An admin endpoint revokes the tenant's token at Google, deletes the credentials, and
+  marks the tenant "disconnected by admin"; M1 never sends that tenant a link again.
+  Revoke is skipped when another tenant still uses the same Google account (Google
+  revokes per account for the whole project); the credentials are still deleted.
+- Google-derived data M1 keeps outside Key Vault (event IDs, Meet links, and attendance
+  when #10 exists) is deleted or anonymized within 30 days.
+- The privacy policy text matches what M1 does (Raisel approves).
+
+#### 21d. Connection link sent automatically to the business owner
+
+Decided 2026-11-07: the platform sends the link; the operator does not. Today (after
+#21b) the operator still generates and sends each link by hand.
+
+Done when:
+- The tenant configuration says the tenant must be connected (for example
+  `googleConnect: "required"`) and gives the owner's email.
+- One rule, run hourly: if a tenant must be connected, is not connected, has no valid
+  link, and was not disconnected by an admin, M1 emails the owner a new link. This covers
+  the first connection, reconnection after #13 marks it disconnected, and a link that
+  expired unused. No reminder replaces a link that is still valid.
+- At most 2 automatic sends per episode; then M1 emails the operator to call the owner.
+- Each send is recorded so a redeploy or a second instance never sends twice.
+- The expired or used link page has a "Send me a new link" button: it sends only to the
+  configured owner email, with a rate limit.
+- A per-environment switch (`GoogleConnect:CustomerEmailsEnabled`) is on only in
+  production, and only after Google verifies the app. When off, every email goes to the
+  operator instead of the owner. Dev never emails a real customer.
+- The safety brake from #13 applies: more than 2 tenants failing in one run sends no
+  customer email.
+- The email uses the tenant's language and an authenticated RNM sender, click tracking
+  off, and no link token in logs. A failed send retries and then alerts the operator.
+- Every send and every brake is logged with `tenantId` and `correlationId`.
+
 ### 14. Tenant events to the tenant's own systems
 
 Today M1 cannot notify a tenant's own systems; customization beyond configuration
@@ -353,12 +464,11 @@ Done when:
      "unverified app" warning when connecting, and there is a cap of 100 new users.
   2. Reconnect every calendar authorized while the app was in Testing (those tokens
      still expire).
-  3. This week: request Google verification. **Request every scope M1 will need, not
-     only today's**: calendar events and free/busy now, plus the Google Meet scope for
-     reading attendance (item 10). Adding a scope later means a new verification and
-     every tenant reconnecting. Scope list confirmed and approved on 2026-11-03
-     (`docs/agents/work/p0-google-oauth-scopes.md`): `calendar.events`,
-     `calendar.freebusy`, `meetings.space.readonly`, `openid`, `userinfo.email`.
+  3. Request Google verification with `calendar.events`, `calendar.freebusy`,
+     `openid`, `userinfo.email`. Decided 2026-11-06 (replaces the 2026-11-03 list):
+     **remove `meetings.space.readonly`** from the consent screen before verifying. It is
+     sensitive and unused until item 10, and an unused sensitive scope likely fails
+     verification. Item 10 adds it later (new verification, tenants reconnect).
      Needs a privacy
      policy page and homepage on rnmglobalsolutions.com, the domain verified in Google
      Search Console, a scope justification, and a demo video of the connection flow.
@@ -366,6 +476,16 @@ Done when:
   4. Update `docs/runbooks/google-calendar-manual-client-connect.md`, which today says
      to keep the app in Testing.
   5. Check that a calendar connected after publishing still works on day 8.
+
+- **SendGrid (checked 2026-11-07): ready.** Email API on the paid Essentials 50K plan.
+  The "Trial" label is the Marketing Campaigns product, whose trial ended; M1 does not
+  use it (every email, including follow-ups, goes through the Email API). Domain
+  authentication (root, `news.`, `notify.`), link branding, and DMARC
+  (`p=quarantine`) are in place.
+- **Custom domain for the Google callback (#21b).** The dev Function App was created
+  2026-05-02, before Flex Consumption supported custom domains with managed
+  certificates; such apps likely cannot add one. Staging and prod do not exist yet, so a
+  new prod app supports `api.rnmglobalsolutions.com`. Dev decision in the #21b plan.
 
 - A2P 10DLC registration for each tenant's SMS number.
 - ManyChat account connected to each tenant's Facebook, Instagram, and WhatsApp.
